@@ -546,6 +546,7 @@ where
             self.pending_events.clear();
             self.pending_error = None;
             self.parser = SseParser::new();
+            self.terminated = true;
             return Poll::Ready(Some(Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Stream ended with incomplete UTF-8 sequence",
@@ -553,8 +554,10 @@ where
         }
 
         if let Some(event) = self.parser.flush() {
+            self.terminated = true;
             return Poll::Ready(Some(Ok(event)));
         }
+        self.terminated = true;
         Poll::Ready(None)
     }
 
@@ -634,6 +637,7 @@ mod tests {
     use serde_json::json;
     use std::fmt::Write as _;
     use std::io::ErrorKind;
+    use std::pin::Pin;
 
     #[derive(Debug, Clone)]
     struct GeneratedEvent {
@@ -1423,6 +1427,23 @@ data: {"type":"message_stop"}
         futures::executor::block_on(async {
             let event = stream.next().await.expect("event").expect("ok");
             assert_eq!(event.data, "last");
+            assert!(stream.next().await.is_none());
+        });
+    }
+
+    #[test]
+    fn test_stream_flush_eof_is_terminal_for_repeated_polls() {
+        let inner: Pin<Box<dyn futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send>> =
+            Box::pin(stream::unfold(
+                Some(b"data: last".to_vec()),
+                |state| async { state.map(|bytes| (Ok(bytes), None)) },
+            ));
+        let mut stream = SseStream::new(inner);
+
+        futures::executor::block_on(async {
+            let event = stream.next().await.expect("event").expect("ok");
+            assert_eq!(event.data, "last");
+            assert!(stream.next().await.is_none());
             assert!(stream.next().await.is_none());
         });
     }
