@@ -9,7 +9,7 @@
 use crate::agent_cx::AgentCx;
 use crate::config::Config;
 use crate::error::{Error, Result};
-use crate::extensions::strip_unc_prefix;
+use crate::extensions::{safe_canonicalize, strip_unc_prefix};
 use crate::model::{ContentBlock, ImageContent, TextContent};
 use asupersync::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf, SeekFrom};
 use asupersync::time::{sleep, wall_now};
@@ -5197,6 +5197,16 @@ fn format_grep_path(file_path: &Path, cwd: &Path) -> String {
             return rel_str;
         }
     }
+
+    let canonical_file = safe_canonicalize(file_path);
+    let canonical_cwd = safe_canonicalize(cwd);
+    if let Ok(rel) = canonical_file.strip_prefix(&canonical_cwd) {
+        let rel_str = rel.display().to_string().replace('\\', "/");
+        if !rel_str.is_empty() {
+            return rel_str;
+        }
+    }
+
     file_path.display().to_string().replace('\\', "/")
 }
 
@@ -7607,6 +7617,34 @@ mod tests {
                 .await
                 .unwrap_err();
             assert!(err.to_string().contains("`limit` must be greater than 0"));
+        });
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_grep_formats_paths_relative_to_symlinked_cwd() {
+        asupersync::test_utils::run_test(|| async {
+            let real = tempfile::tempdir().unwrap();
+            let link_parent = tempfile::tempdir().unwrap();
+            let link = link_parent.path().join("linked-cwd");
+            std::os::unix::fs::symlink(real.path(), &link).unwrap();
+            std::fs::write(real.path().join("needle.txt"), "needle\n").unwrap();
+
+            let tool = GrepTool::new(&link);
+            let out = tool
+                .execute("t", serde_json::json!({ "pattern": "needle" }), None)
+                .await
+                .unwrap();
+
+            let text = get_text(&out.content);
+            assert!(
+                text.contains("needle.txt:1: needle"),
+                "grep output should use cwd-relative paths for symlinked cwd, got: {text}"
+            );
+            assert!(
+                !text.contains(real.path().to_string_lossy().as_ref()),
+                "grep output should not leak canonical temp root, got: {text}"
+            );
         });
     }
 
