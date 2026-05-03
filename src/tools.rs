@@ -737,6 +737,52 @@ fn enforce_cwd_scope(path: &Path, cwd: &Path, action: &str) -> Result<PathBuf> {
     Ok(canonical_path)
 }
 
+/// Same scoping contract as `enforce_cwd_scope`, but also accepts paths under
+/// the configured pi-agent directory (`Config::global_dir()`, default
+/// `~/.pi/agent/`, override via `PI_CODING_AGENT_DIR`).
+///
+/// Read access is broadened so the model can fetch the bodies of skill files,
+/// prompt templates, and other resources that ship under the agent dir
+/// without needing to fall back to a `bash cat`. Write/edit/grep/find/list
+/// stay strictly cwd-only — broadening write access would let a misbehaving
+/// model persist instructions into the agent dir, which is a much higher-
+/// risk surface than the read case warrants. See pi_agent_rust#71.
+///
+/// Symlink escapes remain blocked because `safe_canonicalize` resolves
+/// symlinks before the prefix check, so e.g. `~/.pi/agent/skills/foo/SKILL.md`
+/// pointing at `/etc/passwd` resolves to `/etc/passwd` and fails the prefix
+/// test against both cwd and agent dir.
+fn enforce_read_scope_with_roots(
+    path: &Path,
+    cwd: &Path,
+    agent_dir: &Path,
+) -> Result<PathBuf> {
+    let canonical_path = crate::extensions::safe_canonicalize(path);
+    let canonical_cwd = crate::extensions::safe_canonicalize(cwd);
+    if canonical_path.starts_with(&canonical_cwd) {
+        return Ok(canonical_path);
+    }
+
+    let canonical_agent = crate::extensions::safe_canonicalize(agent_dir);
+    if canonical_path.starts_with(&canonical_agent) {
+        return Ok(canonical_path);
+    }
+
+    Err(Error::validation(format!(
+        "Cannot read outside the working directory or agent dir \
+         (resolved: {}, cwd: {}, agent dir: {})",
+        canonical_path.display(),
+        canonical_cwd.display(),
+        canonical_agent.display(),
+    )))
+}
+
+/// Convenience wrapper that pulls the agent dir from the active config.
+fn enforce_read_scope(path: &Path, cwd: &Path) -> Result<PathBuf> {
+    let agent_dir = crate::config::Config::global_dir();
+    enforce_read_scope_with_roots(path, cwd, &agent_dir)
+}
+
 // ============================================================================
 // CLI @file Processor (used by src/main.rs)
 // ============================================================================
@@ -954,7 +1000,7 @@ pub fn process_file_arguments(
     for file_arg in file_args {
         let resolved = resolve_read_path(file_arg, cwd);
         let absolute_path = normalize_dot_segments(&resolved);
-        let absolute_path = enforce_cwd_scope(&absolute_path, cwd, "read")?;
+        let absolute_path = enforce_read_scope(&absolute_path, cwd)?;
 
         let meta = std::fs::metadata(&absolute_path).map_err(|e| {
             Error::tool(
@@ -1473,7 +1519,7 @@ impl Tool for ReadTool {
         }
 
         let path = resolve_read_path(&input.path, &self.cwd);
-        let path = enforce_cwd_scope(&path, &self.cwd, "read")?;
+        let path = enforce_read_scope(&path, &self.cwd)?;
 
         let meta = asupersync::fs::metadata(&path).await.ok();
         if let Some(meta) = &meta {
