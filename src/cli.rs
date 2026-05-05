@@ -447,8 +447,15 @@ pub struct Cli {
     /// at 80% of the cap, a one-shot steering message is injected so the agent
     /// can begin a graceful handoff rather than being silently killed at the
     /// ceiling. Override per-invocation via this flag, or globally via the
-    /// `PI_MAX_TOOL_ITERATIONS` env var.
-    #[arg(long, env = "PI_MAX_TOOL_ITERATIONS", value_name = "N")]
+    /// `PI_MAX_TOOL_ITERATIONS` env var (read at agent start; invalid values
+    /// fall back to the default with a warning, never abort startup).
+    //
+    // NOTE: `env =` is intentionally NOT set here. Clap's env wiring is strict
+    // (an unparseable value aborts startup with a clap error), which would
+    // defeat the lenient resolver semantics expected for this knob. The env
+    // var is read inside `resolve_max_tool_iterations` instead, where bad
+    // values warn-and-fall-back rather than fail the run.
+    #[arg(long, value_name = "N")]
     pub max_tool_iterations: Option<usize>,
 
     // === Export & Listing ===

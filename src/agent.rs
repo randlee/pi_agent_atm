@@ -225,10 +225,13 @@ pub fn clamp_max_tool_iterations(value: Option<usize>) -> usize {
 /// Fires when `current >= (max * 4) / 5` and `max >= ITERATION_WARN_MIN_CAP`.
 /// Caller is responsible for tracking fire-once state so the steering message
 /// only injects once per run-loop. Stateless and integer-only so it's safe to
-/// call inside the hot loop.
+/// call inside the hot loop. Uses `saturating_mul` so an SDK caller that
+/// writes `AgentConfig::max_tool_iterations = usize::MAX` directly (bypassing
+/// the resolvers' clamp) gets a sane "never warn" rather than wrap-around to
+/// a tiny threshold.
 pub const fn should_warn_at_iteration_threshold(current: usize, max: usize) -> bool {
     max >= ITERATION_WARN_MIN_CAP
-        && current >= (max * ITERATION_WARN_NUMERATOR) / ITERATION_WARN_DENOMINATOR
+        && current >= max.saturating_mul(ITERATION_WARN_NUMERATOR) / ITERATION_WARN_DENOMINATOR
 }
 
 /// Body of the one-shot soft-handoff steering message, formatted with the
@@ -8338,6 +8341,20 @@ mod tests {
         assert!(!should_warn_at_iteration_threshold(3, 5));
         assert!(should_warn_at_iteration_threshold(4, 5));
         assert!(should_warn_at_iteration_threshold(5, 5));
+    }
+
+    #[test]
+    fn iteration_warning_handles_overflow_resistant_caps() {
+        // SDK callers that write `AgentConfig::max_tool_iterations = usize::MAX`
+        // directly bypass the resolvers' clamp. Without `saturating_mul`,
+        // `max * 4` would wrap to a tiny number and the warning would fire
+        // on iteration ~0. The saturating multiply pins the threshold at
+        // (saturated) usize::MAX / 5, so the warning effectively never
+        // fires for absurd caps — which is the safer default.
+        assert!(!should_warn_at_iteration_threshold(1_000_000, usize::MAX));
+        assert!(!should_warn_at_iteration_threshold(usize::MAX / 6, usize::MAX));
+        // Conversely, a current at the saturated threshold should fire.
+        assert!(should_warn_at_iteration_threshold(usize::MAX / 5, usize::MAX));
     }
 
     #[test]
