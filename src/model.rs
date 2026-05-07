@@ -139,6 +139,13 @@ pub enum ContentBlock {
     Text(TextContent),
     /// Provider “thinking” / reasoning (if enabled).
     Thinking(ThinkingContent),
+    /// Provider-redacted reasoning. Anthropic emits this on the wire as
+    /// `{"type":"redacted_thinking","data":"<opaque>"}` when the safety
+    /// classifier hides upstream reasoning; OpenRouter's Anthropic-compatible
+    /// relay forwards it verbatim. The block carries no user-surfaceable text
+    /// but must round-trip through the deserializer or the agent loop fails.
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking(RedactedThinkingContent),
     /// An inline image (base64 + MIME type).
     Image(ImageContent),
     /// A request to call a tool with JSON arguments.
@@ -178,6 +185,16 @@ pub struct ThinkingContent {
 pub struct ImageContent {
     pub data: String, // Base64 encoded
     pub mime_type: String,
+}
+
+/// Redacted-thinking content block — opaque marker emitted by Anthropic's
+/// safety pipeline. The `data` field is provider-controlled and not intended
+/// for user display; it is preserved on round-trip so cross-provider replays
+/// stay faithful.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactedThinkingContent {
+    pub data: String,
 }
 
 /// Tool call content block.
