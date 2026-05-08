@@ -24,6 +24,12 @@ Summaries retain exact totals for event count, redacted entries, redacted fields
 
 Latency details named `latency_ms`, `duration_ms`, or `elapsed_ms` feed a bounded sample sketch. The summary reports retained sample count, min, p50, p95, p99, max, and a conservative rank-error bound. Sketches can be merged across runs; the receiving sketch keeps its configured capacities and downsamples merged latency samples back to the requested bound.
 
+## Tail-latency regime guard
+
+`TailLatencyRegimeGuard` in `src/resource_governor.rs` consumes live p99, p999, queue-depth, and resource-pressure samples to detect when a swarm has left its calibrated operating regime. It requires consecutive violating samples before entering conservative fallback and consecutive recovered samples before returning to calibrated mode, so brief spikes do not flap the controller.
+
+Regime decisions emit schema `pi.resource_governor.tail_latency_regime.v1` with the active regime, fallback state, hysteresis streaks, the live sample, and fallback reasons such as `p99_latency`, `p999_latency`, `queue_depth`, `resource_pressure`, or `hysteresis_hold`. When fallback is active, callers can apply the decision to `HostResourceBudgets` to reduce output, queue-depth, process, file-descriptor, load, and RSS budgets before admission checks.
+
 Example row:
 
 ```json
