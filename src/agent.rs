@@ -3268,11 +3268,178 @@ mod compatible_tool_parallelism_tests {
 mod tool_effect_batch_planning_tests {
     use super::*;
 
+    #[derive(Debug, Clone, Copy)]
+    enum SyntheticOutcome {
+        Success,
+        Error,
+    }
+
+    #[derive(Debug, Clone)]
+    struct SyntheticToolCase {
+        id: String,
+        name: String,
+        registered_effects: Option<ToolEffects>,
+        outcome: SyntheticOutcome,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum BatchArrivalOrder {
+        Forward,
+        Reverse,
+        RotateLeft(usize),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TranscriptEntry {
+        tool_call_id: String,
+        tool_name: String,
+        text: String,
+        details: serde_json::Value,
+        is_error: bool,
+    }
+
     fn batch_ranges(effects: &[ToolEffects]) -> Vec<(usize, usize)> {
         plan_tool_effect_batches(effects)
             .into_iter()
             .map(|batch| (batch.start, batch.end))
             .collect()
+    }
+
+    fn synthetic_tool_case(
+        index: usize,
+        name: impl Into<String>,
+        registered_effects: Option<ToolEffects>,
+        outcome: SyntheticOutcome,
+    ) -> SyntheticToolCase {
+        SyntheticToolCase {
+            id: format!("call-{index:03}"),
+            name: name.into(),
+            registered_effects,
+            outcome,
+        }
+    }
+
+    fn effect_plan(cases: &[SyntheticToolCase]) -> Vec<ToolEffects> {
+        cases
+            .iter()
+            .map(|case| case.registered_effects.unwrap_or_else(ToolEffects::write))
+            .collect()
+    }
+
+    fn make_tool_result(case: &SyntheticToolCase, index: usize) -> ToolResultMessage {
+        let (content, is_error) = match case.outcome {
+            SyntheticOutcome::Success => (format!("ok:{}", case.name), false),
+            SyntheticOutcome::Error => (format!("error:{}", case.name), true),
+        };
+        ToolResultMessage {
+            tool_call_id: case.id.clone(),
+            tool_name: case.name.clone(),
+            content: vec![ContentBlock::Text(TextContent::new(content))],
+            details: Some(serde_json::json!({
+                "ordinal": index,
+                "tool": case.name,
+                "status": if is_error { "error" } else { "ok" },
+            })),
+            is_error,
+            timestamp: 42,
+        }
+    }
+
+    fn transcript_entry(message: &ToolResultMessage) -> TranscriptEntry {
+        assert_eq!(message.content.len(), 1, "synthetic result content drifted");
+        let text = message
+            .content
+            .first()
+            .and_then(|block| match block {
+                ContentBlock::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "non-text synthetic result".to_string());
+        TranscriptEntry {
+            tool_call_id: message.tool_call_id.clone(),
+            tool_name: message.tool_name.clone(),
+            text,
+            details: message.details.clone().unwrap_or(serde_json::Value::Null),
+            is_error: message.is_error,
+        }
+    }
+
+    fn sequential_oracle(cases: &[SyntheticToolCase]) -> Vec<TranscriptEntry> {
+        cases
+            .iter()
+            .enumerate()
+            .map(|(index, case)| transcript_entry(&make_tool_result(case, index)))
+            .collect()
+    }
+
+    fn reorder_batch(indices: &mut [usize], order: BatchArrivalOrder) {
+        match order {
+            BatchArrivalOrder::Forward => {}
+            BatchArrivalOrder::Reverse => indices.reverse(),
+            BatchArrivalOrder::RotateLeft(amount) => {
+                if !indices.is_empty() {
+                    indices.rotate_left(amount % indices.len());
+                }
+            }
+        }
+    }
+
+    fn scheduled_transcript(
+        cases: &[SyntheticToolCase],
+        order: BatchArrivalOrder,
+    ) -> Vec<TranscriptEntry> {
+        let effects = effect_plan(cases);
+        let batches = plan_tool_effect_batches(&effects);
+        let mut recorded_results: Vec<Option<ToolResultMessage>> = vec![None; cases.len()];
+
+        for batch in batches {
+            let mut completion_order = (batch.start..batch.end).collect::<Vec<_>>();
+            reorder_batch(&mut completion_order, order);
+            let mut batch_results = completion_order
+                .into_iter()
+                .filter_map(|index| {
+                    cases
+                        .get(index)
+                        .map(|case| (index, make_tool_result(case, index)))
+                })
+                .collect::<Vec<_>>();
+            batch_results.sort_by_key(|(index, _)| *index);
+            for (index, result) in batch_results {
+                if let Some(slot) = recorded_results.get_mut(index) {
+                    *slot = Some(result);
+                }
+            }
+        }
+
+        assert!(
+            recorded_results.iter().all(Option::is_some),
+            "scheduled execution should record every result"
+        );
+        recorded_results
+            .into_iter()
+            .flatten()
+            .map(|result| transcript_entry(&result))
+            .collect()
+    }
+
+    fn assert_barrier_effects_are_singleton_batches(cases: &[SyntheticToolCase]) {
+        let effects = effect_plan(cases);
+        for batch in plan_tool_effect_batches(&effects) {
+            let batch_effects = effects
+                .get(batch.start..batch.end)
+                .unwrap_or(&[])
+                .iter()
+                .copied()
+                .fold(ToolEffects::read(), ToolEffects::union);
+            if !batch_effects.parallel_safe() {
+                assert_eq!(
+                    batch.end - batch.start,
+                    1,
+                    "barrier batch must serialize original index {}",
+                    batch.start
+                );
+            }
+        }
     }
 
     #[test]
@@ -3319,6 +3486,157 @@ mod tool_effect_batch_planning_tests {
         ]);
 
         assert_eq!(ranges, vec![(0, 1), (1, 2), (2, 3)]);
+    }
+
+    #[test]
+    fn metamorphic_empty_tool_batch_matches_sequential_oracle() {
+        let cases = Vec::new();
+
+        assert!(plan_tool_effect_batches(&effect_plan(&cases)).is_empty());
+        assert_eq!(
+            scheduled_transcript(&cases, BatchArrivalOrder::Forward),
+            sequential_oracle(&cases)
+        );
+    }
+
+    #[test]
+    fn metamorphic_mixed_effect_batches_match_sequential_oracle() {
+        let cases = vec![
+            synthetic_tool_case(
+                0,
+                "read",
+                Some(ToolEffects::read()),
+                SyntheticOutcome::Success,
+            ),
+            synthetic_tool_case(
+                1,
+                "network",
+                Some(ToolEffects::network()),
+                SyntheticOutcome::Success,
+            ),
+            synthetic_tool_case(
+                2,
+                "write",
+                Some(ToolEffects::write()),
+                SyntheticOutcome::Success,
+            ),
+            synthetic_tool_case(
+                3,
+                "read",
+                Some(ToolEffects::read()),
+                SyntheticOutcome::Success,
+            ),
+            synthetic_tool_case(
+                4,
+                "append",
+                Some(ToolEffects::append()),
+                SyntheticOutcome::Error,
+            ),
+            synthetic_tool_case(
+                5,
+                "network",
+                Some(ToolEffects::network()),
+                SyntheticOutcome::Success,
+            ),
+            synthetic_tool_case(
+                6,
+                "process",
+                Some(ToolEffects::process()),
+                SyntheticOutcome::Success,
+            ),
+            synthetic_tool_case(
+                7,
+                "read",
+                Some(ToolEffects::read()),
+                SyntheticOutcome::Error,
+            ),
+            synthetic_tool_case(8, "unknown", None, SyntheticOutcome::Success),
+            synthetic_tool_case(
+                9,
+                "network",
+                Some(ToolEffects::network()),
+                SyntheticOutcome::Success,
+            ),
+        ];
+
+        assert_eq!(
+            batch_ranges(&effect_plan(&cases)),
+            vec![
+                (0, 2),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 8),
+                (8, 9),
+                (9, 10)
+            ]
+        );
+        assert_barrier_effects_are_singleton_batches(&cases);
+
+        let oracle = sequential_oracle(&cases);
+        assert_eq!(
+            scheduled_transcript(&cases, BatchArrivalOrder::Reverse),
+            oracle
+        );
+        assert_eq!(
+            scheduled_transcript(&cases, BatchArrivalOrder::RotateLeft(1)),
+            oracle
+        );
+    }
+
+    #[test]
+    fn metamorphic_high_count_batches_keep_transcript_deterministic() {
+        let cases = (0..96)
+            .map(|index| match index % 12 {
+                0 => synthetic_tool_case(
+                    index,
+                    format!("process-{index}"),
+                    Some(ToolEffects::process()),
+                    SyntheticOutcome::Success,
+                ),
+                5 => synthetic_tool_case(
+                    index,
+                    format!("append-{index}"),
+                    Some(ToolEffects::append()),
+                    SyntheticOutcome::Success,
+                ),
+                9 => synthetic_tool_case(
+                    index,
+                    format!("unknown-{index}"),
+                    None,
+                    SyntheticOutcome::Error,
+                ),
+                3 | 7 => synthetic_tool_case(
+                    index,
+                    format!("network-{index}"),
+                    Some(ToolEffects::network()),
+                    SyntheticOutcome::Success,
+                ),
+                _ => synthetic_tool_case(
+                    index,
+                    format!("read-{index}"),
+                    Some(ToolEffects::read()),
+                    SyntheticOutcome::Success,
+                ),
+            })
+            .collect::<Vec<_>>();
+
+        assert_barrier_effects_are_singleton_batches(&cases);
+        let oracle = sequential_oracle(&cases);
+        assert_eq!(
+            scheduled_transcript(&cases, BatchArrivalOrder::Forward),
+            oracle
+        );
+        assert_eq!(
+            scheduled_transcript(&cases, BatchArrivalOrder::Reverse),
+            oracle
+        );
+        assert_eq!(
+            scheduled_transcript(&cases, BatchArrivalOrder::RotateLeft(3)),
+            oracle
+        );
     }
 }
 
