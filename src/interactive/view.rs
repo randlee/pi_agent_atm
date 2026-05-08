@@ -589,6 +589,8 @@ impl PiApp {
         if let Some(start) = view_start {
             self.frame_timing
                 .record_frame(micros_as_u64(start.elapsed().as_micros()));
+            self.tui_pressure_frame_p99_us
+                .store(self.frame_timing.frame_p99_us(), Ordering::Relaxed);
         }
 
         output

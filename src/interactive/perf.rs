@@ -106,6 +106,10 @@ impl FrameTimingStats {
         self.update_times_us.push_back(elapsed_us);
     }
 
+    pub(super) fn frame_p99_us(&self) -> u64 {
+        Self::percentiles(&self.frame_times_us.borrow()).2
+    }
+
     pub(super) fn percentiles(times: &VecDeque<u64>) -> (u64, u64, u64) {
         if times.is_empty() {
             return (0, 0, 0);
@@ -182,6 +186,78 @@ impl FrameTimingStats {
             update.2 as f64 / 1000.0,
             FRAME_BUDGET_US as f64 / 1000.0,
         )
+    }
+}
+
+/// TUI responsiveness pressure derived from frame latency and pending output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TuiPressureLevel {
+    Normal,
+    Elevated,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct TuiPressureDecision {
+    pub(super) level: TuiPressureLevel,
+    pub(super) throttle_tool_updates: bool,
+    pub(super) flush_interval: std::time::Duration,
+    pub(super) max_pending_tool_events: usize,
+    pub(super) max_pending_tool_output_bytes: usize,
+}
+
+impl TuiPressureDecision {
+    pub(super) const fn normal() -> Self {
+        Self {
+            level: TuiPressureLevel::Normal,
+            throttle_tool_updates: false,
+            flush_interval: std::time::Duration::ZERO,
+            max_pending_tool_events: 1,
+            max_pending_tool_output_bytes: 32 * 1024,
+        }
+    }
+}
+
+pub(super) struct TuiPressureController;
+
+impl TuiPressureController {
+    pub(super) const ELEVATED_FRAME_P99_US: u64 = FRAME_BUDGET_US;
+    pub(super) const HIGH_FRAME_P99_US: u64 = FRAME_BUDGET_US * 3;
+    pub(super) const ELEVATED_TOOL_OUTPUT_BYTES: usize = 32 * 1024;
+    pub(super) const HIGH_TOOL_OUTPUT_BYTES: usize = 256 * 1024;
+    pub(super) const ELEVATED_PENDING_TOOL_EVENTS: usize = 2;
+    pub(super) const HIGH_PENDING_TOOL_EVENTS: usize = 8;
+
+    pub(super) const fn decide(
+        frame_p99_us: u64,
+        output_bytes: usize,
+        pending_tool_events: usize,
+    ) -> TuiPressureDecision {
+        if frame_p99_us >= Self::HIGH_FRAME_P99_US
+            || output_bytes >= Self::HIGH_TOOL_OUTPUT_BYTES
+            || pending_tool_events >= Self::HIGH_PENDING_TOOL_EVENTS
+        {
+            TuiPressureDecision {
+                level: TuiPressureLevel::High,
+                throttle_tool_updates: true,
+                flush_interval: std::time::Duration::from_millis(160),
+                max_pending_tool_events: Self::HIGH_PENDING_TOOL_EVENTS,
+                max_pending_tool_output_bytes: 1024 * 1024,
+            }
+        } else if frame_p99_us >= Self::ELEVATED_FRAME_P99_US
+            || output_bytes >= Self::ELEVATED_TOOL_OUTPUT_BYTES
+            || pending_tool_events >= Self::ELEVATED_PENDING_TOOL_EVENTS
+        {
+            TuiPressureDecision {
+                level: TuiPressureLevel::Elevated,
+                throttle_tool_updates: true,
+                flush_interval: std::time::Duration::from_millis(80),
+                max_pending_tool_events: 4,
+                max_pending_tool_output_bytes: Self::HIGH_TOOL_OUTPUT_BYTES,
+            }
+        } else {
+            TuiPressureDecision::normal()
+        }
     }
 }
 
@@ -1063,6 +1139,37 @@ mod tests {
         stats.record_frame(FRAME_BUDGET_US + 1);
         stats.record_frame(20_000);
         assert_eq!(stats.budget_exceeded_count.get(), 2);
+    }
+
+    #[test]
+    fn frame_timing_exposes_current_p99() {
+        let stats = make_stats(true);
+        stats.record_frame(8_000);
+        stats.record_frame(12_000);
+        stats.record_frame(40_000);
+        assert_eq!(stats.frame_p99_us(), 40_000);
+    }
+
+    #[test]
+    fn tui_pressure_controller_uses_latency_output_and_pending_events() {
+        assert_eq!(
+            TuiPressureController::decide(0, 1024, 0).level,
+            TuiPressureLevel::Normal
+        );
+
+        let by_frame =
+            TuiPressureController::decide(TuiPressureController::ELEVATED_FRAME_P99_US, 1024, 0);
+        assert_eq!(by_frame.level, TuiPressureLevel::Elevated);
+        assert!(by_frame.throttle_tool_updates);
+
+        let by_output =
+            TuiPressureController::decide(0, TuiPressureController::ELEVATED_TOOL_OUTPUT_BYTES, 0);
+        assert_eq!(by_output.level, TuiPressureLevel::Elevated);
+
+        let by_pending =
+            TuiPressureController::decide(0, 1024, TuiPressureController::HIGH_PENDING_TOOL_EVENTS);
+        assert_eq!(by_pending.level, TuiPressureLevel::High);
+        assert!(by_pending.flush_interval > by_frame.flush_interval);
     }
 
     // ========================================================================

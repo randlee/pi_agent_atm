@@ -35,7 +35,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::agent::{AbortHandle, Agent, AgentEvent, QueueMode};
 use crate::autocomplete::{AutocompleteCatalog, AutocompleteItem, AutocompleteItemKind};
@@ -98,7 +98,7 @@ use self::file_refs::{
 };
 use self::perf::{
     CRITICAL_KEEP_MESSAGES, FrameTimingStats, MemoryLevel, MemoryMonitor, MessageRenderCache,
-    RenderBuffers, micros_as_u64,
+    RenderBuffers, TuiPressureController, micros_as_u64,
 };
 pub use self::state::{AgentState, InputMode, PendingInput};
 use self::state::{
@@ -2359,6 +2359,7 @@ pub struct PiApp {
 
     // Frame timing telemetry (PERF-3)
     frame_timing: FrameTimingStats,
+    tui_pressure_frame_p99_us: Arc<AtomicU64>,
 
     // Memory pressure monitoring (PERF-6)
     memory_monitor: MemoryMonitor,
@@ -2644,6 +2645,7 @@ impl PiApp {
             branch_picker: None,
             model_selector: None,
             frame_timing: FrameTimingStats::new(),
+            tui_pressure_frame_p99_us: Arc::new(AtomicU64::new(0)),
             memory_monitor: MemoryMonitor::new_default(),
             message_render_cache: MessageRenderCache::new(),
             render_buffers: RenderBuffers::new(),

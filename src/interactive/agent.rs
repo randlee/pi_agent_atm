@@ -69,6 +69,23 @@ enum StreamDeltaKind {
     Thinking,
 }
 
+fn content_blocks_estimated_output_bytes(content: &[ContentBlock]) -> usize {
+    content
+        .iter()
+        .map(|block| match block {
+            ContentBlock::Text(text) => text.text.len(),
+            ContentBlock::Thinking(thinking) => thinking.thinking.len(),
+            ContentBlock::RedactedThinking(redacted) => redacted.data.len(),
+            ContentBlock::Image(image) => image.data.len().saturating_add(image.mime_type.len()),
+            ContentBlock::ToolCall(tool) => tool
+                .id
+                .len()
+                .saturating_add(tool.name.len())
+                .saturating_add(tool.arguments.to_string().len()),
+        })
+        .sum()
+}
+
 struct UiStreamDeltaBatcher {
     sender: mpsc::Sender<PiMsg>,
     pending: std::collections::VecDeque<PiMsg>,
@@ -76,10 +93,19 @@ struct UiStreamDeltaBatcher {
     flush_interval: std::time::Duration,
     max_pending_bytes: usize,
     last_flush: std::time::Instant,
+    frame_p99_us: Arc<AtomicU64>,
+    pending_tool_update: Option<PiMsg>,
+    pending_tool_update_bytes: usize,
+    pending_tool_update_events: usize,
+    last_tool_update_flush: std::time::Instant,
 }
 
 impl UiStreamDeltaBatcher {
     fn new(sender: mpsc::Sender<PiMsg>) -> Self {
+        Self::new_with_frame_p99(sender, Arc::new(AtomicU64::new(0)))
+    }
+
+    fn new_with_frame_p99(sender: mpsc::Sender<PiMsg>, frame_p99_us: Arc<AtomicU64>) -> Self {
         let now = std::time::Instant::now();
         let flush_interval = UI_STREAM_DELTA_FLUSH_INTERVAL;
         Self {
@@ -90,6 +116,11 @@ impl UiStreamDeltaBatcher {
             max_pending_bytes: UI_STREAM_DELTA_MAX_BUFFER_BYTES,
             // Prime the first delta flush so the UI shows immediate output.
             last_flush: now.checked_sub(flush_interval).unwrap_or(now),
+            frame_p99_us,
+            pending_tool_update: None,
+            pending_tool_update_bytes: 0,
+            pending_tool_update_events: 0,
+            last_tool_update_flush: now,
         }
     }
 
@@ -120,6 +151,11 @@ impl UiStreamDeltaBatcher {
     }
 
     fn send_immediate(&mut self, msg: PiMsg) {
+        if matches!(msg, PiMsg::ToolUpdate { .. }) {
+            self.push_tool_update(msg);
+            return;
+        }
+        self.flush_tool_update(true);
         self.pending.push_back(msg);
         self.flush(true);
     }
@@ -131,7 +167,59 @@ impl UiStreamDeltaBatcher {
         }
     }
 
+    fn push_tool_update(&mut self, msg: PiMsg) {
+        let output_bytes = match &msg {
+            PiMsg::ToolUpdate { content, .. } => content_blocks_estimated_output_bytes(content),
+            _ => 0,
+        };
+        let pending_tool_output_bytes = self.pending_tool_update_bytes.saturating_add(output_bytes);
+        let pending_tool_events = self.pending_tool_update_events.saturating_add(1);
+        let decision = TuiPressureController::decide(
+            self.frame_p99_us.load(Ordering::Relaxed),
+            pending_tool_output_bytes,
+            pending_tool_events,
+        );
+
+        if !decision.throttle_tool_updates {
+            self.flush_tool_update(true);
+            self.pending.push_back(msg);
+            self.flush(true);
+            return;
+        }
+
+        self.pending_tool_update = Some(msg);
+        self.pending_tool_update_bytes = pending_tool_output_bytes;
+        self.pending_tool_update_events = pending_tool_events;
+
+        if pending_tool_events >= decision.max_pending_tool_events
+            || self.pending_tool_update_bytes >= decision.max_pending_tool_output_bytes
+            || self.last_tool_update_flush.elapsed() >= decision.flush_interval
+        {
+            self.flush_tool_update(true);
+        }
+    }
+
+    fn enqueue_pending_tool_update(&mut self) {
+        if let Some(msg) = self.pending_tool_update.take() {
+            self.pending.push_back(msg);
+            self.pending_tool_update_bytes = 0;
+            self.pending_tool_update_events = 0;
+            self.last_tool_update_flush = std::time::Instant::now();
+        }
+    }
+
+    fn flush_tool_update(&mut self, force_channel_flush: bool) {
+        self.enqueue_pending_tool_update();
+        if force_channel_flush {
+            self.flush(true);
+        }
+    }
+
     fn flush(&mut self, force: bool) {
+        if force {
+            self.enqueue_pending_tool_update();
+        }
+
         if self.pending.is_empty() {
             return;
         }
@@ -1392,6 +1480,7 @@ After approving access in the browser, press Enter in Pi to complete login."
         let save_enabled = self.save_enabled;
         let extensions = self.extensions.clone();
         let runtime_handle = self.runtime_handle.clone();
+        let tui_pressure_frame_p99_us = Arc::clone(&self.tui_pressure_frame_p99_us);
         let (abort_handle, abort_signal) = AbortHandle::new();
         self.abort_handle = Some(abort_handle);
 
@@ -1430,9 +1519,11 @@ After approving access in the browser, press Enter in Pi to complete login."
             let coalescer = extensions
                 .as_ref()
                 .map(|m| crate::extensions::EventCoalescer::new(m.clone()));
-            let ui_stream_batcher = Arc::new(StdMutex::new(UiStreamDeltaBatcher::new(
-                event_sender.clone(),
-            )));
+            let ui_stream_batcher =
+                Arc::new(StdMutex::new(UiStreamDeltaBatcher::new_with_frame_p99(
+                    event_sender.clone(),
+                    Arc::clone(&tui_pressure_frame_p99_us),
+                )));
             let ui_stream_batcher_for_events = Arc::clone(&ui_stream_batcher);
             let result = agent_guard
                 .run_continue_with_abort(Some(abort_signal), move |event| {
@@ -1553,6 +1644,7 @@ After approving access in the browser, press Enter in Pi to complete login."
         let save_enabled = self.save_enabled;
         let extensions = self.extensions.clone();
         let runtime_handle = self.runtime_handle.clone();
+        let tui_pressure_frame_p99_us = Arc::clone(&self.tui_pressure_frame_p99_us);
         let (abort_handle, abort_signal) = AbortHandle::new();
         self.abort_handle = Some(abort_handle);
 
@@ -1675,9 +1767,11 @@ After approving access in the browser, press Enter in Pi to complete login."
             let coalescer = extensions
                 .as_ref()
                 .map(|m| crate::extensions::EventCoalescer::new(m.clone()));
-            let ui_stream_batcher = Arc::new(StdMutex::new(UiStreamDeltaBatcher::new(
-                event_sender.clone(),
-            )));
+            let ui_stream_batcher =
+                Arc::new(StdMutex::new(UiStreamDeltaBatcher::new_with_frame_p99(
+                    event_sender.clone(),
+                    Arc::clone(&tui_pressure_frame_p99_us),
+                )));
             let ui_stream_batcher_for_events = Arc::clone(&ui_stream_batcher);
             let user_message = ModelMessage::User(UserMessage {
                 content: UserContent::Blocks(content_for_agent),
@@ -1879,6 +1973,7 @@ After approving access in the browser, press Enter in Pi to complete login."
         let session = Arc::clone(&self.session);
         let save_enabled = self.save_enabled;
         let extensions = self.extensions.clone();
+        let tui_pressure_frame_p99_us = Arc::clone(&self.tui_pressure_frame_p99_us);
         let (abort_handle, abort_signal) = AbortHandle::new();
         self.abort_handle = Some(abort_handle);
 
@@ -1978,9 +2073,11 @@ After approving access in the browser, press Enter in Pi to complete login."
             let coalescer = extensions
                 .as_ref()
                 .map(|m| crate::extensions::EventCoalescer::new(m.clone()));
-            let ui_stream_batcher = Arc::new(StdMutex::new(UiStreamDeltaBatcher::new(
-                event_sender.clone(),
-            )));
+            let ui_stream_batcher =
+                Arc::new(StdMutex::new(UiStreamDeltaBatcher::new_with_frame_p99(
+                    event_sender.clone(),
+                    Arc::clone(&tui_pressure_frame_p99_us),
+                )));
             let result = if input_images.is_empty() {
                 let ui_stream_batcher_for_events = Arc::clone(&ui_stream_batcher);
                 agent_guard
@@ -2114,7 +2211,7 @@ mod stream_delta_batcher_tests {
     use std::pin::Pin;
     use std::sync::Arc;
     use std::sync::OnceLock;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicU64, AtomicUsize};
 
     struct DummyProvider;
 
@@ -2155,6 +2252,20 @@ mod stream_delta_batcher_tests {
 
     fn runtime_handle() -> asupersync::runtime::RuntimeHandle {
         runtime().handle()
+    }
+
+    fn text_tool_update(text: &str) -> PiMsg {
+        PiMsg::ToolUpdate {
+            name: "bash".to_string(),
+            tool_id: "t1".to_string(),
+            content: vec![ContentBlock::Text(TextContent::new(text))],
+            details: Some(json!({
+                "progress": {
+                    "byteCount": text.len(),
+                    "lineCount": text.lines().count(),
+                }
+            })),
+        }
     }
 
     fn model_entry(provider: &str, id: &str) -> ModelEntry {
@@ -2397,6 +2508,106 @@ mod stream_delta_batcher_tests {
         assert!(
             matches!(second, PiMsg::ToolStart { name, tool_id } if name == "bash" && tool_id == "t1")
         );
+    }
+
+    #[test]
+    fn normal_tool_updates_flush_immediately() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut batcher = UiStreamDeltaBatcher::new(tx);
+
+        batcher.send_immediate(text_tool_update("first"));
+
+        let msg = rx.try_recv().expect("expected immediate tool update");
+        assert!(matches!(
+            msg,
+            PiMsg::ToolUpdate { content, .. }
+                if matches!(content.first(), Some(ContentBlock::Text(text)) if text.text == "first")
+        ));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn pressure_coalesces_tool_updates_until_control_flush() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let frame_p99 = Arc::new(AtomicU64::new(TuiPressureController::HIGH_FRAME_P99_US));
+        let mut batcher = UiStreamDeltaBatcher::new_with_frame_p99(tx, frame_p99);
+        batcher.last_tool_update_flush = std::time::Instant::now();
+
+        batcher.send_immediate(text_tool_update("first"));
+        batcher.send_immediate(text_tool_update("second"));
+        assert!(rx.try_recv().is_err());
+
+        batcher.send_immediate(PiMsg::ToolEnd {
+            name: "bash".to_string(),
+            tool_id: "t1".to_string(),
+            is_error: false,
+        });
+
+        let first = rx.try_recv().expect("expected coalesced latest update");
+        let second = rx.try_recv().expect("expected tool end after update");
+        assert!(matches!(
+            first,
+            PiMsg::ToolUpdate { content, .. }
+                if matches!(content.first(), Some(ContentBlock::Text(text)) if text.text == "second")
+        ));
+        assert!(matches!(second, PiMsg::ToolEnd { tool_id, .. } if tool_id == "t1"));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn pressure_flushes_tool_update_when_pending_event_cap_is_hit() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let frame_p99 = Arc::new(AtomicU64::new(TuiPressureController::HIGH_FRAME_P99_US));
+        let mut batcher = UiStreamDeltaBatcher::new_with_frame_p99(tx, frame_p99);
+        batcher.last_tool_update_flush = std::time::Instant::now();
+
+        for idx in 0..TuiPressureController::HIGH_PENDING_TOOL_EVENTS {
+            batcher.send_immediate(text_tool_update(&format!("chunk-{idx}")));
+        }
+
+        let msg = rx
+            .try_recv()
+            .expect("expected latest update after pending cap");
+        assert!(matches!(
+            msg,
+            PiMsg::ToolUpdate { content, .. }
+                if matches!(
+                    content.first(),
+                    Some(ContentBlock::Text(text))
+                        if text.text
+                            == format!(
+                                "chunk-{}",
+                                TuiPressureController::HIGH_PENDING_TOOL_EVENTS - 1
+                            )
+                )
+        ));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn pressure_flushes_tool_update_when_pending_byte_cap_is_hit() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let frame_p99 = Arc::new(AtomicU64::new(TuiPressureController::HIGH_FRAME_P99_US));
+        let mut batcher = UiStreamDeltaBatcher::new_with_frame_p99(tx, frame_p99);
+        batcher.last_tool_update_flush = std::time::Instant::now();
+
+        let chunks = ["a", "b", "c"]
+            .map(|prefix| prefix.repeat(TuiPressureController::HIGH_TOOL_OUTPUT_BYTES));
+        let expected_latest = "d".repeat(TuiPressureController::HIGH_TOOL_OUTPUT_BYTES);
+        for chunk in &chunks {
+            batcher.send_immediate(text_tool_update(chunk));
+        }
+        batcher.send_immediate(text_tool_update(&expected_latest));
+
+        let msg = rx
+            .try_recv()
+            .expect("expected latest update after pending byte cap");
+        assert!(matches!(
+            msg,
+            PiMsg::ToolUpdate { content, .. }
+                if matches!(content.first(), Some(ContentBlock::Text(text)) if text.text == expected_latest)
+        ));
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
