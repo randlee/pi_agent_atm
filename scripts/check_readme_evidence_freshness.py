@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Check README evidence artifact freshness for CI governance.
 
-This guard enforces that artifact citations in README.md are fresh (≤14 days old).
-Citations have the format: *(from artifact-path, run correlation-id)*
+This guard enforces that artifact citations in README.md are fresh (<=14 days old).
+Citations have the format `*(from artifact-path, run correlation-id)*` or
+`*(from artifact-path, generated timestamp)*`.
 
-If any cited artifact is missing or >14 days stale, the check fails to prevent
-stale or unverifiable evidence from misleading users about current project
-capabilities.
+If any cited artifact is missing, stale, missing the cited correlation id, or is
+a budget summary with CI no-data/fail/data-contract failures, the check fails to
+prevent stale or unverifiable evidence from misleading users about current
+project capabilities.
 
 Usage:
     python3 scripts/check_readme_evidence_freshness.py
@@ -23,10 +25,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import NamedTuple
@@ -40,6 +43,7 @@ class CitationCheck(NamedTuple):
     file_mtime: datetime | None
     days_old: float | None
     is_stale: bool
+    content_errors: tuple[str, ...]
 
 
 def strip_markdown_code(text: str) -> str:
@@ -56,16 +60,120 @@ def is_placeholder_citation(artifact_path: str, correlation_id: str) -> bool:
 def parse_citations(readme_text: str) -> list[tuple[str, str]]:
     """Parse real README artifact citations, excluding examples and placeholders."""
     # Pattern: *(from artifact-path, run correlation-id)*
-    citation_pattern = r'\*\(from ([^,]+), run ([^)]+)\)\*'
     stripped = strip_markdown_code(readme_text)
     citations = []
-    for artifact_path, correlation_id in re.findall(citation_pattern, stripped):
-        artifact_path = artifact_path.strip()
-        correlation_id = correlation_id.strip()
-        if is_placeholder_citation(artifact_path, correlation_id):
-            continue
-        citations.append((artifact_path, correlation_id))
+    citation_patterns = [
+        r'\*\(from ([^,]+), run ([^)]+)\)\*',
+        r'\*\(from ([^,]+), generated `?([^`)]+)`?\)\*',
+    ]
+    seen: set[tuple[str, str]] = set()
+    for citation_pattern in citation_patterns:
+        for artifact_path, correlation_id in re.findall(citation_pattern, stripped):
+            artifact_path = artifact_path.strip()
+            correlation_id = correlation_id.strip()
+            if is_placeholder_citation(artifact_path, correlation_id):
+                continue
+            citation = (artifact_path, correlation_id)
+            if citation not in seen:
+                seen.add(citation)
+                citations.append(citation)
     return citations
+
+
+def as_utc(value: datetime) -> datetime:
+    """Normalize datetimes so age checks never mix naive and aware values."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def parse_iso_datetime(raw: object) -> datetime | None:
+    """Parse RFC3339-ish timestamps, including Rust nanosecond precision."""
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    if value.endswith("Z"):
+        value = f"{value[:-1]}+00:00"
+    match = re.match(r"^(.*T\d{2}:\d{2}:\d{2})\.(\d+)(.*)$", value)
+    if match:
+        prefix, fraction, suffix = match.groups()
+        value = f"{prefix}.{fraction[:6].ljust(6, '0')}{suffix}"
+    try:
+        return as_utc(datetime.fromisoformat(value))
+    except ValueError:
+        return None
+
+
+def read_artifact_text(path: Path) -> tuple[str | None, str | None]:
+    """Read an artifact as UTF-8 text for correlation and metadata checks."""
+    try:
+        return path.read_text(encoding="utf-8"), None
+    except UnicodeDecodeError:
+        return None, "artifact is not UTF-8 text"
+    except Exception as exc:
+        return None, f"failed to read artifact: {exc}"
+
+
+def load_json_object(artifact_path: str, text: str) -> tuple[dict[str, object] | None, str | None]:
+    """Load a JSON object when the artifact is JSON; ignore other formats."""
+    if not artifact_path.endswith(".json"):
+        return None, None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return None, f"artifact JSON failed to parse: {exc}"
+    if not isinstance(payload, dict):
+        return None, "artifact JSON must be an object"
+    return payload, None
+
+
+def check_artifact_content(
+    artifact_path: str,
+    correlation_id: str,
+    full_path: Path,
+    now: datetime,
+    staleness_threshold: timedelta,
+) -> tuple[str, ...]:
+    """Validate that a cited artifact actually supports the README claim."""
+    errors: list[str] = []
+    text, read_error = read_artifact_text(full_path)
+    if read_error is not None:
+        return (read_error,)
+    assert text is not None
+
+    if correlation_id not in text:
+        errors.append(f"cited run {correlation_id!r} not found in artifact content")
+
+    payload, json_error = load_json_object(artifact_path, text)
+    if json_error is not None:
+        errors.append(json_error)
+        return tuple(errors)
+    if payload is None:
+        return tuple(errors)
+
+    generated_at = parse_iso_datetime(payload.get("generated_at"))
+    if generated_at is None:
+        errors.append("JSON artifact missing parseable generated_at timestamp")
+    elif now - generated_at > staleness_threshold:
+        days_old = (now - generated_at).total_seconds() / 86400
+        errors.append(f"artifact generated_at is stale: {days_old:.1f} days old")
+
+    if payload.get("schema") == "pi.perf.budget_summary.v1":
+        ci_no_data = int(payload.get("ci_no_data") or 0)
+        ci_fail = int(payload.get("ci_fail") or 0)
+        data_contract_failures = int(payload.get("data_contract_failures_count") or 0)
+        if ci_no_data != 0:
+            errors.append(f"budget summary has ci_no_data={ci_no_data}")
+        if ci_fail != 0:
+            errors.append(f"budget summary has ci_fail={ci_fail}")
+        if data_contract_failures != 0:
+            errors.append(
+                f"budget summary has data_contract_failures_count={data_contract_failures}"
+            )
+
+    return tuple(errors)
 
 
 def check_readme(repo_root: Path, now: datetime | None = None) -> int:
@@ -96,7 +204,8 @@ def check_readme(repo_root: Path, now: datetime | None = None) -> int:
 
     # 14-day staleness threshold
     staleness_threshold = timedelta(days=14)
-    now = now or datetime.now()
+    now = as_utc(now or datetime.now(timezone.utc))
+    content_error_count = 0
 
     for artifact_path, correlation_id in citations:
         # Resolve artifact path relative to repo root
@@ -112,12 +221,13 @@ def check_readme(repo_root: Path, now: datetime | None = None) -> int:
                 file_mtime=None,
                 days_old=None,
                 is_stale=False,
+                content_errors=(),
             ))
             continue
 
         try:
             # Get file modification time
-            mtime = datetime.fromtimestamp(full_path.stat().st_mtime)
+            mtime = datetime.fromtimestamp(full_path.stat().st_mtime, timezone.utc)
             age = now - mtime
             days_old = age.total_seconds() / 86400  # Convert to days
             is_stale = age > staleness_threshold
@@ -128,13 +238,26 @@ def check_readme(repo_root: Path, now: datetime | None = None) -> int:
             else:
                 print(f"FRESH: {artifact_path} (age: {days_old:.1f} days)")
 
+            content_errors = check_artifact_content(
+                artifact_path,
+                correlation_id,
+                full_path,
+                now,
+                staleness_threshold,
+            )
+            if content_errors:
+                content_error_count += len(content_errors)
+                for error in content_errors:
+                    print(f"INVALID: {artifact_path}: {error}")
+
             results.append(CitationCheck(
                 artifact_path=artifact_path,
                 correlation_id=correlation_id,
                 file_exists=True,
                 file_mtime=mtime,
                 days_old=days_old,
-                is_stale=is_stale
+                is_stale=is_stale,
+                content_errors=content_errors,
             ))
 
         except Exception as e:
@@ -147,6 +270,7 @@ def check_readme(repo_root: Path, now: datetime | None = None) -> int:
     print(f"  Fresh artifacts: {len([r for r in results if r.file_exists and not r.is_stale])}")
     print(f"  Stale artifacts: {stale_count}")
     print(f"  Missing artifacts: {missing_count}")
+    print(f"  Invalid artifact content checks: {content_error_count}")
 
     if stale_count > 0:
         print(f"\nFAIL: {stale_count} cited artifact(s) are >14 days stale.")
@@ -159,7 +283,12 @@ def check_readme(repo_root: Path, now: datetime | None = None) -> int:
         print("Evidence claims in README must reference checked-in artifacts.")
         return 1
 
-    print("\nPASS: All cited artifacts are fresh (≤14 days old).")
+    if content_error_count > 0:
+        print(f"\nFAIL: {content_error_count} cited artifact content check(s) failed.")
+        print("Evidence claims must cite artifacts with matching run provenance and clean data.")
+        return 1
+
+    print("\nPASS: All cited artifacts are fresh and content-valid.")
     return 0
 
 
@@ -169,8 +298,18 @@ def run_self_test() -> int:
         repo_root = Path(temp_dir)
         artifact = repo_root / "tests/perf/reports/fresh.json"
         artifact.parent.mkdir(parents=True)
-        artifact.write_text('{"ok": true}\n', encoding="utf-8")
-        now = datetime(2026, 5, 1, 12, 0, 0)
+        now = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+        artifact.write_text(
+            json.dumps(
+                {
+                    "generated_at": now.isoformat(),
+                    "correlation_id": "fixture-run",
+                    "ok": True,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         fresh_ts = now.timestamp()
         os.utime(artifact, (fresh_ts, fresh_ts))
 
@@ -211,6 +350,34 @@ def run_self_test() -> int:
         if second_result != 1:
             print(second_output.getvalue())
             print("SELF-TEST FAIL: missing real citation should fail")
+            return 2
+
+        budget_summary = repo_root / "tests/perf/reports/budget_summary.json"
+        budget_summary.write_text(
+            json.dumps(
+                {
+                    "schema": "pi.perf.budget_summary.v1",
+                    "generated_at": now.isoformat(),
+                    "correlation_id": "budget-run",
+                    "ci_no_data": 1,
+                    "ci_fail": 0,
+                    "data_contract_failures_count": 0,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.utime(budget_summary, (fresh_ts, fresh_ts))
+        readme.write_text(
+            "Claim: *(from tests/perf/reports/budget_summary.json, run budget-run)*\n",
+            encoding="utf-8",
+        )
+        third_output = io.StringIO()
+        with contextlib.redirect_stdout(third_output):
+            third_result = check_readme(repo_root, now=now)
+        if third_result != 1 or "ci_no_data=1" not in third_output.getvalue():
+            print(third_output.getvalue())
+            print("SELF-TEST FAIL: no-data budget summary citation should fail")
             return 2
 
     print("SELF-TEST PASS")

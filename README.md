@@ -79,30 +79,12 @@ Security is a first-class design goal here, not a bolt-on:
 
 ## TL;DR (Pi/OpenClaw Users)
 
-These are the realistic secure-path numbers that matter most (large-session, end-to-end behavior):
-
-| Scenario | Rust total | Legacy Node total | Legacy Bun total | Rust advantage |
-|---|---:|---:|---:|---:|
-| Realistic 1M session | 250.29 ms | 1,238.67 ms | 700.52 ms | `4.95x` faster than Node, `2.80x` faster than Bun |
-| Realistic 5M session | 1,382.12 ms | 5,974.67 ms | 2,959.42 ms | `4.32x` faster than Node, `2.14x` faster than Bun |
-
-*(from tests/perf/reports/budget_summary.json, run 20260423T002033Z)*
-
-| Scenario | Rust RSS | Legacy Node RSS | Legacy Bun RSS | Rust memory advantage |
-|---|---:|---:|---:|---:|
-| Realistic 1M session | 67,572 KB | 820,380 KB | 875,092 KB | `12.14x` lower than Node, `12.95x` lower than Bun |
-| Realistic 5M session | 268,844 KB | 2,173,096 KB | 3,057,908 KB | `8.08x` lower than Node, `11.37x` lower than Bun |
-
-*(from tests/perf/reports/PERF_BUDGETS.md, run 20260423T002033Z)*
-
-Resume/open responsiveness is also much better at scale:
-
-| Scenario | Rust open | Legacy Node open | Legacy Bun open | Rust advantage |
-|---|---:|---:|---:|---:|
-| 1M session resume | 17.59 ms | 119.76 ms | 50.83 ms | `6.81x` faster than Node, `2.89x` faster than Bun |
-| 5M session resume | 58.68 ms | 396.41 ms | 155.63 ms | `6.76x` faster than Node, `2.65x` faster than Bun |
-
-*(from tests/perf/reports/budget_events.jsonl, run 20260423T002033Z)*
+The Rust port is designed around large-session, multi-agent, and extension-heavy
+workloads. Release-facing performance numbers are published only when the
+checked-in evidence artifacts are current, have matching run provenance, and
+report no CI no-data or data-contract failures. Historical benchmark snapshots
+are retained in planning/evidence artifacts, but they are not treated as current
+README claims until the performance evidence gate is regenerated cleanly.
 
 Extension runtime guarantees are also concrete:
 
@@ -115,18 +97,21 @@ Extension runtime guarantees are also concrete:
 | Startup prewarm + warm isolate reuse for JS runtimes | Runtime creation overlaps startup and warm reuse keeps repeated extension runs low-latency without a Node/Bun process model |
 | Tamper-evident runtime risk ledger (`verify` / `replay` / `calibrate`) | Security decisions are hash-linked and can be replayed or threshold-tuned from real runtime traces |
 
-Bottom line: for real Pi/OpenClaw usage, the Rust version is faster, far more memory-efficient, and materially stronger on extension runtime safety under real workload pressure.
+Bottom line: Pi's architecture targets lower latency, lower memory use, and
+stronger extension runtime safety under real workload pressure; current numeric
+claims must come from fresh, provenance-matched evidence artifacts.
 
 <sub>Data source: `docs/planning/BENCHMARK_COMPARISON_BETWEEN_RUST_VERSION_AND_ORIGINAL__GPT.md` (latest secure-path + full orchestrator checkpoints, 2026-04-23).</sub>
 
 ### README Citation Convention
 
-All numeric performance claims in this README include inline citations with format: 
+All numeric performance claims in this README include inline citations with format:
 `*(from [artifact-path], run [correlation-id])*`
 
-Example: `*(from tests/perf/reports/budget_summary.json, run 20260423T002033Z)*`
+Example: `*(from [artifact-path], run [correlation-id])*`
 
-This ensures claims are verifiable against specific test runs and prevents stale numbers from persisting across updates.
+CI checks both file freshness and artifact content so stale, no-data, or
+correlation-mismatched evidence cannot back user-facing performance claims.
 
 ## How We Made It So Fast
 
@@ -147,7 +132,7 @@ If you want the full implementation inventory, see [Performance Engineering](#pe
 
 ## Benchmark Methodology and Claim Integrity
 
-The benchmarks cited above are intentionally designed to be realistic, reproducible, and hard to game.
+The benchmark evidence policy is designed to keep results realistic, reproducible, and hard to game.
 
 What we measured:
 
@@ -513,7 +498,7 @@ From:
 - Extension must-pass gate: `123/123` must-pass extensions passed; informational stretch set `98/101` passed *(from tests/ext_conformance/reports/gate/must_pass_gate_verdict.json)*
 - Extension health delta: `221/224` current extensions passed (`98.7%`), `0` regressions, `34` fixes vs the 2026-02-07 baseline *(from tests/ext_conformance/reports/health_delta/health_delta_report.json)*
 - Extension journey coverage: `87/123` journey scenarios passed (`70.7%`); command, passive, and tool-provider categories are green, while event-subscriber journeys remain tracked as current failures *(from tests/ext_conformance/reports/journeys/journey_report.json)*
-- Stress triage: `1,500` events, `0` errors, p99 latency `576us`, RSS growth `0.0%` *(from tests/perf/reports/stress_triage.json, generated `2026-05-01T03:28:52Z`)*
+- Stress triage: `1,500` events, `0` errors, p99 latency `576us`, RSS growth `0.0%` *(from tests/perf/reports/stress_triage.json, run local-20260501T0324)*
 
 ---
 
@@ -1837,11 +1822,13 @@ Policy implication: release/size artifacts alone are not valid evidence for glob
 claims. Performance claims must cite benchmark evidence bundles with reproducible provenance.
 See `docs/testing-policy.md` and `docs/releasing.md` for normative policy details.
 
-Latest full performance orchestrator checkpoint (`2026-04-23`):
+Current checked-in performance evidence state:
 - Run output: `tests/perf/reports/` (budget_summary.json, PERF_BUDGETS.md)
-- Correlation ID: `20260423T002033Z-perf-refresh`
-- Summary: All CI-enforced performance budgets within thresholds
-- Measured startup guards: `--version` P95 under `100ms` budget threshold *(from tests/perf/reports/budget_summary.json)*
+- The current budget summary is a blocker artifact, not claim support: most
+  CI-enforced budgets have no measurement data and the data-contract section
+  reports missing or stale required evidence.
+- Regenerate the perf evidence bundle before adding release-facing speed,
+  throughput, memory, or startup numbers to this README.
 
 Latest certification/evidence refresh (`2026-05-01`):
 - Unified evidence bundle: `28/28` sections present, `11/11` required sections present, `0` missing, `0` invalid *(from tests/evidence_bundle/index.json)*

@@ -235,6 +235,21 @@ fn max_artifact_age_hours() -> f64 {
         .unwrap_or(DEFAULT_MAX_ARTIFACT_AGE_HOURS)
 }
 
+fn perf_run_id() -> Option<String> {
+    [
+        "PERF_CLAIM_CORRELATION_ID",
+        "CI_CORRELATION_ID",
+        "PI_PERF_CORRELATION_ID",
+    ]
+    .into_iter()
+    .find_map(|key| {
+        std::env::var(key)
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    })
+}
+
 fn classify_budget_status(budget: &Budget, actual: Option<f64>, strict: bool) -> &'static str {
     match actual {
         Some(val) => {
@@ -1540,10 +1555,14 @@ fn generate_budget_report() {
         .filter(|result| result.status == "NO_DATA")
         .count();
     let data_contract_failures_count = data_contract_failures.len();
+    let run_id = perf_run_id();
+    let run_id_label = run_id.as_deref().unwrap_or("not set").to_string();
 
     let summary = json!({
         "schema": "pi.perf.budget_summary.v1",
         "generated_at": chrono::Utc::now().to_rfc3339(),
+        "run_id": run_id.clone(),
+        "correlation_id": run_id.clone(),
         "total_budgets": BUDGETS.len(),
         "ci_enforced": ci_enforced_count,
         "ci_with_data": ci_with_data_count,
@@ -1586,6 +1605,7 @@ fn generate_budget_report() {
         "> Generated: {}\n",
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
     );
+    let _ = writeln!(md, "> Run ID: {run_id_label}\n");
 
     md.push_str("## Summary\n\n");
     md.push_str("| Metric | Value |\n");
