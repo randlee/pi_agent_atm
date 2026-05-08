@@ -47,6 +47,9 @@ struct Args {
     /// Maximum number of extensions to load.
     #[arg(long)]
     max_extensions: Option<usize>,
+    /// Generate this many synthetic `agent_start` handlers that call back into the Rust host.
+    #[arg(long, default_value_t = 0)]
+    synthetic_hostcall_extensions: usize,
     /// Override path to `VALIDATED_MANIFEST.json`.
     #[arg(long)]
     manifest_path: Option<PathBuf>,
@@ -77,6 +80,9 @@ struct Args {
     /// Per-shard queue capacity for reactor diagnostics.
     #[arg(long, default_value_t = 256)]
     reactor_lane_capacity: usize,
+    /// Optional comma-separated core IDs, one per reactor shard, for NUMA/advisory placement probes.
+    #[arg(long)]
+    reactor_core_ids: Option<String>,
     /// Drain budget per dispatch iteration to keep queue depth bounded.
     #[arg(long, default_value_t = 128)]
     reactor_drain_budget: usize,
@@ -136,17 +142,25 @@ async fn run(args: Args) -> Result<()> {
         .or_else(|| std::env::var("CI_CORRELATION_ID").ok())
         .unwrap_or_else(|| format!("ext-stress-{run_id}"));
 
-    let mut entries = extensions_by_tier(&manifest_path, &args.tier)?;
-    if let Some(max) = args.max_extensions {
-        entries.truncate(max);
-    }
-    let limited_entries = entries;
+    let (specs, names) = if args.synthetic_hostcall_extensions > 0 {
+        let synthetic_root = report_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("synthetic_hostcall_extensions");
+        build_synthetic_hostcall_specs(&synthetic_root, args.synthetic_hostcall_extensions)?
+    } else {
+        let mut entries = extensions_by_tier(&manifest_path, &args.tier)?;
+        if let Some(max) = args.max_extensions {
+            entries.truncate(max);
+        }
+        let limited_entries = entries;
 
-    if limited_entries.is_empty() {
-        bail!("No extensions found for tier {}", args.tier);
-    }
+        if limited_entries.is_empty() {
+            bail!("No extensions found for tier {}", args.tier);
+        }
 
-    let (specs, names) = build_specs(&artifacts_dir, &limited_entries)?;
+        build_specs(&artifacts_dir, &limited_entries)?
+    };
     let payload = event_payload_for(&payloads_path, &args.event, args.payload_index)?;
     let event = parse_event_name(&args.event)?;
 
@@ -178,6 +192,7 @@ async fn run(args: Args) -> Result<()> {
     let target_shards = args.reactor_shards.max(1);
     let baseline_shards = args.compare_baseline_shards.max(1);
     let lane_capacity = args.reactor_lane_capacity.max(1);
+    let reactor_core_ids = parse_reactor_core_ids(args.reactor_core_ids.as_deref())?;
 
     if args.compare_shard_baseline && !args.reactor_enabled {
         bail!("--compare-shard-baseline requires --reactor-enabled=true");
@@ -187,9 +202,14 @@ async fn run(args: Args) -> Result<()> {
             "--compare-shard-baseline requires --compare-baseline-shards to differ from --reactor-shards"
         );
     }
+    if let Some(core_ids) = &reactor_core_ids
+        && core_ids.len() != target_shards
+    {
+        bail!("--reactor-core-ids must contain exactly one core id per --reactor-shards entry");
+    }
 
     let (run_result, comparison, comparison_ok) = if args.compare_shard_baseline {
-        configure_reactor(&manager, true, baseline_shards, lane_capacity);
+        configure_reactor(&manager, true, baseline_shards, lane_capacity, None);
         let baseline_result = run_profile(
             &manager,
             event,
@@ -203,7 +223,13 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
 
-        configure_reactor(&manager, true, target_shards, lane_capacity);
+        configure_reactor(
+            &manager,
+            true,
+            target_shards,
+            lane_capacity,
+            reactor_core_ids.clone(),
+        );
         let candidate_result = run_profile(
             &manager,
             event,
@@ -227,7 +253,13 @@ async fn run(args: Args) -> Result<()> {
         let comparison_ok = baseline_result.events_ok && candidate_result.events_ok;
         (candidate_result, comparison, comparison_ok)
     } else {
-        configure_reactor(&manager, args.reactor_enabled, target_shards, lane_capacity);
+        configure_reactor(
+            &manager,
+            args.reactor_enabled,
+            target_shards,
+            lane_capacity,
+            reactor_core_ids.clone(),
+        );
         let result = run_profile(
             &manager,
             event,
@@ -264,9 +296,11 @@ async fn run(args: Args) -> Result<()> {
             "rss_interval_secs": args.rss_interval_secs,
             "events_per_sec": args.events_per_sec,
             "max_extensions": args.max_extensions,
+            "synthetic_hostcall_extensions": args.synthetic_hostcall_extensions,
             "reactor_enabled": args.reactor_enabled,
             "reactor_shards": target_shards,
             "reactor_lane_capacity": lane_capacity,
+            "reactor_core_ids": reactor_core_ids,
             "reactor_drain_budget": args.reactor_drain_budget,
             "dispatch_timeout_ms": args.dispatch_timeout_ms,
             "compare_shard_baseline": args.compare_shard_baseline,
@@ -405,13 +439,14 @@ fn configure_reactor(
     enabled: bool,
     shard_count: usize,
     lane_capacity: usize,
+    core_ids: Option<Vec<usize>>,
 ) {
     manager.disable_hostcall_reactor();
     if enabled {
         manager.enable_hostcall_reactor(HostcallReactorConfig {
             shard_count: shard_count.max(1),
             lane_capacity: lane_capacity.max(1),
-            core_ids: None,
+            core_ids,
         });
     }
 }
@@ -907,6 +942,8 @@ fn build_reactor_report(
     serde_json::json!({
         "enabled": true,
         "shard_count": reactor.shard_count,
+        "numa_pool_active": reactor.numa_pool_active,
+        "affinity_advisory_count": reactor.affinity_advisory_count,
         "queue_depths_final": reactor.queue_depths,
         "max_queue_depths": reactor.max_queue_depths,
         "total_enqueued_by_shard": reactor.total_enqueued,
@@ -1117,6 +1154,42 @@ fn build_specs(
     Ok((specs, names))
 }
 
+fn build_synthetic_hostcall_specs(
+    root: &Path,
+    count: usize,
+) -> Result<(Vec<JsExtensionLoadSpec>, Vec<String>)> {
+    if count == 0 {
+        bail!("synthetic hostcall extension count must be > 0");
+    }
+    std::fs::create_dir_all(root)
+        .with_context(|| format!("create synthetic extension dir {}", root.display()))?;
+    let mut specs = Vec::with_capacity(count);
+    let mut names = Vec::with_capacity(count);
+    for idx in 0..count {
+        let path = root.join(format!("synthetic-hostcall-{idx}.js"));
+        std::fs::write(&path, synthetic_hostcall_source(idx))
+            .with_context(|| format!("write synthetic extension {}", path.display()))?;
+        specs.push(
+            JsExtensionLoadSpec::from_entry_path(&path)
+                .with_context(|| format!("build synthetic load spec for {}", path.display()))?,
+        );
+        names.push(format!("synthetic-hostcall-{idx}.js"));
+    }
+    Ok((specs, names))
+}
+
+fn synthetic_hostcall_source(idx: usize) -> String {
+    format!(
+        r#"export default function syntheticHostcall{idx}(pi) {{
+  pi.on("agent_start", async () => {{
+    await pi.session("getSessionName", {{}});
+    return undefined;
+  }});
+}}
+"#
+    )
+}
+
 fn event_payload_for(
     payloads_path: &Path,
     event_name: &str,
@@ -1172,6 +1245,24 @@ fn parse_event_name(name: &str) -> Result<ExtensionEventName> {
         "session_shutdown" => Ok(ExtensionEventName::SessionShutdown),
         other => bail!("Unsupported event name: {other}"),
     }
+}
+
+fn parse_reactor_core_ids(value: Option<&str>) -> Result<Option<Vec<usize>>> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let mut ids = Vec::new();
+    for raw in value.split(',') {
+        let item = raw.trim();
+        if item.is_empty() {
+            bail!("--reactor-core-ids contains an empty core id");
+        }
+        let parsed = item
+            .parse::<usize>()
+            .with_context(|| format!("parse --reactor-core-ids entry {item:?}"))?;
+        ids.push(parsed);
+    }
+    Ok(Some(ids))
 }
 
 fn percentile_index(len: usize, numerator: usize, denominator: usize) -> usize {
@@ -1316,6 +1407,37 @@ mod tests {
         assert_eq!(json["rss_kib"].as_u64(), Some(64));
         assert_eq!(json["rss_kb"].as_u64(), Some(64));
         assert_eq!(json["process_cpu_pct"].as_f64(), Some(12.5));
+    }
+
+    #[test]
+    fn parse_reactor_core_ids_accepts_comma_list() {
+        assert_eq!(
+            parse_reactor_core_ids(Some("0, 16,32, 48")).unwrap(),
+            Some(vec![0, 16, 32, 48])
+        );
+    }
+
+    #[test]
+    fn parse_reactor_core_ids_empty_is_none() {
+        assert_eq!(parse_reactor_core_ids(None).unwrap(), None);
+        assert_eq!(parse_reactor_core_ids(Some("  ")).unwrap(), None);
+    }
+
+    #[test]
+    fn parse_reactor_core_ids_rejects_empty_entry() {
+        let err = parse_reactor_core_ids(Some("0,,2")).unwrap_err();
+        assert!(
+            err.to_string().contains("empty core id"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn synthetic_hostcall_source_uses_agent_start_session_hostcall() {
+        let source = synthetic_hostcall_source(3);
+        assert!(source.contains("syntheticHostcall3"));
+        assert!(source.contains("agent_start"));
+        assert!(source.contains("getSessionName"));
     }
 
     #[test]
