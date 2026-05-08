@@ -79,6 +79,31 @@ Policy constraints:
 3. Any release note claiming performance gains should include correlation-linked evidence references from benchmark artifact bundles.
 4. If profile labels/provenance are missing or contradictory, treat the performance claim as invalid until regenerated.
 
+## Swarm-scale claim readiness report (bd-2zcs5.27)
+
+Before using swarm-scale, drop-in, extension, full-suite, or performance evidence in release-facing copy, generate the read-only readiness report:
+
+```bash
+python3 scripts/report_swarm_claim_readiness.py --self-test
+python3 scripts/report_swarm_claim_readiness.py --json
+```
+
+The report emits schema `pi.swarm.claim_readiness_report.v1` and groups artifacts by `perf`, `full_suite`, `dropin`, `extension`, and `activity_ledger`. It distinguishes `release_facing` artifacts from `historical_snapshot` or `release_policy` records so old planning snapshots remain visible without automatically authorizing current claims.
+
+Use gate mode only when a release path must fail on stale or unsupported evidence:
+
+```bash
+python3 scripts/report_swarm_claim_readiness.py --gate
+```
+
+Gate mode exits non-zero only for release-facing blockers: missing artifacts, stale generated timestamps, no-data budget summaries, failed verdict fields, schema drift, or mismatched provenance across artifacts that are being used as one claim. Non-gate mode always exits 0 and is suitable for handoff notes, operator dashboards, and stale-evidence triage.
+
+When the report blocks:
+- Regenerate the exact artifact path listed when the claim is still intended to be release-facing.
+- Split the claim by run when the report identifies multiple provenance values for one category.
+- Soften or remove release-facing copy when the only available evidence is a historical snapshot.
+- Do not use `docs/parity-certification.json` to override `docs/evidence/dropin-certification-verdict.json` or the report's drop-in blockers.
+
 ## When do we call it 1.0?
 We call it `1.0.0` when:
 - CI is green on Linux/macOS/Windows (`.github/workflows/ci.yml`)
