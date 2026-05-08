@@ -128,8 +128,7 @@ async fn run(args: Args) -> Result<()> {
     let run_id = args
         .run_id
         .as_deref()
-        .map(str::to_owned)
-        .unwrap_or_else(default_run_id);
+        .map_or_else(default_run_id, str::to_owned);
     let correlation_id = args
         .correlation_id
         .as_deref()
@@ -634,18 +633,20 @@ async fn dispatch_event_with_harness_timeout(
             .map_err(Into::into);
     }
 
-    match timeout(
+    timeout(
         wall_now(),
         Duration::from_millis(dispatch_timeout_ms),
         Box::pin(manager.dispatch_event(event, payload)),
     )
     .await
-    {
-        Ok(result) => result.map_err(Into::into),
-        Err(_) => Err(anyhow::anyhow!(
-            "event dispatch timed out after {dispatch_timeout_ms}ms"
-        )),
-    }
+    .map_or_else(
+        |_| {
+            Err(anyhow::anyhow!(
+                "event dispatch timed out after {dispatch_timeout_ms}ms"
+            ))
+        },
+        |result| result.map_err(Into::into),
+    )
 }
 
 struct ResourceProbe {
@@ -762,7 +763,7 @@ fn default_run_id() -> String {
         .unwrap_or_else(|_| format!("local-{}", Utc::now().format("%Y%m%dT%H%M%SZ")))
 }
 
-fn bytes_to_kib(bytes: u64) -> u64 {
+const fn bytes_to_kib(bytes: u64) -> u64 {
     bytes / 1024
 }
 
@@ -999,7 +1000,7 @@ fn build_shard_comparison_report(
         (Some(base), Some(curr)) => curr <= base,
         _ => false,
     };
-    let p999_improved = match (baseline_p999, candidate_p999) {
+    let extreme_tail_improved = match (baseline_p999, candidate_p999) {
         (Some(base), Some(curr)) => curr <= base,
         _ => false,
     };
@@ -1057,7 +1058,7 @@ fn build_shard_comparison_report(
             "throughput": candidate_throughput >= baseline_throughput,
             "p95": p95_improved,
             "p99": p99_improved,
-            "p999": p999_improved,
+            "p999": extreme_tail_improved,
             "contention_proxy": contention_improved,
         }
     })
