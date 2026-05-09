@@ -38,10 +38,13 @@ const SWARM_DOCTOR_BUILD_SLOT_SCHEMA: &str = "pi.doctor.agent_mail_build_slots.v
 const SWARM_DOCTOR_CONTACTS_SCHEMA: &str = "pi.doctor.agent_mail_contacts.v1";
 const SWARM_DOCTOR_STALLED_REAPER_SCHEMA: &str = "pi.doctor.stalled_bead_reaper.v1";
 const SWARM_DOCTOR_NEXT_ACTION_SCHEMA: &str = "pi.doctor.communication_purgatory_next_action.v1";
+const SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA: &str = "pi.doctor.swarm_operations_dashboard.v1";
 const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
     "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
 const SWARM_CARGO_SCRATCH_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
 const SWARM_BUILD_SLOT_SOON_EXPIRING_MINUTES: i64 = 30;
+const SWARM_ACTIVE_AGENT_WINDOW_HOURS: i64 = 24;
+const SWARM_DASHBOARD_AGENT_LIMIT: usize = 12;
 const SWARM_RESERVATION_RECENT_HOURS: i64 = 24;
 const SWARM_RESERVATION_STALE_HOLDER_HOURS: i64 = 24;
 const SWARM_RESERVATION_EXPIRING_SOON_MINUTES: i64 = 30;
@@ -1106,6 +1109,7 @@ fn check_swarm(cwd: &Path, findings: &mut Vec<Finding>) {
     check_swarm_git(cwd, findings);
     check_swarm_rch(findings);
     check_swarm_temp_dirs(findings);
+    check_swarm_operations_dashboard(cwd, findings);
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -2570,6 +2574,851 @@ fn count_agent_mail_reservation_rows(
             }
         }
         _ => {}
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn check_swarm_operations_dashboard(cwd: &Path, findings: &mut Vec<Finding>) {
+    let now = Utc::now();
+    let agent_name = first_non_empty_env(&["AGENT_MAIL_AGENT", "AGENT_NAME"]);
+    let project = cwd.display().to_string();
+    let ledger_path = cwd.join(".beads/issues.jsonl");
+
+    let (beads_content, beads_error) = match std::fs::read_to_string(&ledger_path) {
+        Ok(content) => (Some(content), None),
+        Err(err) => (
+            None,
+            Some(format!(
+                "beads ledger unavailable at {}: {err}",
+                ledger_path.display()
+            )),
+        ),
+    };
+
+    let (agent_roster, agent_roster_error) = read_agent_mail_agents_roster(cwd);
+
+    let (br_ready, br_ready_error) = if which_tool("br").is_some() {
+        match run_probe_json(
+            SwarmProbeCommand::Br,
+            &["ready", "--json"],
+            Some(cwd),
+            "br ready",
+        ) {
+            Ok(value) => (Some(value), None),
+            Err(err) => (None, Some(err)),
+        }
+    } else {
+        (
+            None,
+            Some("br CLI not found for dashboard ready-work probe".to_string()),
+        )
+    };
+
+    let (bv_plan, bv_plan_error) = if which_tool("bv").is_some() {
+        match run_probe_json(
+            SwarmProbeCommand::Bv,
+            &["--robot-plan"],
+            Some(cwd),
+            "bv --robot-plan",
+        ) {
+            Ok(value) => (Some(value), None),
+            Err(err) => (None, Some(err)),
+        }
+    } else {
+        (
+            None,
+            Some("bv CLI not found for dashboard graph probe".to_string()),
+        )
+    };
+
+    let (mail_status, mail_status_error) = if which_tool("am").is_some()
+        && agent_name.as_deref().is_some()
+    {
+        let agent = agent_name.as_deref().unwrap_or_default();
+        let args = [
+            "robot",
+            "status",
+            "--format",
+            "json",
+            "--project",
+            &project,
+            "--agent",
+            agent,
+        ];
+        match run_probe_json(SwarmProbeCommand::Am, &args, Some(cwd), "am robot status") {
+            Ok(value) => (Some(value), None),
+            Err(err) => (None, Some(err)),
+        }
+    } else if which_tool("am").is_none() {
+        (
+            None,
+            Some("Agent Mail CLI not found for dashboard status probe".to_string()),
+        )
+    } else {
+        (
+            None,
+            Some(
+                "AGENT_MAIL_AGENT and AGENT_NAME are unset for dashboard status probe".to_string(),
+            ),
+        )
+    };
+
+    let (mail_inbox, mail_inbox_error) = if which_tool("am").is_some()
+        && agent_name.as_deref().is_some()
+    {
+        let agent = agent_name.as_deref().unwrap_or_default();
+        let args = [
+            "robot",
+            "inbox",
+            "--format",
+            "json",
+            "--project",
+            &project,
+            "--agent",
+            agent,
+            "--unread",
+            "--limit",
+            "20",
+        ];
+        match run_probe_json(SwarmProbeCommand::Am, &args, Some(cwd), "am robot inbox") {
+            Ok(value) => (Some(value), None),
+            Err(err) => (None, Some(err)),
+        }
+    } else if which_tool("am").is_none() {
+        (
+            None,
+            Some("Agent Mail CLI not found for dashboard inbox probe".to_string()),
+        )
+    } else {
+        (
+            None,
+            Some("AGENT_MAIL_AGENT and AGENT_NAME are unset for dashboard inbox probe".to_string()),
+        )
+    };
+
+    let (reservations, reservations_error) = if which_tool("am").is_some() {
+        let args = [
+            "robot",
+            "reservations",
+            "--format",
+            "json",
+            "--project",
+            &project,
+            "--all",
+        ];
+        match run_probe_json(
+            SwarmProbeCommand::Am,
+            &args,
+            Some(cwd),
+            "am robot reservations",
+        ) {
+            Ok(value) => (Some(value), None),
+            Err(err) => (None, Some(err)),
+        }
+    } else {
+        (
+            None,
+            Some("Agent Mail CLI not found for dashboard reservations probe".to_string()),
+        )
+    };
+
+    let (rch_status, rch_status_error) = if which_tool("rch").is_some() {
+        match run_tool_with_timeout(
+            SwarmProbeCommand::Rch,
+            &["status"],
+            None,
+            SWARM_PROBE_TIMEOUT,
+        ) {
+            Ok(outcome) => (Some(outcome), None),
+            Err(err) => (None, Some(format!("rch status failed to start: {err}"))),
+        }
+    } else {
+        (
+            None,
+            Some("rch CLI not found for dashboard status probe".to_string()),
+        )
+    };
+
+    let (rch_queue, rch_queue_error) = if which_tool("rch").is_some() {
+        match run_tool_with_timeout(
+            SwarmProbeCommand::Rch,
+            &["queue"],
+            None,
+            SWARM_PROBE_TIMEOUT,
+        ) {
+            Ok(outcome) => (Some(outcome), None),
+            Err(err) => (None, Some(format!("rch queue failed to start: {err}"))),
+        }
+    } else {
+        (
+            None,
+            Some("rch CLI not found for dashboard queue probe".to_string()),
+        )
+    };
+
+    let (git_porcelain, git_error) = if which_tool("git").is_some() {
+        match run_tool_with_timeout(
+            SwarmProbeCommand::Git,
+            &["status", "--porcelain=v1", "--untracked-files=all"],
+            Some(cwd),
+            SWARM_PROBE_TIMEOUT,
+        ) {
+            Ok(outcome) if outcome.success => (Some(outcome.stdout), None),
+            Ok(outcome) => (
+                None,
+                Some(format!(
+                    "git status failed: {}",
+                    command_failure_detail(&outcome)
+                )),
+            ),
+            Err(err) => (None, Some(format!("git status failed to start: {err}"))),
+        }
+    } else {
+        (
+            None,
+            Some("git CLI not found for dashboard dirty-state probe".to_string()),
+        )
+    };
+
+    let inputs = SwarmOperationsDashboardInputs {
+        agent_name,
+        beads_content: beads_content.as_deref(),
+        beads_error,
+        agent_roster: agent_roster.as_ref(),
+        agent_roster_error,
+        mail_status: mail_status.as_ref(),
+        mail_status_error,
+        mail_inbox: mail_inbox.as_ref(),
+        mail_inbox_error,
+        reservations: reservations.as_ref(),
+        reservations_error,
+        br_ready: br_ready.as_ref(),
+        br_ready_error,
+        bv_plan: bv_plan.as_ref(),
+        bv_plan_error,
+        rch_status: rch_status.as_ref(),
+        rch_status_error,
+        rch_queue: rch_queue.as_ref(),
+        rch_queue_error,
+        git_porcelain: git_porcelain.as_deref(),
+        git_error,
+        source_errors: Vec::new(),
+    };
+    let dashboard = build_swarm_operations_dashboard_snapshot(inputs, now);
+    findings.push(classify_swarm_operations_dashboard(&dashboard));
+}
+
+#[derive(Debug, Default)]
+struct SwarmOperationsDashboardInputs<'a> {
+    agent_name: Option<String>,
+    beads_content: Option<&'a str>,
+    beads_error: Option<String>,
+    agent_roster: Option<&'a serde_json::Value>,
+    agent_roster_error: Option<String>,
+    mail_status: Option<&'a serde_json::Value>,
+    mail_status_error: Option<String>,
+    mail_inbox: Option<&'a serde_json::Value>,
+    mail_inbox_error: Option<String>,
+    reservations: Option<&'a serde_json::Value>,
+    reservations_error: Option<String>,
+    br_ready: Option<&'a serde_json::Value>,
+    br_ready_error: Option<String>,
+    bv_plan: Option<&'a serde_json::Value>,
+    bv_plan_error: Option<String>,
+    rch_status: Option<&'a CommandOutcome>,
+    rch_status_error: Option<String>,
+    rch_queue: Option<&'a CommandOutcome>,
+    rch_queue_error: Option<String>,
+    git_porcelain: Option<&'a str>,
+    git_error: Option<String>,
+    source_errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct SwarmOperationsDashboardSnapshot {
+    agent_name: Option<String>,
+    agents: SwarmDashboardAgentSummary,
+    mail: SwarmDashboardMailSummary,
+    beads: SwarmDashboardBeadsSummary,
+    reservations: SwarmDashboardReservationSummary,
+    rch: SwarmDashboardRchSummary,
+    git: GitPorcelainSummary,
+    next_action: String,
+    next_action_reason: String,
+    next_action_remediation: String,
+    source_errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct SwarmDashboardAgentSummary {
+    total_seen: usize,
+    active_count: usize,
+    stale_count: usize,
+    truncated_count: usize,
+    rows: Vec<SwarmDashboardAgentRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SwarmDashboardAgentRow {
+    name: String,
+    last_active_ts: String,
+    age_hours: i64,
+    active: bool,
+    task_description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SwarmDashboardMailSummary {
+    unread: u64,
+    urgent: u64,
+    ack_required: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct SwarmDashboardBeadsSummary {
+    open_count: usize,
+    in_progress_count: usize,
+    active_count: usize,
+    parse_errors: usize,
+    ready_ids: Vec<String>,
+    bv_highest_impact: Option<String>,
+    bv_recommendation_count: usize,
+    stalled_candidates: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct SwarmDashboardReservationSummary {
+    active_count: usize,
+    recent_inactive_count: usize,
+    conflict_group_count: usize,
+    stale_holder_recommendation_count: usize,
+    expiring_soon_count: usize,
+    conflicts: Vec<serde_json::Value>,
+    stale_holder_recommendations: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SwarmDashboardRchSummary {
+    status_reachable: bool,
+    queue_reachable: bool,
+    active_builds: Option<u64>,
+    slots_available: Option<u64>,
+    slots_total: Option<u64>,
+    stale_progress: bool,
+    pressure: String,
+    detail: Option<String>,
+}
+
+#[allow(clippy::too_many_lines)]
+fn build_swarm_operations_dashboard_snapshot(
+    inputs: SwarmOperationsDashboardInputs<'_>,
+    now: DateTime<Utc>,
+) -> SwarmOperationsDashboardSnapshot {
+    let mut source_errors = inputs.source_errors;
+    extend_source_errors(
+        &mut source_errors,
+        [
+            inputs.beads_error,
+            inputs.agent_roster_error,
+            inputs.mail_status_error,
+            inputs.mail_inbox_error,
+            inputs.reservations_error,
+            inputs.br_ready_error,
+            inputs.bv_plan_error,
+            inputs.rch_status_error,
+            inputs.rch_queue_error,
+            inputs.git_error,
+        ],
+    );
+
+    let activities = inputs
+        .agent_roster
+        .map_or_else(HashMap::new, |value| agent_mail_activity_index(value, now));
+    let agents = inputs
+        .agent_roster
+        .map_or_else(SwarmDashboardAgentSummary::default, |value| {
+            swarm_dashboard_agent_summary(value, now)
+        });
+    let mail = swarm_dashboard_mail_summary(inputs.mail_status, inputs.mail_inbox);
+    let beads = swarm_dashboard_beads_summary(
+        inputs.beads_content,
+        &activities,
+        inputs.br_ready,
+        inputs.bv_plan,
+        now,
+    );
+    let reservations =
+        swarm_dashboard_reservation_summary(inputs.reservations, inputs.agent_name.as_deref(), now);
+    let rch = swarm_dashboard_rch_summary(inputs.rch_status, inputs.rch_queue);
+    let git = inputs
+        .git_porcelain
+        .map_or_else(GitPorcelainSummary::default, summarize_git_porcelain);
+
+    let mut next_action_snapshot = SwarmNextActionSnapshot {
+        agent_name: inputs.agent_name.clone(),
+        mail_unread: mail.unread,
+        mail_urgent: mail.urgent,
+        mail_ack_required: mail.ack_required,
+        reservations_active: reservations.active_count,
+        reservations_own_active: inputs
+            .reservations
+            .and_then(|value| {
+                inputs
+                    .agent_name
+                    .as_deref()
+                    .map(|agent| agent_mail_reservation_counts(value, agent).own_active)
+            })
+            .unwrap_or(0),
+        beads_open: beads.open_count,
+        beads_in_progress: beads.in_progress_count,
+        beads_parse_errors: beads.parse_errors,
+        stale_in_progress: beads.stalled_candidates.len(),
+        ready_ids: beads.ready_ids.clone(),
+        bv_highest_impact: beads.bv_highest_impact.clone(),
+        bv_recommendation_count: beads.bv_recommendation_count,
+        source_errors: source_errors.clone(),
+        ..SwarmNextActionSnapshot::default()
+    };
+    if let Some(content) = inputs.beads_content {
+        apply_next_action_issue_counts(content, &mut next_action_snapshot);
+    }
+    let (next_action, next_action_reason) = select_swarm_next_action(&next_action_snapshot);
+
+    SwarmOperationsDashboardSnapshot {
+        agent_name: inputs.agent_name,
+        agents,
+        mail,
+        beads,
+        reservations,
+        rch,
+        git,
+        next_action: next_action.label().to_string(),
+        next_action_reason,
+        next_action_remediation: next_action.remediation().to_string(),
+        source_errors,
+    }
+}
+
+fn extend_source_errors<const N: usize>(errors: &mut Vec<String>, values: [Option<String>; N]) {
+    errors.extend(values.into_iter().flatten());
+}
+
+fn classify_swarm_operations_dashboard(snapshot: &SwarmOperationsDashboardSnapshot) -> Finding {
+    let detail = swarm_operations_dashboard_detail(snapshot);
+    let data = swarm_operations_dashboard_json(snapshot);
+    let mut reasons = Vec::new();
+    if !snapshot.source_errors.is_empty() {
+        reasons.push("one or more dashboard inputs are unavailable");
+    }
+    if snapshot.mail.urgent > 0 || snapshot.mail.ack_required > 0 {
+        reasons.push("mail obligations require attention");
+    }
+    if !snapshot.beads.stalled_candidates.is_empty() {
+        reasons.push("stalled bead candidates need operator review");
+    }
+    if snapshot.reservations.conflict_group_count > 0 {
+        reasons.push("active reservation conflicts exist");
+    }
+    if snapshot.reservations.stale_holder_recommendation_count > 0 {
+        reasons.push("stale reservation holders need coordination");
+    }
+    if !matches!(snapshot.rch.pressure.as_str(), "clear" | "unavailable") {
+        reasons.push("RCH queue pressure is present");
+    }
+    if snapshot.git.total > 0 {
+        reasons.push("working tree is dirty");
+    }
+
+    if reasons.is_empty() {
+        Finding::pass(CheckCategory::Swarm, "Swarm operations dashboard clear")
+            .with_detail(detail)
+            .with_data(data)
+    } else {
+        Finding::warn(
+            CheckCategory::Swarm,
+            "Swarm operations dashboard needs attention",
+        )
+        .with_detail(format!("{detail}; attention={}", reasons.join(", ")))
+        .with_remediation(snapshot.next_action_remediation.clone())
+        .with_data(data)
+    }
+}
+
+fn swarm_operations_dashboard_detail(snapshot: &SwarmOperationsDashboardSnapshot) -> String {
+    format!(
+        "agents active={} stale={} total_seen={}; beads open={} in_progress={} ready={} stalled_candidates={}; reservations active={} conflicts={} stale_holders={} expiring_soon={}; rch pressure={} active_builds={} slots={}; git total={} staged={} unstaged={} untracked={}; next_action={}",
+        snapshot.agents.active_count,
+        snapshot.agents.stale_count,
+        snapshot.agents.total_seen,
+        snapshot.beads.open_count,
+        snapshot.beads.in_progress_count,
+        snapshot.beads.ready_ids.len(),
+        snapshot.beads.stalled_candidates.len(),
+        snapshot.reservations.active_count,
+        snapshot.reservations.conflict_group_count,
+        snapshot.reservations.stale_holder_recommendation_count,
+        snapshot.reservations.expiring_soon_count,
+        snapshot.rch.pressure,
+        option_u64_label(snapshot.rch.active_builds),
+        rch_slots_label(snapshot.rch.slots_available, snapshot.rch.slots_total),
+        snapshot.git.total,
+        snapshot.git.staged,
+        snapshot.git.unstaged,
+        snapshot.git.untracked,
+        snapshot.next_action
+    )
+}
+
+fn swarm_operations_dashboard_json(
+    snapshot: &SwarmOperationsDashboardSnapshot,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA,
+        "mode": "audit_only",
+        "mutation_performed": false,
+        "active_agent_window_hours": SWARM_ACTIVE_AGENT_WINDOW_HOURS,
+        "agent_name": snapshot.agent_name,
+        "agents": {
+            "total_seen": snapshot.agents.total_seen,
+            "active_count": snapshot.agents.active_count,
+            "stale_count": snapshot.agents.stale_count,
+            "truncated_count": snapshot.agents.truncated_count,
+            "rows": swarm_dashboard_agents_json(&snapshot.agents.rows)
+        },
+        "mail": {
+            "unread": snapshot.mail.unread,
+            "urgent": snapshot.mail.urgent,
+            "ack_required": snapshot.mail.ack_required
+        },
+        "beads": {
+            "open_count": snapshot.beads.open_count,
+            "in_progress_count": snapshot.beads.in_progress_count,
+            "active_count": snapshot.beads.active_count,
+            "parse_errors": snapshot.beads.parse_errors,
+            "ready_count": snapshot.beads.ready_ids.len(),
+            "ready_ids": snapshot.beads.ready_ids,
+            "bv_highest_impact": snapshot.beads.bv_highest_impact,
+            "bv_recommendation_count": snapshot.beads.bv_recommendation_count,
+            "stalled_candidate_count": snapshot.beads.stalled_candidates.len(),
+            "stalled_candidates": snapshot.beads.stalled_candidates
+        },
+        "reservations": {
+            "active_count": snapshot.reservations.active_count,
+            "recent_inactive_count": snapshot.reservations.recent_inactive_count,
+            "conflict_group_count": snapshot.reservations.conflict_group_count,
+            "stale_holder_recommendation_count": snapshot.reservations.stale_holder_recommendation_count,
+            "expiring_soon_count": snapshot.reservations.expiring_soon_count,
+            "conflicts": snapshot.reservations.conflicts,
+            "stale_holder_recommendations": snapshot.reservations.stale_holder_recommendations
+        },
+        "rch": {
+            "status_reachable": snapshot.rch.status_reachable,
+            "queue_reachable": snapshot.rch.queue_reachable,
+            "active_builds": snapshot.rch.active_builds,
+            "slots_available": snapshot.rch.slots_available,
+            "slots_total": snapshot.rch.slots_total,
+            "stale_progress": snapshot.rch.stale_progress,
+            "pressure": snapshot.rch.pressure,
+            "detail": snapshot.rch.detail
+        },
+        "git": {
+            "total": snapshot.git.total,
+            "staged": snapshot.git.staged,
+            "unstaged": snapshot.git.unstaged,
+            "untracked": snapshot.git.untracked,
+            "deleted": snapshot.git.deleted
+        },
+        "next_action": {
+            "action": snapshot.next_action,
+            "reason": snapshot.next_action_reason,
+            "remediation": snapshot.next_action_remediation
+        },
+        "source_errors": snapshot.source_errors
+    })
+}
+
+fn swarm_dashboard_agent_summary(
+    value: &serde_json::Value,
+    now: DateTime<Utc>,
+) -> SwarmDashboardAgentSummary {
+    let mut rows = Vec::new();
+    collect_swarm_dashboard_agent_rows(value, now, &mut rows);
+    rows.sort_by(|left, right| {
+        right
+            .active
+            .cmp(&left.active)
+            .then_with(|| left.age_hours.cmp(&right.age_hours))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    let total_seen = rows.len();
+    let active_count = rows.iter().filter(|row| row.active).count();
+    let stale_count = rows.len().saturating_sub(active_count);
+    let truncated_count = rows.len().saturating_sub(SWARM_DASHBOARD_AGENT_LIMIT);
+    rows.truncate(SWARM_DASHBOARD_AGENT_LIMIT);
+    SwarmDashboardAgentSummary {
+        total_seen,
+        active_count,
+        stale_count,
+        truncated_count,
+        rows,
+    }
+}
+
+fn collect_swarm_dashboard_agent_rows(
+    value: &serde_json::Value,
+    now: DateTime<Utc>,
+    rows: &mut Vec<SwarmDashboardAgentRow>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let name = map
+                .get("name")
+                .or_else(|| map.get("agent"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let last_active = [
+                "last_active_ts",
+                "last_active",
+                "last_seen_ts",
+                "last_seen",
+                "updated_at",
+            ]
+            .iter()
+            .find_map(|key| map.get(*key).and_then(serde_json::Value::as_str));
+            if let (Some(name), Some(last_active)) = (name, last_active)
+                && let Some(age_hours) = age_hours_since(last_active, now)
+            {
+                rows.push(SwarmDashboardAgentRow {
+                    name: truncate_chars(name, 80),
+                    last_active_ts: truncate_chars(last_active, 80),
+                    age_hours,
+                    active: age_hours < SWARM_ACTIVE_AGENT_WINDOW_HOURS,
+                    task_description: map
+                        .get("task_description")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|value| truncate_chars(value, 120)),
+                });
+                return;
+            }
+            for child in map.values() {
+                collect_swarm_dashboard_agent_rows(child, now, rows);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                collect_swarm_dashboard_agent_rows(child, now, rows);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn swarm_dashboard_agents_json(rows: &[SwarmDashboardAgentRow]) -> Vec<serde_json::Value> {
+    rows.iter()
+        .map(|row| {
+            serde_json::json!({
+                "name": row.name,
+                "last_active_ts": row.last_active_ts,
+                "age_hours": row.age_hours,
+                "active": row.active,
+                "task_description": row.task_description
+            })
+        })
+        .collect()
+}
+
+fn swarm_dashboard_mail_summary(
+    status: Option<&serde_json::Value>,
+    inbox: Option<&serde_json::Value>,
+) -> SwarmDashboardMailSummary {
+    let mut snapshot = SwarmNextActionSnapshot::default();
+    if let Some(value) = status {
+        apply_mail_obligation_counts(value, &mut snapshot);
+    }
+    if let Some(value) = inbox {
+        apply_mail_obligation_counts(value, &mut snapshot);
+    }
+    SwarmDashboardMailSummary {
+        unread: snapshot.mail_unread,
+        urgent: snapshot.mail_urgent,
+        ack_required: snapshot.mail_ack_required,
+    }
+}
+
+fn swarm_dashboard_beads_summary(
+    content: Option<&str>,
+    activities: &HashMap<String, AgentMailActivity>,
+    br_ready: Option<&serde_json::Value>,
+    bv_plan: Option<&serde_json::Value>,
+    now: DateTime<Utc>,
+) -> SwarmDashboardBeadsSummary {
+    let mut summary = SwarmDashboardBeadsSummary::default();
+    if let Some(content) = content {
+        let ledger_summary = summarize_beads_ledger(content, now, SWARM_STALE_IN_PROGRESS_HOURS);
+        let audit =
+            collect_stalled_reaper_audit(content, activities, now, SWARM_STALE_IN_PROGRESS_HOURS);
+        summary.open_count = ledger_summary.open;
+        summary.in_progress_count = ledger_summary.in_progress;
+        summary.active_count = ledger_summary.active;
+        summary.parse_errors = ledger_summary.parse_errors.max(audit.parse_errors);
+        summary.stalled_candidates = audit
+            .suggestions
+            .into_iter()
+            .filter(|suggestion| {
+                suggestion.get("action").and_then(serde_json::Value::as_str)
+                    == Some("notify_then_reopen_or_claim")
+            })
+            .take(SWARM_DETAIL_LIMIT)
+            .collect();
+    }
+    if let Some(value) = br_ready {
+        summary.ready_ids = ready_issue_ids(value)
+            .into_iter()
+            .take(SWARM_DETAIL_LIMIT)
+            .collect();
+    }
+    if let Some(value) = bv_plan {
+        summary.bv_highest_impact = value
+            .pointer("/plan/summary/highest_impact")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        summary.bv_recommendation_count = bv_plan_item_count(value);
+    }
+    summary
+}
+
+fn swarm_dashboard_reservation_summary(
+    value: Option<&serde_json::Value>,
+    agent_name: Option<&str>,
+    now: DateTime<Utc>,
+) -> SwarmDashboardReservationSummary {
+    let Some(value) = value else {
+        return SwarmDashboardReservationSummary::default();
+    };
+    let heatmap = build_agent_mail_reservation_heatmap(value, now);
+    let mut summary = SwarmDashboardReservationSummary {
+        active_count: heatmap.active,
+        recent_inactive_count: heatmap.recent_inactive,
+        conflict_group_count: heatmap.conflicts.len(),
+        stale_holder_recommendation_count: heatmap.stale_recommendations.len(),
+        expiring_soon_count: heatmap.expiring_soon,
+        conflicts: heatmap
+            .conflicts
+            .into_iter()
+            .take(SWARM_DETAIL_LIMIT)
+            .collect(),
+        stale_holder_recommendations: heatmap
+            .stale_recommendations
+            .into_iter()
+            .take(SWARM_DETAIL_LIMIT)
+            .collect(),
+    };
+    if summary.active_count == 0 {
+        summary.active_count = json_number_by_key_as_usize(value, "active").unwrap_or(0);
+    }
+    if let Some(agent) = agent_name {
+        let counts = agent_mail_reservation_counts(value, agent);
+        summary.active_count = summary.active_count.max(counts.active);
+    }
+    summary
+}
+
+fn swarm_dashboard_rch_summary(
+    status: Option<&CommandOutcome>,
+    queue: Option<&CommandOutcome>,
+) -> SwarmDashboardRchSummary {
+    let mut summary = SwarmDashboardRchSummary {
+        pressure: "unavailable".to_string(),
+        ..SwarmDashboardRchSummary::default()
+    };
+    let mut combined_text = String::new();
+    if let Some(status) = status {
+        summary.status_reachable = status.success;
+        summary.detail = Some(redacted_output_snippet(status));
+        combined_text.push_str(&status.stdout);
+        combined_text.push('\n');
+        combined_text.push_str(&status.stderr);
+    }
+    if let Some(queue) = queue {
+        summary.queue_reachable = queue.success;
+        combined_text.push('\n');
+        combined_text.push_str(&queue.stdout);
+        combined_text.push('\n');
+        combined_text.push_str(&queue.stderr);
+    }
+    let lower = combined_text.to_ascii_lowercase();
+    summary.stale_progress = lower.contains("stale progress");
+    summary.active_builds = parse_rch_active_builds(&combined_text);
+    let (slots_available, slots_total) = parse_rch_slots(&combined_text);
+    summary.slots_available = slots_available;
+    summary.slots_total = slots_total;
+    summary.pressure = if summary.stale_progress {
+        "stale_progress".to_string()
+    } else if summary.active_builds.unwrap_or(0) > 0 {
+        "busy".to_string()
+    } else if matches!(summary.slots_available, Some(0)) {
+        "saturated".to_string()
+    } else if summary.status_reachable || summary.queue_reachable {
+        "clear".to_string()
+    } else {
+        "unavailable".to_string()
+    };
+    summary
+}
+
+fn parse_rch_active_builds(text: &str) -> Option<u64> {
+    text.lines()
+        .filter(|line| line.to_ascii_lowercase().contains("active build"))
+        .filter_map(|line| extract_u64s(line).into_iter().next())
+        .max()
+}
+
+fn parse_rch_slots(text: &str) -> (Option<u64>, Option<u64>) {
+    text.lines()
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("slots free") || lower.contains("slots available")
+        })
+        .filter_map(|line| match extract_u64s(line).as_slice() {
+            [.., available, total] => Some((*available, *total)),
+            _ => None,
+        })
+        .next_back()
+        .map_or((None, None), |(available, total)| {
+            (Some(available), Some(total))
+        })
+}
+
+fn extract_u64s(text: &str) -> Vec<u64> {
+    let mut numbers = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() {
+            current.push(ch);
+        } else if !current.is_empty() {
+            if let Ok(value) = current.parse::<u64>() {
+                numbers.push(value);
+            }
+            current.clear();
+        }
+    }
+    if !current.is_empty()
+        && let Ok(value) = current.parse::<u64>()
+    {
+        numbers.push(value);
+    }
+    numbers
+}
+
+fn option_u64_label(value: Option<u64>) -> String {
+    value.map_or_else(|| "unknown".to_string(), |value| value.to_string())
+}
+
+fn rch_slots_label(available: Option<u64>, total: Option<u64>) -> String {
+    match (available, total) {
+        (Some(available), Some(total)) => format!("{available}/{total}"),
+        _ => "unknown".to_string(),
     }
 }
 
@@ -5363,6 +6212,179 @@ not-json
         let data = finding_data(&finding);
         assert_eq!(data["next_action"], serde_json::json!("no_work"));
         assert_eq!(data["source_errors"].as_array().unwrap().len(), 0);
+    }
+
+    fn dashboard_probe_outcome(stdout: &str) -> CommandOutcome {
+        CommandOutcome {
+            timed_out: false,
+            success: true,
+            status_code: Some(0),
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+        }
+    }
+
+    #[test]
+    fn swarm_operations_dashboard_reports_stalled_and_rch_pressure() {
+        let now = DateTime::parse_from_rfc3339("2026-05-09T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let beads = r#"{"id":"bd-stalled","title":"Quiet work","status":"in_progress","assignee":"OldAgent","updated_at":"2026-05-07T00:00:00Z"}
+{"id":"bd-ready","title":"Ready work","status":"open","updated_at":"2026-05-09T11:00:00Z"}
+"#;
+        let roster = serde_json::json!({
+            "agents": [
+                {"name": "ActiveAgent", "last_active_ts": "2026-05-09T11:30:00Z", "task_description": "current lane"},
+                {"name": "OldAgent", "last_active_ts": "2026-05-07T00:00:00Z", "task_description": "stale lane"}
+            ]
+        });
+        let reservations = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/**",
+                    "agent": "ActiveAgent",
+                    "exclusive": true,
+                    "reason": "bd-ready",
+                    "expires_ts": "2026-05-09T13:00:00Z",
+                    "created_at": "2026-05-09T10:00:00Z"
+                },
+                {
+                    "path_pattern": "src/doctor.rs",
+                    "agent": "OtherAgent",
+                    "exclusive": true,
+                    "reason": "bd-ready.1",
+                    "expires_ts": "2026-05-09T13:00:00Z",
+                    "created_at": "2026-05-09T10:30:00Z"
+                }
+            ]
+        });
+        let br_ready = serde_json::json!([
+            {"id": "bd-ready", "title": "Ready work", "status": "open"}
+        ]);
+        let bv_plan = serde_json::json!({
+            "plan": {
+                "summary": {"highest_impact": "bd-ready"},
+                "tracks": [{"items": [{"id": "bd-ready"}]}]
+            }
+        });
+        let rch_status = dashboard_probe_outcome(
+            "RCH Status\nWorkers : 8/8 healthy, 74/78 slots available\nIssues\n1 active build(s) have stale progress",
+        );
+        let rch_queue = dashboard_probe_outcome(
+            "Build Queue\n  * 2 Active Build(s)\nWorker Availability\n  -> 74 / 78 slots free",
+        );
+        let mail_status = serde_json::json!({"unread": 0, "urgent": 0, "ack_required": 0});
+
+        let inputs = SwarmOperationsDashboardInputs {
+            agent_name: Some("SunnyBeacon".to_string()),
+            beads_content: Some(beads),
+            agent_roster: Some(&roster),
+            mail_status: Some(&mail_status),
+            reservations: Some(&reservations),
+            br_ready: Some(&br_ready),
+            bv_plan: Some(&bv_plan),
+            rch_status: Some(&rch_status),
+            rch_queue: Some(&rch_queue),
+            git_porcelain: Some(" M src/doctor.rs\n?? scratch.json\n"),
+            ..SwarmOperationsDashboardInputs::default()
+        };
+
+        let snapshot = build_swarm_operations_dashboard_snapshot(inputs, now);
+        let finding = classify_swarm_operations_dashboard(&snapshot);
+
+        assert_eq!(finding.severity, Severity::Warn);
+        assert!(
+            finding
+                .detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("agents active=1")
+        );
+        let data = finding_data(&finding);
+        assert_eq!(data["schema"], SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA);
+        assert_eq!(data["agents"]["active_count"], serde_json::json!(1));
+        assert_eq!(
+            data["beads"]["stalled_candidate_count"],
+            serde_json::json!(1)
+        );
+        assert_eq!(
+            data["reservations"]["conflict_group_count"],
+            serde_json::json!(1)
+        );
+        assert_eq!(data["rch"]["pressure"], serde_json::json!("stale_progress"));
+        assert_eq!(data["rch"]["active_builds"], serde_json::json!(2));
+        assert_eq!(data["git"]["total"], serde_json::json!(2));
+        assert_eq!(
+            data["next_action"]["action"],
+            serde_json::json!("unblock_stalled_bead")
+        );
+        assert_eq!(data["mode"], serde_json::json!("audit_only"));
+        assert_eq!(data["mutation_performed"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn swarm_operations_dashboard_keeps_current_claim_moving_when_clear() {
+        let now = DateTime::parse_from_rfc3339("2026-05-09T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let beads = r#"{"id":"bd-current","title":"Current work","status":"in_progress","assignee":"SunnyBeacon","updated_at":"2026-05-09T11:30:00Z"}
+"#;
+        let roster = serde_json::json!({
+            "agents": [
+                {"name": "SunnyBeacon", "last_active_ts": "2026-05-09T11:55:00Z", "task_description": "current work"}
+            ]
+        });
+        let reservations = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/doctor.rs",
+                    "agent": "SunnyBeacon",
+                    "exclusive": true,
+                    "reason": "bd-current",
+                    "expires_ts": "2026-05-09T14:00:00Z",
+                    "created_at": "2026-05-09T11:00:00Z"
+                }
+            ]
+        });
+        let rch_status = dashboard_probe_outcome(
+            "RCH Status\nPosture : remote-ready\nWorkers : 8/8 healthy, 78/78 slots available",
+        );
+        let rch_queue =
+            dashboard_probe_outcome("Build Queue\n  * 0 Active Build(s)\n  -> 78 / 78 slots free");
+        let mail_status = serde_json::json!({"unread": 0, "urgent": 0, "ack_required": 0});
+        let mail_inbox = serde_json::json!({"messages": []});
+        let br_ready = serde_json::json!([]);
+        let bv_plan = serde_json::json!({
+            "plan": {"summary": {"highest_impact": null}, "tracks": []}
+        });
+
+        let inputs = SwarmOperationsDashboardInputs {
+            agent_name: Some("SunnyBeacon".to_string()),
+            beads_content: Some(beads),
+            agent_roster: Some(&roster),
+            mail_status: Some(&mail_status),
+            mail_inbox: Some(&mail_inbox),
+            reservations: Some(&reservations),
+            br_ready: Some(&br_ready),
+            bv_plan: Some(&bv_plan),
+            rch_status: Some(&rch_status),
+            rch_queue: Some(&rch_queue),
+            git_porcelain: Some(""),
+            ..SwarmOperationsDashboardInputs::default()
+        };
+
+        let snapshot = build_swarm_operations_dashboard_snapshot(inputs, now);
+        let finding = classify_swarm_operations_dashboard(&snapshot);
+
+        assert_eq!(finding.severity, Severity::Pass);
+        let data = finding_data(&finding);
+        assert_eq!(
+            data["next_action"]["action"],
+            serde_json::json!("implement_current")
+        );
+        assert_eq!(data["rch"]["pressure"], serde_json::json!("clear"));
+        assert_eq!(data["agents"]["active_count"], serde_json::json!(1));
+        assert_eq!(data["reservations"]["active_count"], serde_json::json!(1));
     }
 
     #[test]
