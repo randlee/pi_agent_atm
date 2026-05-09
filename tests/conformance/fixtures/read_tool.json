@@ -160,6 +160,19 @@
       }
     },
     {
+      "name": "read_file_created_by_setup_command",
+      "description": "The run_command setup step can prepare fixture files before tool execution",
+      "requirement_ids": ["CONF-SETUP-RUN-COMMAND"],
+      "setup": [
+        {"type": "run_command", "command": "mkdir generated && echo generated via setup>generated/out.txt"}
+      ],
+      "input": {"path": "generated/out.txt"},
+      "expected": {
+        "content_exact": "    1\u2192generated via setup",
+        "details_none": true
+      }
+    },
+    {
       "name": "read_trailing_newline",
       "description": "Read file with trailing newline",
       "setup": [
