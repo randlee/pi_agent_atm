@@ -966,6 +966,106 @@ pub struct SessionOpenOrphanedParentLink {
     pub missing_parent_id: String,
 }
 
+/// Stable schema identifier for session cold-start trace bundles.
+pub const SESSION_COLD_START_TRACE_SCHEMA: &str = "pi.session.cold_start_trace.v1";
+
+/// Bounded, redacted trace bundle for diagnosing large-session startup latency.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartTraceBundle {
+    pub schema: String,
+    pub session_path_hash: String,
+    pub storage: SessionColdStartStorageTrace,
+    pub input: SessionColdStartInputTrace,
+    pub phases: Vec<SessionColdStartPhaseTrace>,
+    pub index_refresh: SessionColdStartIndexRefreshTrace,
+    pub open_diagnostics: SessionColdStartOpenDiagnosticsTrace,
+    pub compaction_scan: SessionColdStartCompactionTrace,
+    pub first_render: SessionColdStartFirstRenderTrace,
+    pub bounds: SessionColdStartBoundsTrace,
+    pub total_elapsed_us: u64,
+}
+
+/// Storage backend selection observed during cold-start tracing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartStorageTrace {
+    pub selected_backend: String,
+    pub opened_backend: String,
+    pub path_extension: String,
+    pub sqlite_feature_enabled: bool,
+    pub v2_sidecar_present: bool,
+    pub v2_sidecar_stale: bool,
+    pub fallback_reason: Option<String>,
+}
+
+/// Aggregate input shape for the loaded session, without raw content or paths.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartInputTrace {
+    pub total_entries: usize,
+    pub total_messages: u64,
+}
+
+/// Timed cold-start phase.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartPhaseTrace {
+    pub name: String,
+    pub elapsed_us: u64,
+    pub status: String,
+}
+
+/// Incremental session-index refresh summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartIndexRefreshTrace {
+    pub scanned_files: usize,
+    pub cache_hit_files: usize,
+    pub reused_files: usize,
+    pub refreshed_files: usize,
+    pub pruned_rows: usize,
+    pub failed_files: usize,
+}
+
+/// Redacted session-open diagnostics.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartOpenDiagnosticsTrace {
+    pub skipped_entries: usize,
+    pub orphaned_parent_links: usize,
+}
+
+/// Bounded compaction scan summary for the current session path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartCompactionTrace {
+    pub scanned_entries: usize,
+    pub compaction_entries: usize,
+    pub latest_compaction_present: bool,
+    pub latest_compaction_index_from_end: Option<usize>,
+    pub first_kept_entry_found: Option<bool>,
+}
+
+/// First-render readiness projection without message text.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartFirstRenderTrace {
+    pub current_path_entries: usize,
+    pub projected_messages: usize,
+    pub user_messages: usize,
+    pub assistant_messages: usize,
+    pub tool_messages: usize,
+    pub system_messages: usize,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub total_tokens: u64,
+    pub ready: bool,
+}
+
+/// Explicit redaction/bounding contract for cold-start trace bundles.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionColdStartBoundsTrace {
+    pub max_phase_count: usize,
+    pub raw_path_included: bool,
+    pub raw_cwd_included: bool,
+    pub raw_message_content_included: bool,
+}
+
 /// Loading strategy for reconstructing a `Session` from a V2 store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum V2OpenMode {
@@ -1053,6 +1153,80 @@ impl SessionOpenDiagnostics {
         }
 
         lines
+    }
+}
+
+impl SessionColdStartTraceBundle {
+    /// Emit a stable, bounded logging event for the trace bundle.
+    pub fn emit_log(&self) {
+        tracing::info!(
+            schema = self.schema.as_str(),
+            session_path_hash = self.session_path_hash.as_str(),
+            selected_backend = self.storage.selected_backend.as_str(),
+            opened_backend = self.storage.opened_backend.as_str(),
+            total_entries = self.input.total_entries,
+            total_messages = self.input.total_messages,
+            phase_count = self.phases.len(),
+            open_skipped_entries = self.open_diagnostics.skipped_entries,
+            open_orphaned_parent_links = self.open_diagnostics.orphaned_parent_links,
+            index_cache_hit_files = self.index_refresh.cache_hit_files,
+            first_render_projected_messages = self.first_render.projected_messages,
+            total_elapsed_us = self.total_elapsed_us,
+            "session cold-start trace bundle"
+        );
+    }
+}
+
+fn elapsed_us_since(start: Instant) -> u64 {
+    u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+fn cold_start_hash_path(path: &Path) -> String {
+    let mut digest = format!("{:x}", Sha256::digest(path.to_string_lossy().as_bytes()));
+    digest.truncate(16);
+    digest
+}
+
+fn session_cold_start_storage_trace(path: &Path) -> SessionColdStartStorageTrace {
+    let path_extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("none")
+        .to_string();
+    let sqlite_feature_enabled = cfg!(feature = "sqlite-sessions");
+    let v2_sidecar_present = session_store_v2::has_v2_sidecar(path);
+    let v2_sidecar_stale = if v2_sidecar_present {
+        let v2_root = session_store_v2::v2_sidecar_path(path);
+        is_v2_sidecar_stale(path, &v2_root)
+    } else {
+        false
+    };
+
+    let (selected_backend, fallback_reason) = if matches!(path_extension.as_str(), "sqlite") {
+        if sqlite_feature_enabled {
+            ("sqlite", None)
+        } else {
+            (
+                "sqlite_unavailable",
+                Some("sqlite_sessions_feature_disabled".to_string()),
+            )
+        }
+    } else if v2_sidecar_present && !v2_sidecar_stale {
+        ("v2_sidecar", None)
+    } else if v2_sidecar_present {
+        ("jsonl", Some("v2_sidecar_stale".to_string()))
+    } else {
+        ("jsonl", None)
+    };
+
+    SessionColdStartStorageTrace {
+        selected_backend: selected_backend.to_string(),
+        opened_backend: "not_opened".to_string(),
+        path_extension,
+        sqlite_feature_enabled,
+        v2_sidecar_present,
+        v2_sidecar_stale,
+        fallback_reason,
     }
 }
 
@@ -1367,14 +1541,100 @@ impl Session {
 
     /// Open an existing session and return diagnostics about any recovered corruption.
     pub async fn open_with_diagnostics(path: &str) -> Result<(Self, SessionOpenDiagnostics)> {
-        let path = PathBuf::from(path);
+        Self::open_path_with_diagnostics(PathBuf::from(path)).await
+    }
+
+    /// Build a bounded, redacted trace bundle for session cold-start phases.
+    pub async fn cold_start_trace_bundle(
+        path: &Path,
+        sessions_root: &Path,
+    ) -> Result<SessionColdStartTraceBundle> {
+        let total_start = Instant::now();
+        let mut phases = Vec::with_capacity(4);
+        let mut storage = session_cold_start_storage_trace(path);
+
+        let open_start = Instant::now();
+        let (session, diagnostics) = Self::open_path_with_diagnostics(path.to_path_buf()).await?;
+        let open_elapsed_us = elapsed_us_since(open_start);
+        storage.opened_backend = session.opened_storage_backend_for_trace().to_string();
+        phases.push(SessionColdStartPhaseTrace {
+            name: "session_open".to_string(),
+            elapsed_us: open_elapsed_us,
+            status: "ok".to_string(),
+        });
+
+        let index_start = Instant::now();
+        let index_summary = SessionIndex::for_sessions_root(sessions_root).refresh_incremental()?;
+        phases.push(SessionColdStartPhaseTrace {
+            name: "session_index_refresh".to_string(),
+            elapsed_us: elapsed_us_since(index_start),
+            status: "ok".to_string(),
+        });
+        let index_refresh = SessionColdStartIndexRefreshTrace {
+            scanned_files: index_summary.scanned_files,
+            cache_hit_files: index_summary.reused_files,
+            reused_files: index_summary.reused_files,
+            refreshed_files: index_summary.refreshed_files,
+            pruned_rows: index_summary.pruned_rows,
+            failed_files: index_summary.failed_files,
+        };
+
+        let compaction_start = Instant::now();
+        let compaction_scan = session.cold_start_compaction_scan_trace();
+        phases.push(SessionColdStartPhaseTrace {
+            name: "compaction_scan".to_string(),
+            elapsed_us: elapsed_us_since(compaction_start),
+            status: "ok".to_string(),
+        });
+
+        let first_render_start = Instant::now();
+        let first_render = session.cold_start_first_render_trace();
+        phases.push(SessionColdStartPhaseTrace {
+            name: "first_render_ready".to_string(),
+            elapsed_us: elapsed_us_since(first_render_start),
+            status: "ok".to_string(),
+        });
+
+        let bundle = SessionColdStartTraceBundle {
+            schema: SESSION_COLD_START_TRACE_SCHEMA.to_string(),
+            session_path_hash: cold_start_hash_path(path),
+            storage,
+            input: SessionColdStartInputTrace {
+                total_entries: session.entries.len(),
+                total_messages: session.cached_message_count,
+            },
+            phases,
+            index_refresh,
+            open_diagnostics: SessionColdStartOpenDiagnosticsTrace {
+                skipped_entries: diagnostics.skipped_entries.len(),
+                orphaned_parent_links: diagnostics.orphaned_parent_links.len(),
+            },
+            compaction_scan,
+            first_render,
+            bounds: SessionColdStartBoundsTrace {
+                max_phase_count: 4,
+                raw_path_included: false,
+                raw_cwd_included: false,
+                raw_message_content_included: false,
+            },
+            total_elapsed_us: elapsed_us_since(total_start),
+        };
+        bundle.emit_log();
+        Ok(bundle)
+    }
+
+    async fn open_path_with_diagnostics(path: PathBuf) -> Result<(Self, SessionOpenDiagnostics)> {
         if !path.exists() {
             return Err(crate::Error::SessionNotFound {
                 path: path.display().to_string(),
             });
         }
 
-        if path.extension().is_some_and(|ext| ext == "sqlite") {
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| matches!(ext, "sqlite"))
+        {
             #[cfg(feature = "sqlite-sessions")]
             {
                 let session = Self::open_sqlite(&path).await?;
@@ -1414,6 +1674,125 @@ impl Session {
         }
 
         Self::open_jsonl_with_diagnostics(&path).await
+    }
+
+    const fn opened_storage_backend_for_trace(&self) -> &'static str {
+        match self.store_kind {
+            SessionStoreKind::Jsonl => {
+                if self.v2_sidecar_root.is_some() {
+                    "v2_sidecar"
+                } else {
+                    "jsonl"
+                }
+            }
+            #[cfg(feature = "sqlite-sessions")]
+            SessionStoreKind::Sqlite => "sqlite",
+        }
+    }
+
+    fn cold_start_current_path_entries(&self) -> Vec<&SessionEntry> {
+        if self.leaf_id.is_none() {
+            return Vec::new();
+        }
+        if self.is_linear {
+            return self.entries.iter().collect();
+        }
+        self.entries_for_current_path()
+    }
+
+    fn cold_start_compaction_scan_trace(&self) -> SessionColdStartCompactionTrace {
+        let path_entries = self.cold_start_current_path_entries();
+        let mut compaction_entries = 0usize;
+        let mut latest = None;
+
+        for (idx, entry) in path_entries.iter().enumerate() {
+            if let SessionEntry::Compaction(compaction) = entry {
+                compaction_entries = compaction_entries.saturating_add(1);
+                latest = Some((idx, compaction.first_kept_entry_id.clone()));
+            }
+        }
+
+        let (latest_compaction_index_from_end, first_kept_entry_found) =
+            if let Some((idx, first_kept_entry_id)) = latest {
+                let found = path_entries.iter().any(|entry| {
+                    entry
+                        .base_id()
+                        .is_some_and(|entry_id| entry_id == &first_kept_entry_id)
+                });
+                (
+                    Some(path_entries.len().saturating_sub(idx.saturating_add(1))),
+                    Some(found),
+                )
+            } else {
+                (None, None)
+            };
+
+        SessionColdStartCompactionTrace {
+            scanned_entries: path_entries.len(),
+            compaction_entries,
+            latest_compaction_present: latest_compaction_index_from_end.is_some(),
+            latest_compaction_index_from_end,
+            first_kept_entry_found,
+        }
+    }
+
+    fn cold_start_first_render_trace(&self) -> SessionColdStartFirstRenderTrace {
+        let path_entries = self.cold_start_current_path_entries();
+        let mut trace = SessionColdStartFirstRenderTrace {
+            current_path_entries: path_entries.len(),
+            projected_messages: 0,
+            user_messages: 0,
+            assistant_messages: 0,
+            tool_messages: 0,
+            system_messages: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            total_tokens: 0,
+            ready: true,
+        };
+
+        for entry in path_entries {
+            let SessionEntry::Message(message_entry) = entry else {
+                continue;
+            };
+
+            match &message_entry.message {
+                SessionMessage::User { .. } => {
+                    trace.projected_messages = trace.projected_messages.saturating_add(1);
+                    trace.user_messages = trace.user_messages.saturating_add(1);
+                }
+                SessionMessage::Assistant { message } => {
+                    trace.projected_messages = trace.projected_messages.saturating_add(1);
+                    trace.assistant_messages = trace.assistant_messages.saturating_add(1);
+                    trace.input_tokens = trace.input_tokens.saturating_add(message.usage.input);
+                    trace.output_tokens = trace.output_tokens.saturating_add(message.usage.output);
+                    trace.cache_read_tokens = trace
+                        .cache_read_tokens
+                        .saturating_add(message.usage.cache_read);
+                    trace.cache_write_tokens = trace
+                        .cache_write_tokens
+                        .saturating_add(message.usage.cache_write);
+                    trace.total_tokens = trace
+                        .total_tokens
+                        .saturating_add(message.usage.total_tokens);
+                }
+                SessionMessage::ToolResult { .. } | SessionMessage::BashExecution { .. } => {
+                    trace.projected_messages = trace.projected_messages.saturating_add(1);
+                    trace.tool_messages = trace.tool_messages.saturating_add(1);
+                }
+                SessionMessage::Custom { display: true, .. } => {
+                    trace.projected_messages = trace.projected_messages.saturating_add(1);
+                    trace.system_messages = trace.system_messages.saturating_add(1);
+                }
+                SessionMessage::Custom { display: false, .. }
+                | SessionMessage::CompactionSummary { .. }
+                | SessionMessage::BranchSummary { .. } => {}
+            }
+        }
+
+        trace
     }
 
     /// Open a session from an already-open V2 store with an explicit read mode.
@@ -5235,11 +5614,40 @@ mod tests {
         }
     }
 
+    fn make_test_assistant_message(text: &str, total_tokens: u64) -> SessionMessage {
+        SessionMessage::Assistant {
+            message: AssistantMessage {
+                content: vec![ContentBlock::Text(TextContent::new(text.to_string()))],
+                api: "test-api".to_string(),
+                provider: "test-provider".to_string(),
+                model: "test-model".to_string(),
+                usage: Usage {
+                    input: total_tokens / 2,
+                    output: total_tokens.saturating_sub(total_tokens / 2),
+                    total_tokens,
+                    ..Usage::default()
+                },
+                stop_reason: StopReason::Stop,
+                error_message: None,
+                timestamp: 0,
+            },
+        }
+    }
+
     fn run_async<T>(future: impl Future<Output = T>) -> T {
         let runtime = RuntimeBuilder::current_thread()
             .build()
             .expect("build runtime");
         runtime.block_on(future)
+    }
+
+    fn tempdir_under_tmpdir(prefix: &str) -> tempfile::TempDir {
+        let tmp_root = env::var_os("TMPDIR").map_or_else(env::temp_dir, PathBuf::from);
+        std::fs::create_dir_all(&tmp_root).expect("create TMPDIR root");
+        tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir_in(&tmp_root)
+            .expect("create tempdir under TMPDIR")
     }
 
     fn current_dir_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -6332,6 +6740,118 @@ mod tests {
         assert!(types.contains(&"compaction".to_string()));
         assert!(types.contains(&"branch_summary".to_string()));
         assert!(types.contains(&"session_info".to_string()));
+    }
+
+    #[test]
+    fn cold_start_trace_bundle_is_bounded_redacted_and_cache_aware() {
+        let temp = tempdir_under_tmpdir("pi-session-cold-start-");
+        if let Some(tmpdir) = env::var_os("TMPDIR") {
+            assert!(temp.path().starts_with(PathBuf::from(tmpdir)));
+        }
+
+        let mut session = Session::create_with_dir(Some(temp.path().to_path_buf()));
+        session.header.cwd = "/private/project/secret-cwd".to_string();
+        session.header.provider = Some("test-provider".to_string());
+        session.header.model_id = Some("test-model".to_string());
+
+        let mut first_kept_entry_id = None;
+        for idx in 0..640 {
+            let text = if idx == 7 {
+                "secret-user-message should not appear in trace".to_string()
+            } else {
+                format!("large-history-message-{idx}")
+            };
+            let id = session.append_message(make_test_message(&text));
+            if idx == 512 {
+                first_kept_entry_id = Some(id);
+            }
+            if idx % 128 == 0 {
+                session.append_message(make_test_assistant_message(
+                    &format!("secret-assistant-message-{idx}"),
+                    32,
+                ));
+            }
+        }
+
+        session.append_compaction(
+            "secret compaction summary should not appear in trace".to_string(),
+            first_kept_entry_id.expect("first kept entry id"),
+            12_345,
+            None,
+            None,
+        );
+        for idx in 0..16 {
+            session.append_message(make_test_message(&format!("tail-message-{idx}")));
+        }
+
+        run_async(async { session.save().await }).expect("save large session");
+        let path = session.path.clone().expect("session path");
+
+        let first_trace = run_async(async {
+            Session::cold_start_trace_bundle(&path, temp.path())
+                .await
+                .expect("first cold-start trace")
+        });
+        let second_trace = run_async(async {
+            Session::cold_start_trace_bundle(&path, temp.path())
+                .await
+                .expect("second cold-start trace")
+        });
+
+        assert_eq!(first_trace.schema, SESSION_COLD_START_TRACE_SCHEMA);
+        assert_eq!(second_trace.schema, SESSION_COLD_START_TRACE_SCHEMA);
+        assert_eq!(second_trace.storage.selected_backend, "jsonl");
+        assert_eq!(second_trace.storage.opened_backend, "jsonl");
+        assert!(second_trace.index_refresh.scanned_files >= 1);
+        assert!(second_trace.index_refresh.cache_hit_files >= 1);
+        assert_eq!(
+            second_trace.index_refresh.cache_hit_files,
+            second_trace.index_refresh.reused_files
+        );
+        assert_eq!(
+            second_trace.open_diagnostics,
+            SessionColdStartOpenDiagnosticsTrace {
+                skipped_entries: 0,
+                orphaned_parent_links: 0,
+            }
+        );
+        assert!(second_trace.compaction_scan.latest_compaction_present);
+        assert_eq!(
+            second_trace.compaction_scan.first_kept_entry_found,
+            Some(true)
+        );
+        assert!(second_trace.first_render.ready);
+        assert!(second_trace.first_render.current_path_entries >= 640);
+        assert!(second_trace.first_render.projected_messages >= 640);
+        assert!(second_trace.first_render.total_tokens >= 32);
+
+        let phase_names = second_trace
+            .phases
+            .iter()
+            .map(|phase| phase.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            phase_names,
+            vec![
+                "session_open",
+                "session_index_refresh",
+                "compaction_scan",
+                "first_render_ready",
+            ]
+        );
+        assert!(second_trace.phases.len() <= second_trace.bounds.max_phase_count);
+        assert!(!second_trace.bounds.raw_path_included);
+        assert!(!second_trace.bounds.raw_cwd_included);
+        assert!(!second_trace.bounds.raw_message_content_included);
+
+        let serialized = serde_json::to_string(&second_trace).expect("serialize trace");
+        assert!(!serialized.contains("secret-user-message"));
+        assert!(!serialized.contains("secret-assistant-message"));
+        assert!(!serialized.contains("secret compaction summary"));
+        assert!(!serialized.contains("secret-cwd"));
+        assert!(!serialized.contains(&path.display().to_string()));
+        assert!(!serialized.contains(&temp.path().display().to_string()));
+        assert_eq!(second_trace.session_path_hash.len(), 16);
     }
 
     #[test]
