@@ -74,6 +74,10 @@ fn extension_wait_sleep(duration: Duration) -> asupersync::time::Sleep {
     sleep(extension_wait_now(), duration)
 }
 
+fn extension_wait_short_blocking_pause(duration: Duration) {
+    std::thread::park_timeout(duration.min(Duration::from_millis(1)));
+}
+
 /// Canonicalize a path, stripping the `\\?\` verbatim prefix on Windows.
 ///
 /// `std::fs::canonicalize` on Windows returns extended-length paths (`\\?\C:\...`)
@@ -24630,10 +24634,13 @@ async fn await_js_task(
     }
 
     let start = extension_wait_now();
+    let start_instant = Instant::now();
 
     loop {
         let now = extension_wait_now();
-        if Duration::from_nanos(now.duration_since(start)) > timeout {
+        if Duration::from_nanos(now.duration_since(start)) > timeout
+            || start_instant.elapsed() > timeout
+        {
             return Err(Error::extension(format!(
                 "JS task timed out after {}ms",
                 timeout.as_millis()
@@ -24702,7 +24709,7 @@ async fn await_js_task(
             }
             TaskTakeResult::Pending => {
                 if !runtime.has_pending() {
-                    extension_wait_sleep(Duration::from_millis(1)).await;
+                    extension_wait_short_blocking_pause(Duration::from_millis(1));
                 }
             }
             TaskTakeResult::Resolved(value) => return Ok(value),
@@ -24729,7 +24736,7 @@ async fn await_js_task(
                 match state.status.as_str() {
                     "pending" => {
                         if !runtime.has_pending() {
-                            extension_wait_sleep(Duration::from_millis(1)).await;
+                            extension_wait_short_blocking_pause(Duration::from_millis(1));
                         }
                     }
                     "resolved" => return Ok(state.value.unwrap_or(Value::Null)),

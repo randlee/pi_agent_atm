@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use asupersync::runtime::RuntimeBuilder;
 use asupersync::runtime::reactor::create_reactor;
-use asupersync::time::{sleep, timeout, wall_now};
+use asupersync::time::{timeout, wall_now};
 use chrono::{SecondsFormat, Utc};
 use clap::{ArgAction, Parser};
 use pi::extensions::{
@@ -569,7 +569,7 @@ async fn run_loop(
             let Some(delay) = next_event_sleep_duration(now, next_event, deadline) else {
                 break;
             };
-            sleep(wall_now(), delay).await;
+            std::thread::park_timeout(delay.min(Duration::from_millis(1)));
             continue;
         }
 
