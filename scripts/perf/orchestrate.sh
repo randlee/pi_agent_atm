@@ -1685,6 +1685,7 @@ PARAMETER_SWEEPS_PATH="$OUTPUT_DIR/results/parameter_sweeps.json"
 OPPORTUNITY_MATRIX_PATH="$OUTPUT_DIR/results/opportunity_matrix.json"
 if OUTPUT_DIR="$OUTPUT_DIR" \
   PROJECT_ROOT="$PROJECT_ROOT" \
+  TARGET_DIR="$TARGET_DIR" \
   CORRELATION_ID="$CORRELATION_ID" \
   TIMESTAMP="$TIMESTAMP" \
   PHASE1_MATRIX_PATH="$PHASE1_MATRIX_PATH" \
@@ -1699,6 +1700,7 @@ from pathlib import Path
 
 output_dir = Path(os.environ["OUTPUT_DIR"])
 project_root = Path(os.environ["PROJECT_ROOT"])
+target_dir = Path(os.environ["TARGET_DIR"])
 correlation_id = os.environ["CORRELATION_ID"]
 timestamp = os.environ["TIMESTAMP"]
 phase1_matrix_path = Path(os.environ["PHASE1_MATRIX_PATH"])
@@ -1707,9 +1709,9 @@ opportunity_matrix_path = Path(os.environ["OPPORTUNITY_MATRIX_PATH"])
 
 manifest_path = output_dir / "manifest.json"
 scenario_runner_path = output_dir / "results" / "scenario_runner.jsonl"
-scenario_runner_fallback_path = project_root / "target" / "perf" / "scenario_runner.jsonl"
+scenario_runner_fallback_path = target_dir / "perf" / "scenario_runner.jsonl"
 workload_path = output_dir / "results" / "pijs_workload.jsonl"
-workload_fallback_path = project_root / "target" / "perf" / "pijs_workload.jsonl"
+workload_fallback_path = target_dir / "perf" / "pijs_workload.jsonl"
 stratification_path = output_dir / "results" / "extension_benchmark_stratification.json"
 baseline_path = output_dir / "results" / "baseline_variance_confidence.json"
 perf_sli_path = project_root / "docs" / "perf_sli_matrix.json"

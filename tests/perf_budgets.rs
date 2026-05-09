@@ -178,6 +178,29 @@ fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+fn resolve_target_dir(root: &Path, raw_target_dir: Option<&std::ffi::OsStr>) -> PathBuf {
+    raw_target_dir.map_or_else(
+        || root.join("target"),
+        |raw| {
+            let target_dir = PathBuf::from(raw);
+            if target_dir.is_absolute() {
+                target_dir
+            } else {
+                root.join(target_dir)
+            }
+        },
+    )
+}
+
+fn target_dir(root: &Path) -> PathBuf {
+    resolve_target_dir(root, std::env::var_os("CARGO_TARGET_DIR").as_deref())
+}
+
+fn display_source_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map_or_else(|_| path.display().to_string(), |p| p.display().to_string())
+}
+
 fn read_json_file(path: &Path) -> Option<Value> {
     let content = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
@@ -327,25 +350,24 @@ fn evaluate_artifact_contract(paths: &[PathBuf], max_age_hours: f64) -> Option<S
 }
 
 fn budget_artifact_candidates(root: &Path, budget_name: &str) -> Vec<PathBuf> {
+    let cargo_target_dir = target_dir(root);
     match budget_name {
-        "tool_call_latency_p99" | "tool_call_throughput_min" => pijs_workload_candidate_paths()
-            .iter()
-            .map(|relative| root.join(relative))
-            .collect(),
+        "tool_call_latency_p99" | "tool_call_throughput_min" => pijs_workload_candidate_paths(root),
         "ext_cold_load_simple_p95" => {
             vec![
-                root.join("target/criterion/ext_load_init/load_init_cold/hello/new/estimates.json"),
+                cargo_target_dir
+                    .join("criterion/ext_load_init/load_init_cold/hello/new/estimates.json"),
             ]
         }
         "startup_version_p95" => {
-            vec![root.join("target/criterion/startup/version/warm/new/estimates.json")]
+            vec![cargo_target_dir.join("criterion/startup/version/warm/new/estimates.json")]
         }
         "policy_eval_p99" => {
-            collect_estimate_json_files(&root.join("target/criterion/ext_policy/evaluate"))
+            collect_estimate_json_files(&cargo_target_dir.join("criterion/ext_policy/evaluate"))
         }
         "binary_size_release" => binary_size_candidate_paths(root),
         "protocol_parse_p99" => collect_estimate_json_files(
-            &root.join("target/criterion/ext_protocol/parse_and_validate"),
+            &cargo_target_dir.join("criterion/ext_protocol/parse_and_validate"),
         ),
         _ => Vec::new(),
     }
@@ -381,7 +403,7 @@ fn build_binary_size_candidate_paths(
 }
 
 fn binary_size_candidate_paths(root: &Path) -> Vec<PathBuf> {
-    let target_dir = root.join("target");
+    let target_dir = target_dir(root);
     let detected_profile = pi::perf_build::detect_build_profile();
     let release_binary_override = binary_size_release_override();
     build_binary_size_candidate_paths(&target_dir, release_binary_override, &detected_profile)
@@ -415,7 +437,9 @@ fn extension_stratification_candidates(root: &Path) -> Vec<PathBuf> {
             paths.push(PathBuf::from(trimmed).join("extension_benchmark_stratification.json"));
         }
     }
-    paths.push(root.join("target/perf/extension_benchmark_stratification.json"));
+    let cargo_target_dir = target_dir(root);
+    paths.push(cargo_target_dir.join("perf/extension_benchmark_stratification.json"));
+    paths.push(cargo_target_dir.join("perf/results/extension_benchmark_stratification.json"));
     paths.push(root.join("tests/perf/reports/extension_benchmark_stratification.json"));
     paths
 }
@@ -434,7 +458,7 @@ fn phase1_matrix_validation_candidates(root: &Path) -> Vec<PathBuf> {
             paths.push(PathBuf::from(trimmed).join("results/phase1_matrix_validation.json"));
         }
     }
-    paths.push(root.join("target/perf/results/phase1_matrix_validation.json"));
+    paths.push(target_dir(root).join("perf/results/phase1_matrix_validation.json"));
     paths.push(root.join("tests/perf/reports/phase1_matrix_validation.json"));
     paths
 }
@@ -1009,29 +1033,37 @@ fn read_pijs_workload_throughput(root: &Path) -> (Option<f64>, String) {
 }
 
 fn read_pijs_workload_events(root: &Path) -> (Vec<Value>, String) {
-    for relative_path in pijs_workload_candidate_paths() {
-        let full_path = root.join(relative_path);
-        let events = read_jsonl_file(&full_path);
+    for path in pijs_workload_candidate_paths(root) {
+        let events = read_jsonl_file(&path);
         if !events.is_empty() {
-            return (events, relative_path.to_string());
+            return (events, display_source_path(root, &path));
         }
     }
     (Vec::new(), "no pijs_workload data".to_string())
 }
 
-const fn pijs_workload_candidate_paths() -> &'static [&'static str] {
-    &[
-        "target/perf/perf/pijs_workload_perf.jsonl",
-        "target/perf/release/pijs_workload_release.jsonl",
-        "target/perf/debug/pijs_workload_debug.jsonl",
-        "target/perf/pijs_workload.jsonl",
+fn pijs_workload_candidate_paths(root: &Path) -> Vec<PathBuf> {
+    pijs_workload_candidate_paths_in_target_dir(&target_dir(root))
+}
+
+fn pijs_workload_candidate_paths_in_target_dir(target_dir: &Path) -> Vec<PathBuf> {
+    let perf_dir = target_dir.join("perf");
+    [
+        "perf/pijs_workload_perf.jsonl",
+        "release/pijs_workload_release.jsonl",
+        "debug/pijs_workload_debug.jsonl",
+        "pijs_workload.jsonl",
+        "results/pijs_workload.jsonl",
     ]
+    .into_iter()
+    .map(|relative| perf_dir.join(relative))
+    .collect()
 }
 
 fn read_criterion_load_time(root: &Path, ext: &str) -> (Option<f64>, String) {
     // Criterion stores results in target/criterion/<group>/<bench>/new/estimates.json
-    let path = root.join(format!(
-        "target/criterion/ext_load_init/load_init_cold/{ext}/new/estimates.json"
+    let path = target_dir(root).join(format!(
+        "criterion/ext_load_init/load_init_cold/{ext}/new/estimates.json"
     ));
     if let Some(estimates) = read_json_file(&path) {
         if let Some(mean_ns) = estimates
@@ -1072,18 +1104,11 @@ fn read_total_load_time(root: &Path) -> (Option<f64>, String) {
 
 fn read_stress_rss_growth(root: &Path) -> (Option<f64>, String) {
     let candidate_paths = [
-        (
-            "target/perf/stress_triage.json",
-            "target/perf/stress_triage.json",
-        ),
-        (
-            "tests/perf/reports/stress_triage.json",
-            "tests/perf/reports/stress_triage.json",
-        ),
+        target_dir(root).join("perf/stress_triage.json"),
+        root.join("tests/perf/reports/stress_triage.json"),
     ];
 
-    for (relative_path, source) in candidate_paths {
-        let path = root.join(relative_path);
+    for path in candidate_paths {
         if let Some(triage) = read_json_file(&path) {
             let pct = triage
                 .get("rss_growth_pct")
@@ -1098,7 +1123,7 @@ fn read_stress_rss_growth(root: &Path) -> (Option<f64>, String) {
 
             if let Some(value) = pct {
                 let normalized_percent = if value <= 1.0 { value * 100.0 } else { value };
-                return (Some(normalized_percent), source.to_string());
+                return (Some(normalized_percent), display_source_path(root, &path));
             }
         }
     }
@@ -1109,8 +1134,8 @@ fn read_stress_rss_growth(root: &Path) -> (Option<f64>, String) {
 
 fn read_criterion_startup(root: &Path, subcommand: &str) -> (Option<f64>, String) {
     // Criterion stores startup benchmarks at target/criterion/startup/<subcommand>/warm/new/estimates.json
-    let path = root.join(format!(
-        "target/criterion/startup/{subcommand}/warm/new/estimates.json"
+    let path = target_dir(root).join(format!(
+        "criterion/startup/{subcommand}/warm/new/estimates.json"
     ));
     if let Some(estimates) = read_json_file(&path) {
         if let Some(mean_ns) = estimates
@@ -1126,28 +1151,36 @@ fn read_criterion_startup(root: &Path, subcommand: &str) -> (Option<f64>, String
 }
 
 fn read_scenario_runner_per_call(root: &Path, scenario: &str) -> (Option<f64>, String) {
-    // Read from target/perf/scenario_runner.jsonl
-    let path = root.join("target/perf/scenario_runner.jsonl");
-    let events = read_jsonl_file(&path);
+    let candidates = [
+        target_dir(root).join("perf/scenario_runner.jsonl"),
+        target_dir(root).join("perf/results/scenario_runner.jsonl"),
+    ];
     // Find the worst (max) per_call_us across all extensions for this scenario.
     let mut max_us: Option<f64> = None;
-    for event in &events {
-        if event.get("scenario").and_then(Value::as_str) == Some(scenario) {
+    let mut source: Option<String> = None;
+    for path in candidates {
+        for event in read_jsonl_file(&path) {
+            if event.get("scenario").and_then(Value::as_str) != Some(scenario) {
+                continue;
+            }
             if let Some(us) = event.get("per_call_us").and_then(Value::as_f64) {
                 max_us = Some(max_us.map_or(us, |prev: f64| prev.max(us)));
+                source.get_or_insert_with(|| display_source_path(root, &path));
             }
         }
     }
-    max_us.map_or_else(
-        || (None, format!("no scenario_runner data for {scenario}")),
-        |us| (Some(us), "target/perf/scenario_runner.jsonl".to_string()),
-    )
+    let source = source.unwrap_or_else(|| format!("no scenario_runner data for {scenario}"));
+    if let Some(us) = max_us {
+        (Some(us), source)
+    } else {
+        (None, source)
+    }
 }
 
 fn read_criterion_policy_eval(root: &Path) -> (Option<f64>, String) {
     // Policy eval benchmarks: target/criterion/ext_policy/evaluate/*/new/estimates.json
     // Take the worst (max) across all policy variants, convert ns → ns.
-    let base = root.join("target/criterion/ext_policy/evaluate");
+    let base = target_dir(root).join("criterion/ext_policy/evaluate");
     let mut max_ns: Option<f64> = None;
     if let Ok(entries) = std::fs::read_dir(&base) {
         for entry in entries.flatten() {
@@ -1192,9 +1225,7 @@ fn read_binary_size(root: &Path) -> (Option<f64>, String) {
     for path in binary_size_candidate_paths(root) {
         if let Ok(meta) = std::fs::metadata(&path) {
             let size_mb = meta.len() as f64 / 1024.0 / 1024.0;
-            let source = path
-                .strip_prefix(root)
-                .map_or_else(|_| path.display().to_string(), |p| p.display().to_string());
+            let source = display_source_path(root, &path);
             return (Some(size_mb), source);
         }
     }
@@ -1204,7 +1235,7 @@ fn read_binary_size(root: &Path) -> (Option<f64>, String) {
 fn read_criterion_protocol_parse(root: &Path) -> (Option<f64>, String) {
     // Protocol parse: target/criterion/ext_protocol/parse_and_validate/*/new/estimates.json
     // Take the worst (max) across variants, convert ns → us.
-    let base = root.join("target/criterion/ext_protocol/parse_and_validate");
+    let base = target_dir(root).join("criterion/ext_protocol/parse_and_validate");
     let mut max_us: Option<f64> = None;
     if let Ok(entries) = std::fs::read_dir(&base) {
         for entry in entries.flatten() {
@@ -1233,6 +1264,42 @@ fn read_criterion_protocol_parse(root: &Path) -> (Option<f64>, String) {
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn target_dir_resolution_honors_cargo_target_dir_shape() {
+    let root = Path::new("/workspace/pi_agent_rust");
+
+    assert_eq!(resolve_target_dir(root, None), root.join("target"));
+    assert_eq!(
+        resolve_target_dir(root, Some(std::ffi::OsStr::new("target/sunnybeacon"))),
+        root.join("target/sunnybeacon")
+    );
+    assert_eq!(
+        resolve_target_dir(
+            root,
+            Some(std::ffi::OsStr::new(
+                "/data/tmp/pi_agent_rust_cargo/sunnybeacon/target"
+            ))
+        ),
+        PathBuf::from("/data/tmp/pi_agent_rust_cargo/sunnybeacon/target")
+    );
+}
+
+#[test]
+fn pijs_workload_candidates_follow_resolved_target_dir() {
+    let root = Path::new("/workspace/pi_agent_rust");
+    let candidates = pijs_workload_candidate_paths_in_target_dir(&resolve_target_dir(root, None));
+
+    assert_eq!(
+        candidates[0],
+        root.join("target/perf/perf/pijs_workload_perf.jsonl")
+    );
+    assert_eq!(candidates[3], root.join("target/perf/pijs_workload.jsonl"));
+    assert_eq!(
+        candidates[4],
+        root.join("target/perf/results/pijs_workload.jsonl")
+    );
+}
 
 #[test]
 fn budget_definitions_are_valid() {
