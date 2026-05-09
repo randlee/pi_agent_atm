@@ -90,36 +90,36 @@
     },
     {
       "category": "dropin",
-      "claim_surface": "release_facing",
+      "claim_surface": "historical_snapshot",
       "exists": true,
       "id": "dropin_differential_suite",
       "issue_count": 0,
       "issue_kinds": [],
       "release_blocking": true,
       "schema": "pi.dropin.differential_evidence_suite.v1",
-      "status": "ready"
+      "status": "historical_snapshot"
     },
     {
       "category": "dropin",
-      "claim_surface": "release_facing",
+      "claim_surface": "historical_snapshot",
       "exists": true,
       "id": "dropin_feature_inventory",
       "issue_count": 0,
       "issue_kinds": [],
       "release_blocking": true,
       "schema": "pi.dropin.feature_inventory.v1",
-      "status": "ready"
+      "status": "historical_snapshot"
     },
     {
       "category": "dropin",
-      "claim_surface": "release_facing",
+      "claim_surface": "historical_snapshot",
       "exists": true,
       "id": "dropin_gap_ledger",
       "issue_count": 0,
       "issue_kinds": [],
       "release_blocking": true,
       "schema": "pi.dropin.parity_gap_ledger.v1",
-      "status": "ready"
+      "status": "historical_snapshot"
     },
     {
       "category": "extension",
@@ -204,7 +204,8 @@
       "category": "dropin",
       "status": "ready",
       "statuses": {
-        "ready": 5
+        "historical_snapshot": 3,
+        "ready": 2
       }
     },
     {
