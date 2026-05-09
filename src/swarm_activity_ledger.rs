@@ -47,6 +47,9 @@ pub const DEFAULT_SWARM_ACTIVITY_LOW_THROUGHPUT_THRESHOLD: u64 = 1;
 
 const REDACTED: &str = "[REDACTED]";
 const HOTSPOT_KEY_MAX_CHARS: usize = 240;
+const BLOCKER_FINGERPRINT_PREFIX: &str = "blocker:";
+const BLOCKER_FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const BLOCKER_FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 const DETAIL_HOTSPOT_KEYS: &[&str] = &[
     "command",
     "decision",
@@ -73,6 +76,21 @@ const DIGEST_DETAIL_KEYS: &[&str] = &[
     "tool",
     "tool_name",
     "verification_id",
+];
+const BLOCKER_FINGERPRINT_DETAIL_KEYS: &[&str] = &[
+    "artifact",
+    "command",
+    "error",
+    "exit_code",
+    "file",
+    "message",
+    "path",
+    "reason",
+    "status",
+    "stderr",
+    "stdout",
+    "tool",
+    "tool_name",
 ];
 const SENSITIVE_KEY_FRAGMENTS: &[&str] = &[
     "authorization",
@@ -211,6 +229,12 @@ pub struct SwarmActivityHotspot {
     pub key: String,
     /// Number of events observed for this key.
     pub count: u64,
+    /// Stable normalized fingerprint used for grouping, when distinct from the display key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    /// Representative already-redacted evidence excerpt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample: Option<String>,
 }
 
 /// Approximate latency quantiles retained by a bounded sketch.
@@ -1121,13 +1145,25 @@ fn repeated_blockers(
     entries: &[SwarmActivityLedgerEntry],
     config: SwarmActivityDigestConfig,
 ) -> Vec<SwarmActivityHotspot> {
-    let mut counts = BTreeMap::new();
+    if config.max_items == 0 {
+        return Vec::new();
+    }
+    let mut counts = BTreeMap::<String, BlockerHotspotAccumulator>::new();
     for entry in entries {
         if is_blocker_entry(entry) {
-            record_hotspot(&mut counts, &blocker_key(entry), config.max_items);
+            let fingerprint = blocker_fingerprint(entry);
+            let accumulator = counts.entry(fingerprint.fingerprint).or_insert_with(|| {
+                BlockerHotspotAccumulator {
+                    key: fingerprint.display_key,
+                    sample: fingerprint.sample,
+                    count: 0,
+                }
+            });
+            accumulator.count = accumulator.count.saturating_add(1);
+            prune_blocker_accumulators(&mut counts, config.max_items);
         }
     }
-    top_hotspots(&counts, config.max_items)
+    top_blocker_hotspots(&counts, config.max_items)
         .into_iter()
         .filter(|hotspot| hotspot.count >= config.repeated_blocker_threshold)
         .collect()
@@ -1342,9 +1378,10 @@ fn push_repeated_blocker_signal(
         evidence,
         SwarmActivitySaturationSignal::RepeatedBlockers,
         format!("repeated_blockers: {}", counts.repeated_blockers),
-        repeated_blockers
-            .iter()
-            .map(|hotspot| format!("repeated_blocker:{}={}", hotspot.key, hotspot.count)),
+        repeated_blockers.iter().map(|hotspot| {
+            let key = hotspot.fingerprint.as_deref().unwrap_or(&hotspot.key);
+            format!("repeated_blocker:{key}={}", hotspot.count)
+        }),
     );
 }
 
@@ -1459,13 +1496,260 @@ struct ThreadDigestAccumulator {
     last_summary: String,
 }
 
-fn blocker_key(entry: &SwarmActivityLedgerEntry) -> String {
-    entry
+struct BlockerFingerprint {
+    fingerprint: String,
+    display_key: String,
+    sample: String,
+}
+
+#[derive(Default)]
+struct BlockerHotspotAccumulator {
+    key: String,
+    sample: String,
+    count: u64,
+}
+
+fn blocker_fingerprint(entry: &SwarmActivityLedgerEntry) -> BlockerFingerprint {
+    let normalized = normalized_blocker_evidence(entry);
+    let digest = stable_blocker_hash(&normalized);
+    BlockerFingerprint {
+        fingerprint: format!("{BLOCKER_FINGERPRINT_PREFIX}{digest:016x}"),
+        display_key: bounded_hotspot_key(&normalized),
+        sample: blocker_sample(entry),
+    }
+}
+
+fn normalized_blocker_evidence(entry: &SwarmActivityLedgerEntry) -> String {
+    if let Some(context) = blocker_context_evidence(entry) {
+        return context;
+    }
+    let mut parts = vec![entry.summary.as_str()];
+    for key in BLOCKER_FINGERPRINT_DETAIL_KEYS {
+        if let Some(value) = entry.details().get(*key)
+            && !is_sensitive_field(key)
+            && value != REDACTED
+        {
+            parts.push(*key);
+            parts.push(value.as_str());
+        }
+    }
+    let normalized = normalize_blocker_text(&parts.join(" "));
+    if normalized.is_empty() {
+        "empty".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn blocker_context_evidence(entry: &SwarmActivityLedgerEntry) -> Option<String> {
+    if has_blocker_diagnostic_details(entry) {
+        return None;
+    }
+    let id = entry
         .ids
         .bead_id
-        .clone()
-        .or_else(|| entry.ids.mail_thread_id.clone())
-        .unwrap_or_else(|| bounded_hotspot_key(&entry.summary))
+        .as_deref()
+        .or(entry.ids.mail_thread_id.as_deref())?;
+    let status = entry
+        .details()
+        .get("status")
+        .map_or("unknown", String::as_str);
+    Some(normalize_blocker_text(&format!("id={id} status={status}")))
+}
+
+fn has_blocker_diagnostic_details(entry: &SwarmActivityLedgerEntry) -> bool {
+    entry.details().keys().any(|key| {
+        matches!(
+            key.as_str(),
+            "artifact"
+                | "command"
+                | "error"
+                | "exit_code"
+                | "file"
+                | "message"
+                | "path"
+                | "reason"
+                | "stderr"
+                | "stdout"
+        )
+    })
+}
+
+fn blocker_sample(entry: &SwarmActivityLedgerEntry) -> String {
+    let mut sample = entry.summary.clone();
+    if let Some(detail) = selected_digest_detail(entry) {
+        sample.push_str("; ");
+        sample.push_str(&detail);
+    }
+    bounded_hotspot_key(&sample)
+}
+
+fn normalize_blocker_text(value: &str) -> String {
+    value
+        .split_whitespace()
+        .filter_map(normalize_blocker_token)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_blocker_token(token: &str) -> Option<String> {
+    let trimmed = token
+        .trim_matches(|character: char| {
+            !character.is_ascii_alphanumeric()
+                && !matches!(
+                    character,
+                    '/' | '\\' | '_' | '-' | '.' | ':' | '=' | '[' | ']'
+                )
+        })
+        .to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed == "[redacted]" || trimmed == "redacted" {
+        return Some("<redacted>".to_string());
+    }
+    if let Some((key, value)) = trimmed.split_once('=') {
+        let normalized = normalize_blocker_value(value);
+        return Some(format!("{key}={normalized}"));
+    }
+    Some(normalize_blocker_value(&trimmed))
+}
+
+fn normalize_blocker_value(value: &str) -> String {
+    if looks_like_path(value) {
+        return "<path>".to_string();
+    }
+    if looks_like_network_endpoint(value) {
+        return "<addr>".to_string();
+    }
+    if looks_like_uuid(value) {
+        return "<uuid>".to_string();
+    }
+    if looks_like_hex_id(value) {
+        return "<hex>".to_string();
+    }
+    if looks_like_duration(value) {
+        return "<duration>".to_string();
+    }
+    if looks_like_large_number(value) {
+        return "<num>".to_string();
+    }
+    match value {
+        "blocked" | "blocker" | "blocking" => "block".to_string(),
+        "failed" | "failure" | "failing" => "fail".to_string(),
+        "timed-out" | "timedout" => "timeout".to_string(),
+        _ => value.to_string(),
+    }
+}
+
+fn looks_like_path(value: &str) -> bool {
+    value.contains('/')
+        || value.contains('\\')
+        || value.starts_with("./")
+        || value.starts_with("../")
+        || value.starts_with("~/")
+}
+
+fn looks_like_network_endpoint(value: &str) -> bool {
+    let Some((host, port)) = value.rsplit_once(':') else {
+        return false;
+    };
+    !host.is_empty()
+        && !port.is_empty()
+        && port.chars().all(|character| character.is_ascii_digit())
+        && (host.contains('.') || host == "localhost" || host.starts_with('['))
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12].iter().zip(parts).all(|(len, part)| {
+            part.len() == *len && part.chars().all(|character| character.is_ascii_hexdigit())
+        })
+}
+
+fn looks_like_hex_id(value: &str) -> bool {
+    value.len() >= 8 && value.chars().all(|character| character.is_ascii_hexdigit())
+}
+
+fn looks_like_duration(value: &str) -> bool {
+    for suffix in [
+        "milliseconds",
+        "millisecond",
+        "msecs",
+        "msec",
+        "ms",
+        "secs",
+        "sec",
+        "s",
+    ] {
+        if let Some(number) = value.strip_suffix(suffix) {
+            return !number.is_empty()
+                && number
+                    .chars()
+                    .all(|character| character.is_ascii_digit() || character == '.');
+        }
+    }
+    false
+}
+
+fn looks_like_large_number(value: &str) -> bool {
+    value.len() >= 3 && value.chars().all(|character| character.is_ascii_digit())
+}
+
+fn stable_blocker_hash(value: &str) -> u64 {
+    let mut hash = BLOCKER_FNV_OFFSET;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(BLOCKER_FNV_PRIME);
+    }
+    hash
+}
+
+fn prune_blocker_accumulators(
+    counts: &mut BTreeMap<String, BlockerHotspotAccumulator>,
+    capacity: usize,
+) {
+    if counts.len() <= capacity {
+        return;
+    }
+    let keep_keys = top_blocker_hotspots(counts, capacity)
+        .into_iter()
+        .filter_map(|hotspot| hotspot.fingerprint)
+        .collect::<BTreeSet<_>>();
+    counts.retain(|fingerprint, _| keep_keys.contains(fingerprint));
+}
+
+fn top_blocker_hotspots(
+    counts: &BTreeMap<String, BlockerHotspotAccumulator>,
+    capacity: usize,
+) -> Vec<SwarmActivityHotspot> {
+    if capacity == 0 {
+        return Vec::new();
+    }
+    let mut hotspots = counts
+        .iter()
+        .map(|(fingerprint, accumulator)| SwarmActivityHotspot {
+            key: accumulator.key.clone(),
+            count: accumulator.count,
+            fingerprint: Some(fingerprint.clone()),
+            sample: Some(accumulator.sample.clone()),
+        })
+        .collect::<Vec<_>>();
+    hotspots.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| {
+                left.fingerprint
+                    .as_deref()
+                    .unwrap_or(&left.key)
+                    .cmp(right.fingerprint.as_deref().unwrap_or(&right.key))
+            })
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    hotspots.truncate(capacity);
+    hotspots
 }
 
 fn is_blocker_entry(entry: &SwarmActivityLedgerEntry) -> bool {
@@ -1690,7 +1974,14 @@ fn write_hotspot_section(out: &mut String, title: &str, hotspots: &[SwarmActivit
         return;
     }
     for hotspot in hotspots {
-        let _ = writeln!(out, "- {} ({})", hotspot.key, hotspot.count);
+        let _ = write!(out, "- {} ({})", hotspot.key, hotspot.count);
+        if let Some(fingerprint) = &hotspot.fingerprint {
+            let _ = write!(out, " fingerprint={fingerprint}");
+        }
+        if let Some(sample) = &hotspot.sample {
+            let _ = write!(out, " sample={sample}");
+        }
+        out.push('\n');
     }
 }
 
@@ -1943,6 +2234,8 @@ fn top_hotspots(counts: &BTreeMap<String, u64>, capacity: usize) -> Vec<SwarmAct
         .map(|(key, count)| SwarmActivityHotspot {
             key: key.clone(),
             count: *count,
+            fingerprint: None,
+            sample: None,
         })
         .collect::<Vec<_>>();
     hotspots.sort_by(|left, right| {
@@ -2056,10 +2349,11 @@ fn looks_sensitive(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        SWARM_ACTIVITY_DIGEST_SCHEMA, SWARM_ACTIVITY_LEDGER_SCHEMA, SWARM_ACTIVITY_SUMMARY_SCHEMA,
-        SwarmActivityDigestConfig, SwarmActivityIds, SwarmActivityKind, SwarmActivityLedger,
-        SwarmActivityLedgerError, SwarmActivitySaturationSignal, SwarmActivitySketch,
-        SwarmActivitySummaryConfig, digest_from_jsonl, entries_from_jsonl, timeline_from_jsonl,
+        BLOCKER_FINGERPRINT_PREFIX, SWARM_ACTIVITY_DIGEST_SCHEMA, SWARM_ACTIVITY_LEDGER_SCHEMA,
+        SWARM_ACTIVITY_SUMMARY_SCHEMA, SwarmActivityDigestConfig, SwarmActivityIds,
+        SwarmActivityKind, SwarmActivityLedger, SwarmActivityLedgerError,
+        SwarmActivitySaturationSignal, SwarmActivitySketch, SwarmActivitySummaryConfig,
+        digest_from_jsonl, entries_from_jsonl, timeline_from_jsonl,
     };
 
     #[test]
@@ -2366,6 +2660,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn digest_summarizes_handoff_inputs_without_prompt_content() {
         let mut ledger = SwarmActivityLedger::new();
         ledger.append(
@@ -2460,11 +2755,104 @@ mod tests {
         assert_eq!(digest.saturation.new_bug_count, 1);
         assert!(!digest.saturation.few_new_bugs);
         assert_eq!(digest.saturation.duplicate_work_count, 2);
-        assert_eq!(digest.repeated_blockers[0].key, "bd-blocked");
+        assert_eq!(
+            digest.repeated_blockers[0].key,
+            "id=bd-blocked status=block"
+        );
+        assert_eq!(digest.repeated_blockers[0].count, 2);
+        assert!(
+            digest.repeated_blockers[0]
+                .fingerprint
+                .as_deref()
+                .is_some_and(|fingerprint| fingerprint.starts_with(BLOCKER_FINGERPRINT_PREFIX))
+        );
+        assert_eq!(
+            digest.repeated_blockers[0].sample.as_deref(),
+            Some("blocked by UBS historical findings; status=blocked")
+        );
         assert_eq!(digest.stale_threads[0].mail_thread_id, "bd-old");
         assert!(digest.saturation.saturated);
         assert!(text.contains("duplicate_work: 2"));
+        assert!(text.contains("fingerprint=blocker:"));
         assert!(!text.contains("secret prompt text"));
+    }
+
+    #[test]
+    fn digest_groups_dynamic_validation_blockers_by_normalized_fingerprint() {
+        let mut ledger = SwarmActivityLedger::new();
+        ledger.append(
+            1_000,
+            SwarmActivityKind::Verification,
+            SwarmActivityIds::new("verify-a").with_agent_name("MagentaOak"),
+            "cargo check failed for pid 12345 in /data/tmp/pi_agent_rust_cargo/agent_a/target after 1200ms",
+            [
+                (
+                    "command",
+                    "cargo check --all-targets --target-dir /data/tmp/pi_agent_rust_cargo/agent_a/target",
+                ),
+                ("stderr", "error[E0308]: mismatched types at /data/projects/pi_agent_rust/src/lib.rs:123:45"),
+                ("status", "failed"),
+            ],
+        );
+        ledger.append(
+            2_000,
+            SwarmActivityKind::Verification,
+            SwarmActivityIds::new("verify-b").with_agent_name("CopperOx"),
+            "cargo check failed for pid 98765 in /data/tmp/pi_agent_rust_cargo/agent_b/target after 980ms",
+            [
+                (
+                    "command",
+                    "cargo check --all-targets --target-dir /data/tmp/pi_agent_rust_cargo/agent_b/target",
+                ),
+                ("stderr", "error[E0308]: mismatched types at /data/projects/pi_agent_rust/src/lib.rs:777:8"),
+                ("status", "failure"),
+            ],
+        );
+        ledger.append(
+            3_000,
+            SwarmActivityKind::Verification,
+            SwarmActivityIds::new("verify-c").with_agent_name("SunnyBeacon"),
+            "cargo clippy failed for pid 33333 after 750ms",
+            [
+                ("command", "cargo clippy --all-targets"),
+                ("stderr", "error[E0599]: no method named frobnicate found"),
+                ("status", "failed"),
+            ],
+        );
+
+        let digest =
+            ledger.digest_with_config(SwarmActivityDigestConfig::new(8, 30_000, 30_000, 1, 2, 2));
+
+        assert_eq!(digest.repeated_blockers.len(), 1);
+        let blocker = digest
+            .repeated_blockers
+            .first()
+            .expect("one grouped blocker expected");
+        assert_eq!(blocker.count, 2);
+        assert!(
+            blocker
+                .fingerprint
+                .as_deref()
+                .is_some_and(|fingerprint| fingerprint.starts_with(BLOCKER_FINGERPRINT_PREFIX))
+        );
+        assert!(blocker.key.contains("cargo check fail"));
+        assert!(blocker.key.contains("<path>"));
+        assert!(blocker.key.contains("<duration>"));
+        assert!(!blocker.key.contains("/data/tmp"));
+        assert!(!blocker.key.contains("12345"));
+        assert!(
+            blocker
+                .sample
+                .as_deref()
+                .is_some_and(|sample| sample.contains("/data/tmp/pi_agent_rust_cargo/agent_a"))
+        );
+        assert!(
+            digest
+                .saturation
+                .evidence_pointers
+                .iter()
+                .any(|pointer| pointer.starts_with("repeated_blocker:blocker:"))
+        );
     }
 
     #[test]
