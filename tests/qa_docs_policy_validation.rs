@@ -1983,6 +1983,160 @@ fn dropin_evidence_policy_uses_current_docs_evidence_paths() {
 }
 
 #[test]
+fn dropin_gap_ledger_non_blocking_entries_are_reconciled() {
+    let ledger = load_json(DROPIN_PARITY_GAP_LEDGER_PATH);
+    let entries = ledger
+        .get("entries")
+        .and_then(Value::as_array)
+        .expect("drop-in gap ledger must contain entries");
+    let mut severity_counts = std::collections::BTreeMap::<&str, usize>::new();
+
+    for entry in entries {
+        let gap_id = entry
+            .get("gap_id")
+            .and_then(Value::as_str)
+            .expect("ledger entries must have gap_id");
+        let severity = entry.get("severity").and_then(Value::as_str).unwrap_or("");
+        *severity_counts.entry(severity).or_default() += 1;
+        let status = entry.get("status").and_then(Value::as_str).unwrap_or("");
+        assert!(
+            !status.is_empty(),
+            "{gap_id} must have an explicit status so stale medium/low gaps cannot hide behind null status"
+        );
+
+        if matches!(severity, "medium" | "low") {
+            let has_active_owner = matches!(status, "open" | "in_progress")
+                && entry
+                    .get("owner_issue_primary")
+                    .and_then(Value::as_str)
+                    .is_some_and(|owner| !owner.is_empty())
+                && entry
+                    .get("closure_path")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| !items.is_empty());
+            let has_closed_evidence = matches!(status, "resolved" | "closed")
+                && entry
+                    .get("verification_evidence")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| !items.is_empty())
+                && (entry.get("resolution_date").is_some()
+                    || entry.get("closure_date").is_some()
+                    || entry.get("closure_bead").is_some());
+            let has_waiver = status == "waived"
+                && entry
+                    .get("waiver_reason")
+                    .and_then(Value::as_str)
+                    .is_some_and(|reason| !reason.is_empty())
+                && entry
+                    .get("waiver_decision_bead")
+                    .and_then(Value::as_str)
+                    .is_some_and(|bead| !bead.is_empty())
+                && entry
+                    .get("release_claim_impact")
+                    .and_then(Value::as_str)
+                    .is_some_and(|impact| impact.contains("certification verdict"));
+
+            assert!(
+                has_active_owner || has_closed_evidence || has_waiver,
+                "{gap_id} must have an active owner, closed evidence, or deliberate waiver"
+            );
+        }
+
+        if status == "waived" {
+            assert!(
+                entry
+                    .get("waiver_reason")
+                    .and_then(Value::as_str)
+                    .is_some_and(|reason| !reason.is_empty()),
+                "{gap_id} waived entries must explain the waiver"
+            );
+            assert!(
+                entry
+                    .get("release_claim_impact")
+                    .and_then(Value::as_str)
+                    .is_some_and(|impact| impact.contains("certification verdict")),
+                "{gap_id} waived entries must keep release claims tied to the certification verdict"
+            );
+        }
+    }
+
+    let resolved_gap_ids = [
+        "gap-config-ui-editor-knobs",
+        "gap-env-pi-ai-antigravity-version",
+        "gap-provider-support-verification",
+    ];
+    for gap_id in resolved_gap_ids {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.get("gap_id").and_then(Value::as_str) == Some(gap_id))
+            .expect("resolved gap must remain in the drop-in gap ledger");
+        assert_eq!(
+            entry.get("severity").and_then(Value::as_str),
+            Some("resolved"),
+            "{gap_id} must be reconciled out of the medium/low active gap set"
+        );
+        assert_eq!(
+            entry.get("status").and_then(Value::as_str),
+            Some("resolved"),
+            "{gap_id} must carry an explicit resolved status"
+        );
+        assert!(
+            entry
+                .get("closure_bead")
+                .and_then(Value::as_str)
+                .is_some_and(|bead| !bead.is_empty()),
+            "{gap_id} must preserve the bead that closed the stale gap"
+        );
+        assert!(
+            entry
+                .get("verification_evidence")
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty()),
+            "{gap_id} must keep evidence for its resolved state"
+        );
+    }
+
+    let waiver = entries
+        .iter()
+        .find(|entry| {
+            entry.get("gap_id").and_then(Value::as_str) == Some("gap-rust-superset-governance")
+        })
+        .expect("rust superset governance waiver must remain in the ledger");
+    assert_eq!(
+        waiver.get("severity").and_then(Value::as_str),
+        Some("waived"),
+        "rust superset governance must be a deliberate waiver, not an open low-severity gap"
+    );
+    assert_eq!(
+        waiver.get("status").and_then(Value::as_str),
+        Some("waived"),
+        "rust superset governance must carry an explicit waived status"
+    );
+    assert!(
+        waiver
+            .get("release_claim_impact")
+            .and_then(Value::as_str)
+            .is_some_and(|impact| impact.contains("certification verdict")),
+        "rust superset governance waiver must keep strict release claims tied to the certification verdict"
+    );
+
+    let rollup_counts = ledger
+        .pointer("/rollup/severity_counts")
+        .and_then(Value::as_object)
+        .expect("gap ledger rollup must contain severity_counts");
+    for (severity, actual_count) in severity_counts {
+        assert_eq!(
+            rollup_counts
+                .get(severity)
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            actual_count as u64,
+            "gap ledger rollup count for {severity} must match entries"
+        );
+    }
+}
+
+#[test]
 fn run_all_emits_scenario_cell_status_artifacts() {
     let run_all = load_text("scripts/e2e/run_all.sh");
 

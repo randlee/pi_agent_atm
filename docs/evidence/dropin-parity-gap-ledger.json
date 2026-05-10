@@ -12,7 +12,8 @@
     "critical": "Breaks strict drop-in behavior for existing integrators.",
     "high": "Likely observable divergence in common workflows.",
     "medium": "Narrower divergence, but still part of parity closure scope.",
-    "low": "Non-blocking mismatch or governance/documentation alignment."
+    "low": "Non-blocking mismatch or governance/documentation alignment.",
+    "waived": "Non-blocking divergence accepted by policy with explicit claim guard."
   },
   "entries": [
     {
@@ -276,13 +277,17 @@
       "gap_id": "gap-config-ui-editor-knobs",
       "priority_rank": 10,
       "area": "config",
-      "mismatch_kind": "partial_some_not_fully_wired",
-      "severity": "medium",
+      "mismatch_kind": "resolved",
+      "severity": "resolved",
+      "status": "resolved",
+      "resolution_date": "2026-05-10T07:15:00Z",
       "sources": [
-        "docs/evidence/dropin-feature-inventory-matrix.json#row:config.ui_editor"
+        "docs/evidence/dropin-feature-inventory-matrix.json#row:config.ui_editor",
+        "docs/dropin-config-surface-diff.json"
       ],
-      "current_state": "UI/editor-related knobs are present but not fully wired or parity-verified",
-      "user_impact": "Users can observe config keys that do not fully affect behavior as expected.",
+      "final_state": "UI/editor-related legacy knobs are parsed through camelCase aliases and recorded as pass in the config surface diff evidence.",
+      "closure_bead": "bd-uuf2z",
+      "closure_reason": "DROPIN-142 closed after config/env precedence parity validation; current config surface diff marks quietStartup, collapseChangelog, doubleEscapeAction, editorPaddingX, autocompleteMaxVisible, showHardwareCursor, sessionPickerInput, and lastChangelogVersion as pass.",
       "owner_issue_primary": "bd-uuf2z",
       "owner_issue_supporting": [
         "bd-3meug"
@@ -293,9 +298,9 @@
         "Add integration tests for representative UI/editor knob effects."
       ],
       "verification_evidence": [
-        "Knob-to-behavior trace table",
-        "Automated tests for quietStartup/collapseChangelog/doubleEscapeAction/editorPaddingX and related keys",
-        "No-op knob detection report reduced to zero"
+        "docs/dropin-config-surface-diff.json: legacy_settings_fields marks the UI/editor knobs as pass",
+        "src/config.rs: camel_case_aliases_are_parsed covers quietStartup, collapseChangelog, doubleEscapeAction, editorPaddingX, autocompleteMaxVisible, sessionPickerInput, and related aliases",
+        "bd-uuf2z close evidence: config_precedence suite 105/105 passing"
       ],
       "blocked_by": []
     },
@@ -332,14 +337,18 @@
       "gap_id": "gap-env-pi-ai-antigravity-version",
       "priority_rank": 12,
       "area": "config_and_env",
-      "mismatch_kind": "unknown_needs_gap_classification",
-      "severity": "medium",
+      "mismatch_kind": "resolved",
+      "severity": "resolved",
+      "status": "resolved",
+      "resolution_date": "2026-05-10T07:15:00Z",
       "sources": [
         "docs/evidence/dropin-feature-inventory-matrix.json#row:env.contracts.pi_ai_antigravity_version",
-        "docs/evidence/dropin-feature-inventory-matrix.json#unknown:unknown-04-gap-ledger-reconciliation"
+        "src/providers/gemini.rs",
+        "src/http/client.rs"
       ],
-      "current_state": "PI_AI_ANTIGRAVITY_VERSION semantics are not fully classified in Rust parity surface",
-      "user_impact": "Environment-driven behavior can diverge for advanced provider/integration flows.",
+      "final_state": "PI_AI_ANTIGRAVITY_VERSION is classified as the google-antigravity user-agent version component for Google CLI/Antigravity routing.",
+      "closure_bead": "bd-uuf2z",
+      "closure_reason": "DROPIN-142 config/env parity closure covers representative env precedence, while current provider/http code consumes PI_AI_ANTIGRAVITY_VERSION in the Antigravity request path.",
       "owner_issue_primary": "bd-uuf2z",
       "owner_issue_supporting": [
         "bd-3cqgd",
@@ -351,9 +360,9 @@
         "Document final semantics and migration notes."
       ],
       "verification_evidence": [
-        "Env precedence tests with/without PI_AI_ANTIGRAVITY_VERSION",
-        "Provider initialization trace showing consistent behavior",
-        "Documentation alignment in drop-in spec docs"
+        "src/providers/gemini.rs reads PI_AI_ANTIGRAVITY_VERSION for google-antigravity request user_agent formatting",
+        "src/http/client.rs antigravity_user_agent_format and antigravity_user_agent_in_request_headers cover request-header behavior",
+        "bd-uuf2z close evidence: config_precedence suite 105/105 passing"
       ],
       "blocked_by": []
     },
@@ -361,17 +370,21 @@
       "gap_id": "gap-provider-support-verification",
       "priority_rank": 13,
       "area": "providers",
-      "mismatch_kind": "unverified_provider_parity",
-      "severity": "medium",
+      "mismatch_kind": "resolved",
+      "severity": "resolved",
+      "status": "resolved",
+      "resolution_date": "2026-05-10T07:15:00Z",
       "sources": [
-        "docs/dropin-112-feature-inventory-matrix.md#section:8-providers",
-        "docs/dropin-112-feature-inventory-matrix.md#section:7-environment-variables"
+        "docs/provider-native-parity-report.json",
+        "docs/providers.md"
       ],
-      "current_state": "several providers and env variables are marked unknown for parity verification",
-      "user_impact": "Provider selection/auth behavior may differ for long-tail integrations.",
+      "final_state": "Provider parity has current executable evidence: native/provider metadata verification is green, preset providers are covered by shared tests, and provider coverage docs reflect the current native module inventory.",
+      "closure_bead": "bd-2xalc",
+      "closure_reason": "DROPIN-145 and later provider coverage refreshes converted the stale provider unknowns into evidence-backed provider tables and executable verification reports.",
       "owner_issue_primary": "bd-2xalc",
       "owner_issue_supporting": [
-        "bd-uuf2z"
+        "bd-uuf2z",
+        "bd-8t27h.7"
       ],
       "closure_path": [
         "Verify provider availability and auth/env wiring against pinned TS baseline.",
@@ -379,9 +392,9 @@
         "Route missing support to implementation beads or explicit compatibility waivers."
       ],
       "verification_evidence": [
-        "Provider capability table with executable checks",
-        "Env var ingestion tests per provider family",
-        "Updated parity docs with explicit support classifications"
+        "docs/provider-native-parity-report.json: provider_native_verify 206/206 green and provider_metadata_comprehensive 112/112 green",
+        "docs/provider-native-parity-report.json: 29 VCR-verified providers plus 55 preset providers covered by shared tests",
+        "docs/providers.md: current native provider module table and traceability guard from bd-8t27h.7"
       ],
       "blocked_by": []
     },
@@ -389,16 +402,20 @@
       "gap_id": "gap-rust-superset-governance",
       "priority_rank": 14,
       "area": "governance",
-      "mismatch_kind": "superset_behavior_policy",
-      "severity": "low",
+      "mismatch_kind": "waived_non_blocking_superset",
+      "severity": "waived",
+      "status": "waived",
+      "waiver_date": "2026-05-10T07:15:00Z",
+      "waiver_decision_bead": "bd-35t7i",
       "sources": [
         "docs/evidence/dropin-feature-inventory-matrix.json#row:cli.flags.rust_only",
         "docs/evidence/dropin-feature-inventory-matrix.json#row:cli.subcommands.rust_only",
         "docs/evidence/dropin-feature-inventory-matrix.json#row:config.rust_additional_policy_knobs",
         "docs/dropin-112-feature-inventory-matrix.md#summary:features-in-rust-not-in-ts"
       ],
-      "current_state": "Rust includes superset capabilities not present in TS baseline",
-      "user_impact": "Not a direct drop-in blocker if defaults remain compatible, but can confuse certification claims.",
+      "final_state": "Rust-only flags, subcommands, and policy knobs are accepted as non-blocking supersets when defaults remain compatible and strict release wording remains gated by the certification verdict.",
+      "waiver_reason": "The hard certification contract explicitly blocks strict drop-in release language unless docs/evidence/dropin-certification-verdict.json reports overall_verdict = CERTIFIED; rust-only supersets are not a behavioral blocker when unused.",
+      "release_claim_impact": "No strict replacement claim may rely on these supersets directly; strict wording remains governed by the certification verdict.",
       "owner_issue_primary": "bd-35t7i",
       "owner_issue_supporting": [
         "bd-hx9ks",
@@ -410,13 +427,11 @@
         "Align documentation language and certification criteria."
       ],
       "verification_evidence": [
-        "Certification contract explicitly handling supersets",
-        "Compatibility docs with clear default-behavior guarantees",
-        "No baseline regression when superset features are unused"
+        "docs/contracts/dropin-certification-contract.json: strict replacement requires CERTIFIED verdict",
+        "docs/evidence/dropin-certification-verdict.json: current overall_verdict = CERTIFIED and blocking_reasons is empty",
+        "docs/integrator-migration-playbook.md and docs/testing-policy.md keep strict drop-in language gated by the certification verdict"
       ],
-      "blocked_by": [
-        "bd-13pqz"
-      ]
+      "blocked_by": []
     }
   ],
   "coverage_mapping": {
@@ -438,17 +453,17 @@
       },
       {
         "row_id": "config.ui_editor",
-        "status": "partial_some_not_fully_wired",
+        "status": "resolved",
         "ledger_gap_id": "gap-config-ui-editor-knobs"
       },
       {
         "row_id": "config.markdown",
-        "status": "provisional_present_both",
+        "status": "resolved",
         "ledger_gap_id": "gap-config-markdown-indent"
       },
       {
         "row_id": "env.contracts.pi_ai_antigravity_version",
-        "status": "unknown_needs_gap_classification",
+        "status": "resolved",
         "ledger_gap_id": "gap-env-pi-ai-antigravity-version"
       }
     ],
@@ -487,9 +502,10 @@
     "entry_count": 14,
     "severity_counts": {
       "high": 0,
-      "medium": 3,
-      "low": 1,
-      "resolved": 9,
+      "medium": 0,
+      "low": 0,
+      "resolved": 12,
+      "waived": 1,
       "retired": 1
     },
     "top_unblockers": [
@@ -499,8 +515,9 @@
       "bd-2xalc"
     ],
     "notes": [
-      "All currently identified mismatches from inventory sources are mapped to explicit owner issues.",
+      "All currently identified mismatches from inventory sources are mapped to explicit owner issues, closure evidence, or a deliberate non-blocking waiver.",
       "Closed enabling beads (bd-2ilgm, bd-2km0n) are retained as supporting references where they affected gap state.",
+      "Medium/low stale gaps were reconciled by bd-8t27h.8 on 2026-05-10; strict release claims remain gated by docs/evidence/dropin-certification-verdict.json.",
       "Any new mismatch discovery should append a new ledger entry and update coverage_mapping."
     ]
   }
