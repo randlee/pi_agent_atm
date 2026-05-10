@@ -28,6 +28,10 @@ MIN_REQUIRED_CATEGORIES = ("unit_tests", "e2e_scripts", "evidence_logs")
 REQUIRED_E2E_SUITE_ARTIFACTS = ("output.log", "result.json", "test-log.jsonl", "artifact-index.jsonl")
 REQUIRED_E2E_RUN_ARTIFACTS = ("summary.json", "environment.json", "evidence_contract.json")
 ALLOWED_E2E_ROW_STATUSES = {"covered", "waived", "planned"}
+ALLOWED_E2E_SCENARIO_MATRIX_SCHEMAS = {
+    "pi.e2e.scenario_matrix.v1",
+    "pi.e2e.scenario_matrix.v2",
+}
 
 
 def is_glob_pattern(path: str) -> bool:
@@ -247,10 +251,11 @@ def validate_e2e_scenario_matrix(
         if key not in matrix:
             fail(errors, f"docs/e2e_scenario_matrix.json missing top-level key: {key}")
 
-    if matrix.get("schema") != "pi.e2e.scenario_matrix.v1":
+    if matrix.get("schema") not in ALLOWED_E2E_SCENARIO_MATRIX_SCHEMAS:
         fail(
             errors,
-            "docs/e2e_scenario_matrix.json schema must be 'pi.e2e.scenario_matrix.v1'",
+            "docs/e2e_scenario_matrix.json schema must be one of "
+            f"{sorted(ALLOWED_E2E_SCENARIO_MATRIX_SCHEMAS)}",
         )
 
     ci_policy = matrix.get("ci_policy")
