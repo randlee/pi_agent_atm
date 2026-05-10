@@ -1,292 +1,266 @@
-## Test Coverage Matrix (No-Mock Audit, Legacy Snapshot)
+## Test Coverage Matrix (Current Source Inventory)
 
-This document started as a coverage inventory for `src/` modules and `tests/` files, flags mock usage, and lists prioritized gaps. It is currently a legacy snapshot: use it for historical context, not as exhaustive release evidence, until the module inventory is regenerated from current `src/` and guarded against drift.
+> Last regenerated: 2026-05-10
+> Owner bead: `bd-8t27h.1`
 
-> Last updated: 2026-05-10
+This document is the current source-file coverage inventory for `src/**/*.rs`. It is not a drop-in certification artifact and does not override `docs/evidence/dropin-certification-verdict.json`.
+
+### Regeneration Evidence
+
+- `rg --files src -g '*.rs' | sort` -> 110 current source files.
+- `rg --files tests -g '*.rs' | wc -l` -> 302 Rust test files under `tests/`.
+- `rg -n '#\\[cfg\\(test\\)|mod tests' src -g '*.rs'` -> in-source unit-test inventory used for the `Unit` status below.
+- `python3 scripts/check_traceability_matrix.py` still fails on traceability/governance drift: 58.99% classified trace coverage, 57.89% E2E scenario coverage, and 114 classified-but-untraced test files. That broader repair is tracked by `bd-8t27h.3`.
+- `docs/coverage-baseline-map.json` is historical coverage evidence from 2026-02-14 and covers 107 source files; this markdown inventory now reflects the 110-file current tree.
 
 ### Current Drift Check
 
 - Current `src/` inventory: 110 files.
-- Module table below: 35 source-file rows.
-- Known omission count: 75 current source files are not represented as module rows.
-- Omitted areas include the split `interactive/` modules, connector modules, provider expansion modules, hostcall scheduling/queue modules, PiWasm, doctor/version/permissions support, session v2/SQLite surfaces, and resource-governor/scheduler paths.
-- The traceability governance artifacts are newer than this markdown matrix, but `python3 scripts/check_traceability_matrix.py` currently reports current-head drift in suite classification, evidence-log mappings, and E2E scenario coverage. This document still needs a refreshed table plus a drift guard so stale coverage claims cannot recur.
+- Source-file rows below: 110.
+- Source files omitted from this document: 0.
+- Split modules, provider expansion modules, hostcall scheduling/queue modules, PiWasm, session v2/SQLite, resources, resource governor, and scheduler/admission surfaces are represented explicitly.
+- Machine-readable traceability remains governed by `docs/traceability_matrix.json`, `tests/suite_classification.toml`, `docs/e2e_scenario_matrix.json`, and `scripts/check_traceability_matrix.py`.
 
 ### Legend
-- **Unit**: `#[cfg(test)]` tests inside the module file.
-- **Integration**: tests under `tests/`.
-- **Conformance**: fixture-based behavior verification against legacy expectations.
-- **E2E**: end-to-end CLI, real provider flows, or full tool roundtrips (VCR-backed or deterministic).
-- **JSONL**: test emits JSONL logs + artifact index per bd-4u9.
 
-### Traceability Governance
-
-- Machine-readable source of truth: `docs/traceability_matrix.json`
-- CI enforcement guard: `scripts/check_traceability_matrix.py` (run by `.github/workflows/ci.yml`)
-- Policy: each requirement entry must include non-empty `unit_tests`, `e2e_scripts`, and `evidence_logs` mappings, with path validation for non-CI-generated artifacts.
+- **Unit**: in-source `#[cfg(test)]` or `mod tests` exists in the source file.
+- **Integration/E2E/Conformance**: representative test files or governed artifacts that exercise the surface.
+- **Waived glue**: re-export or test-support module; represented here so it cannot disappear from the matrix silently.
+- **Gap owner**: active bead that owns a known weakness in the row.
 
 ---
 
-## 1) Module Coverage Matrix (all `src/`)
+## 1) Source-File Coverage Matrix
 
-| Module | Unit | Integration | Conformance | E2E | JSONL | Notes / Mocks |
-|---|---|---|---|---|---|---|
-| `src/agent.rs` | ✅ | `tests/rpc_mode.rs`, `tests/agent_loop_vcr.rs` | ❌ | ✅ (VCR) | ✅ | RPC + agent loop VCR tests. |
-| `src/auth.rs` | ✅ | `tests/auth_oauth_refresh_vcr.rs` | ❌ | ✅ (VCR) | ❌ | OAuth refresh via VCR cassettes. |
-| `src/cli.rs` | ✅ | `tests/e2e_cli.rs`, `tests/main_cli_selection.rs` | ✅ | ✅ | ✅ | CLI parsing + offline E2E with JSONL logs; npm/git stubs for package flows (bd-27t/bd-2fz9/bd-2z22/bd-1ub). |
-| `src/compaction.rs` | ❌ | `tests/compaction.rs` | ❌ | ❌ | ❌ | Scripted provider + session compaction coverage. |
-| `src/config.rs` | ✅ | `tests/config_precedence.rs` | ❌ | ❌ | ❌ | Config parsing + precedence tests. |
-| `src/error.rs` | ❌ | `tests/error_types.rs`, `tests/error_handling.rs` | ❌ | ❌ | ❌ | Error formatting + hint + handling coverage. |
-| `src/extensions.rs` | ✅ | `tests/extensions_manifest.rs`, `tests/ext_conformance_artifacts.rs`, `tests/ext_conformance.rs`, `tests/extensions_registration.rs`, `tests/e2e_extension_registration.rs` | 🔶 | 🔶 | ✅ | Registration E2E with JSONL logging (bd-nh33); message/session control uses RecordingHostActions/RecordingSession stubs (bd-m9rk); full runtime E2E tracked by bd-1gl. |
-| `src/extensions_js.rs` | ✅ | `tests/event_loop_conformance.rs`, `tests/js_runtime_ordering.rs`, `tests/extensions_provider_streaming.rs`, `tests/e2e_message_session_control.rs` | ✅ | 🔶 | ❌ | PiJS deterministic scheduler + Promise hostcall bridge; E2E message/session control uses RecordingHostActions/RecordingSession stubs. |
-| `src/extension_tools.rs` | ❌ | `tests/e2e_extension_registration.rs` | ❌ | ✅ | ✅ | Extension tool wrappers tested via registration E2E. |
-| `src/http/client.rs` | ❌ | `src/http/test_api.rs`, `src/http/test_asupersync.rs`, `tests/http_client.rs` | ❌ | ❌ | ✅ | Deterministic local TCP tests now cover request headers/body, malformed + oversized headers, content-length/chunked streaming, timeout paths, and VCR record→playback stream round-trip. |
-| `src/http/mod.rs` | ❌ | — | ❌ | ❌ | ❌ | Re-export layer only. |
-| `src/http/sse.rs` | ✅ | `tests/repro_sse_flush.rs` | ❌ | ❌ | ❌ | Unit tests + SSE flush repro. |
-| `src/interactive.rs` | ✅ | `tests/tui_snapshot.rs`, `tests/tui_state.rs`, `tests/session_picker.rs`, `tests/e2e_tui.rs` | ❌ | ✅ | ✅ | TUI state + snapshot + tmux E2E with JSONL artifacts (bd-3hp; VCR playback coverage in bd-dvgl). |
-| `src/lib.rs` | ❌ | ❌ | ❌ | ❌ | ❌ | Re-exports only. |
-| `src/main.rs` | ❌ | `tests/e2e_cli.rs`, `tests/main_cli_selection.rs` | ✅ | ✅ | ✅ | Headless CLI + tmux interactive E2E with JSONL artifacts; offline npm/git stubs for package flows (bd-27t/bd-2fz9/bd-2z22/bd-1ub). |
-| `src/model.rs` | ❌ | `tests/model_serialization.rs` | ❌ | ❌ | ❌ | Message/content serialization. |
-| `src/models.rs` | ❌ | `tests/model_registry.rs` | ❌ | ❌ | ❌ | Registry parsing + defaults. |
-| `src/package_manager.rs` | ✅ | `tests/package_manager.rs` | ❌ | ❌ | ❌ | Unit + integration coverage. |
-| `src/provider.rs` | ❌ | `tests/provider_factory.rs` | ❌ | ❌ | ❌ | Provider factory tests. |
-| `src/providers/anthropic.rs` | ✅ | `tests/provider_streaming/anthropic.rs`, `tests/e2e_provider_streaming.rs` | ✅ (VCR) | ✅ | ✅ | Full VCR playback (21 scenarios) with artifact logging. |
-| `src/providers/azure.rs` | ✅ | `tests/provider_streaming.rs` | ✅ (VCR) | ❌ | ❌ | VCR-backed streaming fixtures. |
-| `src/providers/gemini.rs` | ✅ | `tests/provider_streaming.rs` | ✅ (VCR) | ❌ | ❌ | VCR-backed streaming fixtures. |
-| `src/providers/openai.rs` | ✅ | `tests/provider_streaming.rs` | ✅ (VCR) | ❌ | ❌ | VCR-backed streaming fixtures. |
-| `src/providers/mod.rs` | ❌ | `tests/provider_factory.rs` | ❌ | ❌ | ❌ | ExtensionStreamSimpleProvider + create_provider. |
-| `src/resources.rs` | ✅ | `tests/resource_loader.rs` | ❌ | ❌ | ❌ | Resource loader tests. |
-| `src/rpc.rs` | ❌ | `tests/rpc_mode.rs`, `tests/rpc_protocol.rs` | ❌ | ✅ (VCR) | ✅ | VCR-backed RPC tests, no MockProvider (bd-17o). |
-| `src/session.rs` | ✅ | `tests/session_conformance.rs`, `tests/e2e_message_session_control.rs`, `tests/extensions_message_session.rs` | ✅ | ❌ | ❌ | Session JSONL conformance + message/session control. |
-| `src/session_index.rs` | ❌ | `tests/session_index_tests.rs`, `tests/session_sqlite.rs` | ❌ | ❌ | ❌ | Indexing + SQLite storage. |
-| `src/sse.rs` | ✅ | ❌ | ❌ | ❌ | ❌ | Unit coverage for SSE parser. |
-| `src/tools.rs` | ✅ | `tests/tools_conformance.rs`, `tests/e2e_tools.rs` | ✅ | ✅ | ✅ | Best-covered: conformance fixtures + E2E roundtrip with artifact logging (bd-2xyv). |
-| `src/tui.rs` | ✅ | `tests/tui_snapshot.rs`, `tests/e2e_tui.rs` | ❌ | ✅ | ✅ | tmux E2E capture + JSONL artifacts (bd-3hp). |
-| `src/vcr.rs` | ✅ | `tests/provider_streaming.rs`, `tests/rpc_mode.rs`, `tests/auth_oauth_refresh_vcr.rs` | ✅ (VCR) | ✅ | ❌ | VCR playback/record infrastructure. |
-| `src/session_picker.rs` | ✅ | `tests/session_picker.rs` | ❌ | ❌ | ❌ | Session picker UI state coverage. |
+| Source file | Area | Coverage evidence / status |
+|---|---|---|
+| `src/acp.rs` | ACP protocol | Unit; `tests/sdk_api.rs`, `tests/sdk_integration.rs`, `tests/sdk_unit.rs`. |
+| `src/agent.rs` | Agent loop | Unit; `tests/agent_loop_vcr.rs`, `tests/agent_loop_reliability.rs`, `tests/e2e_agent_loop.rs`, `tests/rpc_mode.rs`. |
+| `src/agent_cx.rs` | Agent context | Unit; covered through agent/RPC suites. |
+| `src/app.rs` | App orchestration | Unit; `tests/e2e_cli.rs`, `tests/e2e_rpc.rs`, `tests/main_cli_selection.rs`. |
+| `src/auth.rs` | Auth and OAuth | Unit; `tests/auth_oauth_refresh_vcr.rs`, `tests/extensions_provider_oauth.rs`. |
+| `src/autocomplete.rs` | Prompt autocomplete | Unit; interactive coverage via `tests/tui_state.rs`. |
+| `src/bin/pi_legacy_capture.rs` | Legacy capture utility | Unit; opt-in capture utility, not a default user path. |
+| `src/buffer_shim.rs` | Node buffer shim | `tests/node_buffer_shim.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/cli.rs` | CLI parsing | Unit; `tests/main_cli_selection.rs`, `tests/cli_edge_cases.rs`, `tests/e2e_cli.rs`. |
+| `src/compaction.rs` | Session compaction | Unit; `tests/compaction.rs`, `tests/compaction_bug.rs`. |
+| `src/compaction_worker.rs` | Compaction worker | Unit; exercised by compaction suites. |
+| `src/config.rs` | Config loading | Unit; `tests/config_precedence.rs`, `tests/config_edge_cases.rs`. |
+| `src/conformance.rs` | Conformance runner | Unit; `tests/conformance_*.rs`, `tests/tools_conformance.rs`. |
+| `src/conformance_shapes.rs` | Conformance schemas | Unit; `tests/ext_conformance_shapes.rs`. |
+| `src/connectors/http.rs` | HTTP connector | `tests/pi_connector_shims.rs`; connector coverage still needs machine-readable trace expansion under `bd-8t27h.3`. |
+| `src/connectors/mod.rs` | Connector registry | Unit; `tests/rpc_session_connector.rs`, `tests/pi_connector_shims.rs`. |
+| `src/crypto_shim.rs` | Node crypto shim | Unit; `tests/node_crypto_shim.rs`. |
+| `src/doctor.rs` | Doctor and diagnostics | Unit; `tests/doctor_swarm_temp_dir_json.rs`, `tests/franken_node_compatibility_doctor_contract.rs`. |
+| `src/error.rs` | Error types | Unit; `tests/error_types.rs`, `tests/error_handling.rs`. |
+| `src/error_hints.rs` | Error remediation hints | Unit; `tests/error_handling.rs`. |
+| `src/extension_conformance_matrix.rs` | Extension matrix | Unit; `tests/ext_conformance_matrix.rs`. |
+| `src/extension_dispatcher.rs` | Extension dispatcher | Unit; `tests/event_dispatch_latency.rs`, `tests/extensions_event_wiring.rs`, `tests/extensions_event_cancellation.rs`; timing ignored test owner `bd-8t27h.11`. |
+| `src/extension_events.rs` | Extension events | Unit; `tests/extensions_event_wiring.rs`, `tests/extensions_event_cancellation.rs`, `tests/extensions_repair_events.rs`. |
+| `src/extension_inclusion.rs` | Extension inclusion list | Unit; `tests/ext_inclusion_list.rs`. |
+| `src/extension_index.rs` | Extension index/search | Unit; `tests/ext_entry_scan.rs`, `tests/extension_code_search.rs`. |
+| `src/extension_license.rs` | Extension license audit | Unit; `tests/extension_license.rs`; report evidence in `docs/extension-license-report.json`. |
+| `src/extension_popularity.rs` | Extension popularity scoring | Unit; coverage is mostly artifact/report oriented and should be traced in `bd-8t27h.3`. |
+| `src/extension_preflight.rs` | Extension preflight | Unit; `tests/ext_preflight_analyzer.rs`, `tests/e2e_workflow_preflight.rs`. |
+| `src/extension_replay.rs` | Extension replay | Unit; `tests/e2e_replay_bundle_validation.rs`, `tests/e2e_replay_bundles.rs`. |
+| `src/extension_scoring.rs` | Extension scoring | Unit; `tests/extension_scoring.rs`, `tests/extension_scoring_ope.rs`, `tests/extension_scoring_voi_meanfield.rs`. |
+| `src/extension_tools.rs` | Extension tools | Unit; `tests/e2e_extension_registration.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/extension_validation.rs` | Extension validation | Unit; `tests/extension_validation.rs`, `tests/extension_lockfile_provenance.rs`, `tests/ext_provenance_verification.rs`. |
+| `src/extensions.rs` | Extension protocol/runtime | Unit; `tests/extensions_*.rs`, `tests/ext_conformance*.rs`, `tests/e2e_extension_registration.rs`. |
+| `src/extensions_js.rs` | QuickJS bridge | Unit; `tests/event_loop_conformance.rs`, `tests/js_runtime_ordering.rs`, `tests/node_*_shim.rs`, `tests/e2e_ts_extension_loading.rs`. |
+| `src/flake_classifier.rs` | Flake classifier | Unit; patterns are mirrored by `scripts/ci_conformance_retry.sh`. |
+| `src/hostcall_amac.rs` | Hostcall AMAC | Unit; `tests/streaming_hostcall.rs`. |
+| `src/hostcall_io_uring_lane.rs` | Hostcall io_uring lane | Unit; `tests/streaming_hostcall.rs`. |
+| `src/hostcall_queue.rs` | Hostcall queue | Unit; `tests/hostcall_queue_ebr.rs`, `tests/hostcall_queue_loom.rs`; loom opt-in owner `bd-8t27h.6`. |
+| `src/hostcall_rewrite.rs` | Hostcall rewrite | Unit; `tests/streaming_hostcall.rs`. |
+| `src/hostcall_s3_fifo.rs` | Hostcall S3 FIFO | Unit; `tests/hostcall_s3_fifo_policy.rs`. |
+| `src/hostcall_superinstructions.rs` | Hostcall superinstructions | Unit; `tests/streaming_hostcall.rs`. |
+| `src/hostcall_trace_jit.rs` | Hostcall trace JIT | Unit; `tests/streaming_hostcall.rs`. |
+| `src/http/client.rs` | HTTP client | Unit; `tests/http_client.rs`; branch export baseline marks `src/http/*.rs` as branch-SIGSEGV fallback. |
+| `src/http/mod.rs` | HTTP module glue | Waived glue: re-export/test-module wiring. |
+| `src/http/sse.rs` | HTTP SSE | Unit; `tests/repro_sse_flush.rs`. |
+| `src/http/test_api.rs` | HTTP test support | Waived test-only support module; compiled only for tests. |
+| `src/http/test_asupersync.rs` | HTTP test support | Waived test-only support module; compiled only for tests. |
+| `src/http_shim.rs` | Node HTTP shim | `tests/node_http_shim.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/interactive.rs` | TUI root | Unit test module wiring; `tests/tui_snapshot.rs`, `tests/tui_state.rs`, `tests/e2e_tui.rs`. |
+| `src/interactive/agent.rs` | TUI agent lane | Unit; `tests/e2e_tui.rs`, `tests/tui_state.rs`. |
+| `src/interactive/commands.rs` | Interactive commands | Unit; `tests/interactive_commands_unit.rs`, `tests/interactive_extension_ui.rs`. |
+| `src/interactive/conversation.rs` | Conversation model | Unit; `tests/tui_state.rs`. |
+| `src/interactive/ext_session.rs` | Extension session UI | Unit; `tests/interactive_extension_ui.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/interactive/file_refs.rs` | File references | Unit; `tests/tui_state.rs`. |
+| `src/interactive/keybindings.rs` | Interactive keybindings | Unit; `tests/tui_state.rs`. |
+| `src/interactive/model_selector_ui.rs` | Model selector UI | Unit; `tests/model_selector_cycling.rs`, `tests/tui_state.rs`. |
+| `src/interactive/perf.rs` | TUI performance telemetry | Unit; `tests/e2e_tui_perf.rs`, `tests/perf_regression.rs`. |
+| `src/interactive/share.rs` | Share/export UI | Unit; exercised through interactive state and command tests. |
+| `src/interactive/state.rs` | Interactive state | Unit; `tests/tui_state.rs`. |
+| `src/interactive/tests.rs` | Interactive test module | Waived test-only module included by `src/interactive.rs`. |
+| `src/interactive/text_utils.rs` | Text utilities | Covered through interactive state/view tests; direct unit row should be added if this grows. |
+| `src/interactive/tool_render.rs` | Tool rendering | Unit; `tests/tui_snapshot.rs`, `tests/tui_state.rs`. |
+| `src/interactive/tree.rs` | Conversation tree | Covered through `tests/tui_state.rs` and session/navigation tests; direct trace should be expanded in `bd-8t27h.3`. |
+| `src/interactive/tree_ui.rs` | Tree UI | Covered through `tests/tui_snapshot.rs` and `tests/tui_state.rs`. |
+| `src/interactive/view.rs` | View rendering | Unit; `tests/tui_snapshot.rs`, `tests/e2e_tui.rs`. |
+| `src/keybindings.rs` | Keybinding config | Unit; interactive/TUI tests. |
+| `src/lib.rs` | Crate exports | Waived glue: exported module surface is compiled by all targets; no behavior-only row. |
+| `src/main.rs` | CLI entry | Unit; `tests/e2e_cli.rs`, `tests/e2e_rpc.rs`, `tests/main_cli_selection.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/migrations.rs` | Migrations | Unit; SQLite/session migration coverage through `tests/session_sqlite.rs`. |
+| `src/model.rs` | Message/content model | Unit; `tests/model_serialization.rs`. |
+| `src/model_selector.rs` | Model selector | Unit; `tests/model_selector_cycling.rs`. |
+| `src/models.rs` | Model registry | Unit; `tests/model_registry.rs`. |
+| `src/package_manager.rs` | Package manager | Unit; `tests/package_manager.rs`, `tests/e2e_cli.rs`. |
+| `src/perf_build.rs` | Perf build metadata | Unit; `tests/perf_bench_harness.rs`, `tests/perf_budgets.rs`, `tests/perf_regression.rs`. |
+| `src/permissions.rs` | Capability permissions | Unit; `tests/capability_policy_model.rs`, `tests/capability_policy_scoped.rs`, `tests/capability_denial_matrix.rs`. |
+| `src/pi_wasm.rs` | PiWasm runtime | Unit; `tests/lab_runtime_extensions.rs`; unsupported import policy audit owner `bd-8t27h.13`. |
+| `src/platform.rs` | Platform helpers | Unit. |
+| `src/provider.rs` | Provider trait/schema | Unit; `tests/provider_factory.rs`, `tests/provider_contract.rs`, `tests/provider_native_contract.rs`. |
+| `src/provider_metadata.rs` | Provider metadata | Unit; `tests/provider_metadata_comprehensive.rs`, `tests/provider_registry_guardrails.rs`. |
+| `src/providers/anthropic.rs` | Anthropic provider | Unit; `tests/provider_streaming/anthropic.rs`, `tests/e2e_provider_streaming.rs`. |
+| `src/providers/azure.rs` | Azure provider | Unit; `tests/provider_streaming/azure.rs`, provider error/path suites. |
+| `src/providers/bedrock.rs` | Bedrock provider | Unit; provider native/contract suites. |
+| `src/providers/cohere.rs` | Cohere provider | Unit; `tests/provider_streaming/cohere.rs`, provider error/path suites. |
+| `src/providers/copilot.rs` | Copilot provider | Unit; provider native/contract suites. |
+| `src/providers/gemini.rs` | Gemini provider | Unit; `tests/provider_streaming/gemini.rs`, provider error/path suites. |
+| `src/providers/gitlab.rs` | GitLab Duo provider | Unit; provider native/contract suites. |
+| `src/providers/mod.rs` | Provider factory | Unit; `tests/provider_factory.rs`, `tests/provider_native_verify.rs`; branch export baseline marks this family partly branch-SIGSEGV fallback. |
+| `src/providers/openai.rs` | OpenAI chat provider | Unit; `tests/provider_streaming/openai.rs`, provider error/path suites. |
+| `src/providers/openai_responses.rs` | OpenAI Responses provider | Unit; `tests/provider_streaming/openai_responses.rs`, provider error/path suites. |
+| `src/providers/vertex.rs` | Vertex provider | Unit; provider native/contract suites. |
+| `src/resource_governor.rs` | Resource governor | Unit; `tests/cargo_headroom_admission.rs`, `tests/resource_edge_cases.rs`; matrix expansion owner `bd-8t27h.15`. |
+| `src/resources.rs` | Resource loading | Unit; `tests/resource_loader.rs`, `tests/resource_edge_cases.rs`; matrix expansion owner `bd-8t27h.15`. |
+| `src/rpc.rs` | RPC/stdin mode | Unit; `tests/rpc_mode.rs`, `tests/rpc_protocol.rs`, `tests/rpc_edge_cases.rs`, `tests/e2e_rpc.rs`. |
+| `src/scheduler.rs` | Scheduler/admission | Unit; `tests/scheduler_repro.rs`, `tests/cargo_headroom_admission.rs`; matrix expansion owner `bd-8t27h.15`. |
+| `src/sdk.rs` | SDK API | Unit; `tests/sdk_api.rs`, `tests/sdk_integration.rs`, `tests/sdk_unit.rs`. |
+| `src/session.rs` | Session JSONL/tree | Unit; `tests/session_conformance.rs`, `tests/e2e_session_persistence.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/session_index.rs` | Session index | Unit; `tests/session_index_tests.rs`, `tests/reproduce_index_gap.rs`. |
+| `src/session_metrics.rs` | Session metrics | Unit; `tests/provider_session_coverage.rs` and session evidence suites. |
+| `src/session_picker.rs` | Session picker UI | Unit; `tests/session_picker.rs`. |
+| `src/session_sqlite.rs` | SQLite session backend | Unit; `tests/session_sqlite.rs`, `tests/fault_injection_persistence.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/session_store_v2.rs` | Session store v2 | Unit; `tests/session_store_v2.rs`, `tests/session_store_v2_contract.rs`. |
+| `src/session_test.rs` | Session test helpers | Waived test-support module; compiled by session tests. |
+| `src/sse.rs` | SSE parser | Unit; `tests/sse_strict_compliance.rs`, `tests/repro_sse_flush.rs`, `tests/repro_sse_newline.rs`. |
+| `src/swarm_activity_ledger.rs` | Swarm activity ledger | Unit; evidence docs in `docs/swarm-activity-ledger.md`, CI evidence bundle tests. |
+| `src/terminal_images.rs` | Terminal images | Unit; interactive/TUI rendering tests. |
+| `src/theme.rs` | Theme loading | Unit; `tests/tui_snapshot.rs`, interactive UI tests. |
+| `src/tools.rs` | Built-in tools | Unit; `tests/tools_conformance.rs`, `tests/e2e_tools.rs`, `tests/tools_hardened.rs`; branch export baseline marks this as branch-SIGSEGV fallback. |
+| `src/tui.rs` | Terminal renderer | Unit; `tests/tui_snapshot.rs`, `tests/tui_state.rs`, `tests/e2e_tui.rs`. |
+| `src/vcr.rs` | VCR playback/record | Unit; `tests/vcr_parity_validation.rs`, `tests/vcr_redaction_scan.rs`, provider/RPC VCR suites. |
+| `src/version_check.rs` | Version checks | Unit; cross-platform and release-readiness tests exercise the surrounding behavior. |
 
 ---
 
-## 2) Test Suite Inventory (all `tests/`)
+## 2) Test Suite Inventory Pointer
 
-| Test File | Type | Modules Covered | JSONL | Notes |
-|---|---|---|---|---|
-| `tests/tools_conformance.rs` | Integration + E2E | `src/tools.rs` | ✅ | Direct tool execution + E2E roundtrip with artifact logging (bd-2xyv). Gates on rg/fd availability. |
-| `tests/e2e_tools.rs` | E2E | `src/tools.rs` | ❌ | Additional tool E2E coverage (artifact logging lives in `tests/tools_conformance.rs`, bd-2xyv). |
-| `tests/conformance_fixtures.rs` | Conformance | `src/tools.rs`, truncation | ❌ | Fixture runner for tool parity. |
-| `tests/session_conformance.rs` | Conformance | `src/session.rs` | ❌ | JSONL session format v3. |
-| `tests/rpc_mode.rs` | Integration | `src/rpc.rs`, `src/agent.rs`, `src/session.rs` | ✅ | VCR-backed OpenAI stream for RPC prompt path. No MockProvider (bd-17o). |
-| `tests/rpc_protocol.rs` | Integration | `src/rpc.rs` | ❌ | RPC protocol conformance. |
-| `tests/provider_streaming.rs` | Conformance | `src/providers/*`, `src/vcr.rs` | ❌ | VCR-backed streaming fixtures (multi-provider). |
-| `tests/e2e_provider_streaming.rs` | E2E | `src/providers/anthropic.rs` | ✅ | Anthropic VCR scenarios with artifact logging. |
-| `tests/provider_factory.rs` | Integration | `src/providers/mod.rs` | ❌ | Provider creation + ExtensionStreamSimpleProvider. |
-| `tests/provider_error_paths.rs` | Integration | `src/providers/*` | ❌ | Provider error handling: VCR-only (HTTP 500 × 4 providers, malformed SSE × 4 providers). One allowlisted `MockHttpServer` test for invalid UTF-8 injection (VCR cannot represent raw bytes). (bd-2x78 complete.) |
-| `tests/http_client.rs` | Integration | `src/http/client.rs` | ✅ | Real-path local TCP tests for request builder, malformed/oversized headers, content-length/chunked streaming, timeout behavior, and VCR playback parity. |
-| `tests/e2e_cli.rs` | E2E | `src/main.rs`, `src/cli.rs` | ✅ | Offline CLI runs with JSONL logs + artifact index; npm/git stubs for package flows (bd-27t/bd-2fz9/bd-2z22/bd-1ub). |
-| `tests/main_cli_selection.rs` | Integration | `src/main.rs` | ❌ | CLI flag/arg selection. |
-| `tests/e2e_tui.rs` | E2E | `src/interactive.rs`, `src/tui.rs` | ✅ | tmux-driven interactive E2E with JSONL artifacts (bd-3hp; VCR playback coverage in bd-dvgl). |
-| `tests/tui_snapshot.rs` | Integration | `src/tui.rs`, `src/interactive.rs` | ❌ | insta snapshot coverage. |
-| `tests/tui_state.rs` | Integration | `src/interactive.rs` | ❌ | Interactive model state transitions. |
-| `tests/session_picker.rs` | Integration | `src/session_picker.rs` | ❌ | Session picker UI state. |
-| `tests/e2e_extension_registration.rs` | E2E | `src/extensions.rs`, `src/extensions_js.rs` | ✅ | Full registration lifecycle with JSONL logging + artifacts (bd-nh33). |
-| `tests/extensions_registration.rs` | Integration | `src/extensions.rs` | ❌ | Extension registration API tests. |
-| `tests/extensions_manifest.rs` | Integration | `src/extensions.rs` | ❌ | Protocol/schema + validation. |
-| `tests/ext_conformance.rs` | Conformance | `src/extensions.rs` | ❌ | Extension conformance testing. |
-| `tests/ext_conformance_artifacts.rs` | Integration | `src/extensions.rs` | ❌ | Pinned legacy artifacts + compat ledger. |
-| `tests/ext_conformance_diff.rs` | Conformance | `src/extensions.rs`, `src/extensions_js.rs` | ✅ | Differential TS↔Rust oracle: 209 extensions across 6 tiers. Requires `--features ext-conformance`. |
-| `tests/ext_conformance_scenarios.rs` | Conformance | `src/extensions.rs`, `src/extensions_js.rs` | ✅ | Scenario execution: tool calls, commands, events. Requires `--features ext-conformance`. |
-| `tests/ext_conformance_generated.rs` | Conformance | `src/extensions.rs` | ✅ | Auto-generated per-extension tests from validated manifest. JSONL logs via TestHarness. Requires `--features ext-conformance`. (bd-15jg, bd-1nq.) |
-| `tests/ext_conformance_fixture_schema.rs` | Conformance | `src/extensions.rs` | ❌ | Fixture schema validation. |
-| `tests/extensions_policy_negative.rs` | Conformance | `src/extensions.rs` | ✅ | 51 tests: policy evaluation across modes, hostcall-to-capability mapping, integration with JS extension (exec denied, session allowed, event handler denial). JSONL report to `tests/ext_conformance/reports/negative/`. (bd-2ce complete.) |
-| `tests/ext_proptest.rs` | Property | `src/extensions.rs` | ❌ | Property-based extension tests. |
-| `tests/extensions_provider_streaming.rs` | Integration | `src/extensions_js.rs`, `src/providers/mod.rs` | ❌ | Extension provider streamSimple tests. |
-| `tests/extensions_message_session.rs` | Integration | `src/session.rs`, `src/extensions.rs` | ❌ | Extension message/session API using RecordingSession stub (bd-m9rk). |
-| `tests/e2e_message_session_control.rs` | E2E | `src/session.rs`, `src/extensions_js.rs`, `src/extensions.rs` | ❌ | Message + session control E2E using RecordingHostActions/RecordingSession stubs (bd-m9rk). |
-| `tests/event_loop_conformance.rs` | Conformance | `src/extensions_js.rs` | ❌ | Fixture-driven scheduler ordering/determinism. |
-| `tests/js_runtime_ordering.rs` | Integration | `src/extensions_js.rs` | ❌ | JS runtime execution ordering. |
-| `tests/agent_loop_vcr.rs` | Integration | `src/agent.rs` | ❌ | Agent loop with VCR playback; records session/timeline JSONL artifacts. |
-| `tests/auth_oauth_refresh_vcr.rs` | Integration | `src/auth.rs` | ❌ | OAuth token refresh via VCR cassettes. |
-| `tests/model_serialization.rs` | Integration | `src/model.rs` | ❌ | Message/content serialization. |
-| `tests/model_registry.rs` | Integration | `src/models.rs` | ❌ | Registry parsing + defaults. |
-| `tests/config_precedence.rs` | Integration | `src/config.rs` | ❌ | Config file precedence rules. |
-| `tests/error_types.rs` | Integration | `src/error.rs` | ❌ | Error type formatting. |
-| `tests/error_handling.rs` | Integration | `src/error.rs`, `src/providers/*`, `src/tools.rs` | ❌ | Fully VCR-based: HTTP 400/401/403/429/500/529 × 4 providers, malformed SSE, SSE error events, empty-body, error hints taxonomy, tool error paths. No `MockHttpServer`. (bd-2x78 complete.) |
-| `tests/session_index_tests.rs` | Integration | `src/session_index.rs` | ❌ | Indexing + retrieval. |
-| `tests/session_sqlite.rs` | Integration | `src/session_index.rs` | ❌ | SQLite storage backend. |
-| `tests/compaction.rs` | Integration | `src/compaction.rs` | ❌ | Session compaction. |
-| `tests/resource_loader.rs` | Integration | `src/resources.rs` | ❌ | Resource loading. |
-| `tests/package_manager.rs` | Integration | `src/package_manager.rs` | ❌ | Package manager. |
-| `tests/repro_sse_flush.rs` | Repro | `src/http/sse.rs` | ❌ | SSE flush reproduction. |
-| `tests/repro_config_error.rs` | Repro | `src/config.rs` | ❌ | Config error reproduction. |
+The full Rust test inventory is too large for this markdown table to remain the source of truth. Current counts on 2026-05-10:
 
-### Test Infrastructure
+| Inventory | Count | Source of truth |
+|---|---:|---|
+| Source files | 110 | `rg --files src -g '*.rs' | sort` |
+| Rust test files | 302 | `rg --files tests -g '*.rs' | sort` |
+| Classified top-level test files | 278 | `tests/suite_classification.toml` |
+| Traceability-matrix referenced classified tests | 164 | `docs/traceability_matrix.json` via `scripts/check_traceability_matrix.py` |
+| Classified-but-untraced tests | 114 | `bd-8t27h.3` owns repair |
 
-| File | Purpose |
+Representative high-signal suites:
+
+| Suite family | Representative files | Main surfaces |
+|---|---|---|
+| Agent/RPC/CLI | `tests/agent_loop_vcr.rs`, `tests/e2e_agent_loop.rs`, `tests/rpc_mode.rs`, `tests/e2e_cli.rs`, `tests/e2e_rpc.rs` | `agent`, `app`, `main`, `rpc`, CLI selection |
+| Providers | `tests/provider_streaming/*.rs`, `tests/provider_factory.rs`, `tests/provider_native_contract.rs`, `tests/provider_metadata_comprehensive.rs` | Native provider modules, metadata, factory routing |
+| Extensions | `tests/ext_conformance*.rs`, `tests/extensions_*.rs`, `tests/e2e_extension_registration.rs` | Extension protocol, QuickJS bridge, policy, conformance |
+| TUI | `tests/tui_snapshot.rs`, `tests/tui_state.rs`, `tests/e2e_tui.rs`, `tests/e2e_tui_features.rs`, `tests/e2e_tui_perf.rs` | Interactive state, view, rendering, keybindings |
+| Sessions | `tests/session_conformance.rs`, `tests/session_index_tests.rs`, `tests/session_sqlite.rs`, `tests/session_store_v2.rs`, `tests/e2e_session_persistence.rs` | JSONL/tree/index/sqlite/store v2 persistence |
+| Tools | `tests/tools_conformance.rs`, `tests/e2e_tools.rs`, `tests/tools_hardened.rs` | Built-in tools and tool I/O contracts |
+| Resources/scheduler | `tests/resource_loader.rs`, `tests/resource_edge_cases.rs`, `tests/scheduler_repro.rs`, `tests/cargo_headroom_admission.rs` | Resources, resource governor, scheduler/admission |
+| Shims | `tests/node_buffer_shim.rs`, `tests/node_crypto_shim.rs`, `tests/node_http_shim.rs`, `tests/node_fs_shim.rs`, `tests/node_child_process_shim.rs` | Node compatibility shims |
+
+---
+
+## 3) Mock / Fake / Stub Audit
+
+This matrix does not certify no-mock compliance. Use the dedicated guards and docs:
+
+- `tests/non_mock_compliance_gate.rs`
+- `tests/non_mock_rubric_gate.rs`
+- `.github/workflows/ci.yml` no-mock guard steps
+- `docs/non-mock-rubric.json`
+
+Known allowlisted test doubles remain local to test harnesses and are not release-path substitutes: `tests/common/harness.rs` local TCP `MockHttpServer`, package command stubs in CLI E2E tests, and recording host/session harnesses for extension message-session tests.
+
+---
+
+## 4) JSONL / Artifact Coverage
+
+Structured evidence locations are governed outside this markdown file:
+
+- `docs/traceability_matrix.json`
+- `docs/e2e_scenario_matrix.json`
+- `tests/e2e_results/*`
+- `tests/ext_conformance/reports/*`
+- `tests/perf/reports/*`
+
+The active JSONL inventory gap is `bd-8t27h.9`.
+
+---
+
+## 5) Active Follow-up Work From This Refresh
+
+| Bead | Scope |
 |---|---|
-| `tests/common/harness.rs` | TestHarness, MockHttpServer, TestEnv — real FS/TCP, no mocking frameworks. |
-| `tests/common/logging.rs` | TestLogger with JSONL output, artifact index, redaction (bd-3ml, bd-4u9). |
-| `tests/common/mod.rs` | Re-exports + `run_async()` helper. |
-| `tests/common/tmux.rs` | Tmux session driver for interactive E2E. |
-| `tests/fixtures/vcr/*.json` | VCR cassettes (32+ files) for Anthropic, OpenAI, OAuth, RPC scenarios. |
-| `tests/provider_streaming/` | Per-provider streaming test modules (Anthropic with 21 VCR scenarios). |
+| `bd-8t27h.2` | Add deterministic source coverage drift guard so this 110-file inventory cannot silently become stale. |
+| `bd-8t27h.3` | Repair traceability matrix, suite classification, evidence logs, and E2E scenario coverage. |
+| `bd-8t27h.5` | Replace macOS ignored extension OAuth MockHttpServer tests. |
+| `bd-8t27h.6` | Make hostcall queue loom tests runnable behind explicit opt-in cfg/profile. |
+| `bd-8t27h.9` | Expand JSONL artifact inventory for high-value suites. |
+| `bd-8t27h.10` | Determinize E2E golden corpus dynamic cassette path. |
+| `bd-8t27h.11` | Move extension dispatcher timing regression away from wall-clock flake. |
+| `bd-8t27h.12` | Normalize manual perf/report generators to tmpdir-aware smoke tests. |
+| `bd-8t27h.13` | Audit PiWasm unsupported import fallback policy. |
+| `bd-8t27h.15` | Add resource/scheduler/admission replay coverage to machine-readable matrix. |
+| `bd-8t27h.16` | Bound extension random trials into deterministic smoke lane. |
+| `bd-8t27h.17` | Onboard unvendored extension conformance corpus. |
+| `bd-8t27h.18` | Normalize npm registry conformance diff ignore. |
 
 ---
 
-## 3) Mock / Fake / Stub Audit (No-Mock Policy)
-
-**Found mock usage:** none (mock frameworks), but there are allowlisted stubs.
-
-**Allowlisted exceptions (audited):**
-- `tests/common/harness.rs`: `MockHttp{Server,Request,Response}` — real local TCP server. Used by: (1) `tests/provider_error_paths.rs::openai_invalid_utf8_in_sse_is_reported` for raw byte injection (VCR cassettes store `body_chunks: Vec<String>` and cannot represent invalid UTF-8; this is the only legitimate use in provider tests); (2) `tests/extensions_provider_oauth.rs` for OAuth token-exchange flows. `tests/error_handling.rs` is fully VCR — no `MockHttpServer` usage. (bd-2x78 complete; bd-3kl0 closed.)
-- `tests/e2e_cli.rs`: `PackageCommandStubs` (npm/git) for offline package-manager E2E; logs to `npm-invocations.jsonl` / `git-invocations.jsonl` (bd-27t/bd-2fz9/bd-2z22).
-- `tests/e2e_message_session_control.rs`: `RecordingHostActions` + `RecordingSession` stubs (bd-m9rk).
-- `tests/extensions_message_session.rs`: `RecordingSession` stub (bd-m9rk).
-- `src/extensions.rs` unit tests: `MockHostActions` for sendMessage/sendUserMessage (bd-m9rk).
-
-**Enforcement:** CI fails if `Mock*` / `Fake*` / `Stub*` identifiers are introduced in `tests/` outside the allowlist (see `.github/workflows/ci.yml`, step `No-mock code guard`).
-
-**VCR-first strategy:** All provider streaming tests use VCR playback cassettes. RPC tests use VCR-backed OpenAI streams (bd-17o). No MockProvider remains in test code. Remaining no-mock cleanup is tracked under `bd-26s` / `bd-102`.
-
----
-
-## 4) JSONL Logging Coverage (bd-4u9)
-
-Tests with JSONL log + artifact index output:
-
-| Test File | Artifacts Captured |
-|---|---|
-| `tests/tools_conformance.rs` (e2e_* tests) | Tool inputs, outputs, details JSON, truncation metadata, tool_call_id |
-| `tests/e2e_extension_registration.rs` | Extension source, registration payloads (commands/shortcuts/flags/providers), model entries |
-| `tests/e2e_cli.rs` | JSONL logs + artifact index; npm/git stub invocation logs |
-| `tests/e2e_tui.rs` | `tui-steps.jsonl`, `tui-log.jsonl`, `tui-artifacts.jsonl`, tmux pane captures |
-| `tests/rpc_mode.rs` | VCR cassette path, event timeline, session stats |
-| `tests/e2e_provider_streaming.rs` | VCR cassette, stream events, scenario parameters |
-| `tests/http_client.rs` | Raw request bytes, VCR cassette file, JSONL logs for header/body parsing and timeout scenarios |
-| `tests/extensions_policy_negative.rs` | Negative conformance JSONL report (`negative_events.jsonl`), triage summary (`triage.json`) in `tests/ext_conformance/reports/negative/` |
-
-**Planned (workstream `bd-c4q` under `bd-26s`):** finish VCR-backed interactive E2E (bd-dvgl), extension runtime E2E (bd-1gl), RPC JSONL script (bd-kh2), and remaining CLI scenarios (bd-1o4, bd-idw).
-
----
-
-## 5) Prioritized Coverage Gaps (Backlog Feed)
-
-The previous backlog references in this section all point at closed beads. Current follow-up work should be filed from the drift evidence above instead of reusing the closed identifiers.
-
-1. **Regenerate the module coverage matrix (P1)**
-   Rebuild the table from current `src/` and `tests/`, including split modules and newly added provider/runtime surfaces.
-
-2. **Add a coverage drift guard (P1)**
-   Add a deterministic check that fails when source files are missing from the machine-readable coverage or traceability inventory.
-
-3. **Reconcile ignored or manually gated tests (P1/P2)**
-   Classify and either unignore or explicitly gate the remaining loom, OAuth, extension dispatcher, golden-corpus, and report-generator tests.
-
-4. **Repair traceability-governance drift (P1)**
-   Bring `docs/traceability_matrix.json`, `tests/suite_classification.toml`, and `docs/e2e_scenario_matrix.json` back into agreement with current test files and CI policy.
-
-5. **Refresh provider coverage evidence (P2)**
-   Align provider coverage docs with the current native provider set and current provider parity artifacts.
-
-6. **Expand JSONL logging inventory (P2)**
-   Recompute which tests emit structured artifacts and add logging where high-value suites remain untracked.
-
----
-
-## 6) Notes
-
-- Conformance suite is strongest for built-in tools (fixtures + direct tests + E2E roundtrip).
-- VCR-backed E2E tests now cover: Anthropic streaming (21 scenarios), RPC mode, OAuth refresh, agent loop.
-- E2E tool tests gate on `rg`/`fd` availability with clear skip messages (bd-2xyv).
-- No-mock policy violations are prevented via CI guardrails; allowlisted stubs include `MockHttp*`, `PackageCommandStubs`, and `RecordingSession`/`RecordingHostActions` (cleanup tracked by `bd-102`/`bd-m9rk`).
-
----
-
-## 7) Running Extension Conformance Tests
-
-Extension conformance tests validate that the Rust QuickJS runtime behaves identically to the TypeScript pi-mono runtime for all supported extensions.
-
-### Quick Reference
+## 6) Running Extension Conformance Tests
 
 ```bash
-# Unified verification runner (unit + e2e with structured artifacts)
-./scripts/e2e/run_all.sh --profile focused
-./scripts/e2e/run_all.sh --profile ci
-./scripts/e2e/run_all.sh --rerun-from tests/e2e_results/<timestamp>/summary.json --skip-unit
-
-# Policy enforcement tests (no feature flag, runs in default cargo test)
-cargo test --test extensions_policy_negative
-
-# Negative conformance report generation
-cargo test --test extensions_policy_negative negative_conformance_report -- --nocapture
-
-# Generated per-extension registration tests (tier 1-2 by default)
+# Generated per-extension registration tests, tiers 1-2 by default.
 cargo test --test ext_conformance_generated --features ext-conformance
 
-# Generated tests including all tiers (3-5 are ignored by default)
+# Generated tests including ignored tiers.
 cargo test --test ext_conformance_generated --features ext-conformance -- --include-ignored
 
-# Differential TS↔Rust oracle (requires ext-conformance feature + Bun)
+# Differential TypeScript/Rust oracle.
 cargo test --test ext_conformance_diff --features ext-conformance
 
-# Official extensions only (fast, ~5 extensions)
+# Official extensions only, bounded.
 PI_OFFICIAL_MAX=5 cargo test --test ext_conformance_diff --features ext-conformance
 
-# Specific extension filter
-PI_OFFICIAL_FILTER=hello cargo test --test ext_conformance_diff --features ext-conformance
-
-# Scenario execution tests
+# Scenario execution tests.
 cargo test --test ext_conformance_scenarios --features ext-conformance
 
-# Community + npm + third-party (ignored by default, use --ignored)
-cargo test --test ext_conformance_diff --features ext-conformance -- --ignored
-
-# Fixture schema validation (no feature flag)
-cargo test --test ext_conformance_fixture_schema
-
-# Artifact checksum validation (no feature flag)
-cargo test --test ext_conformance_artifacts
-
-# All conformance-related tests (default set, no feature flag)
+# Default conformance-related tests.
 cargo test conformance
 cargo test extensions_policy_negative
 ```
 
-### Unified Verification Profiles (`scripts/e2e/run_all.sh`)
-
-| Profile | Unit Targets | E2E Suites | Typical Use |
-|---|---|---|---|
-| `full` | `ext_conformance_matrix`, `node_buffer_shim`, `node_crypto_shim`, `node_http_shim`, `npm_module_stubs` | all `e2e_*` suites | Full local verification before broad changes |
-| `focused` | `ext_conformance_matrix`, `node_buffer_shim`, `node_crypto_shim` | `e2e_extension_registration`, `e2e_tools` | Fast inner loop while iterating |
-| `ci` | same as `full` unit target set | `e2e_extension_registration` | Deterministic CI smoke gate |
-
-Each run writes `environment.json`, per-target/per-suite `result.json`, logs, and a top-level `summary.json` under `tests/e2e_results/<timestamp>/`.
-
-### CI Integration
-
-| Workflow | Trigger | Scope | Artifacts |
-|----------|---------|-------|-----------|
-| `ci.yml` | PR / push to main | Non-gated tests (policy, negative, artifacts, schema) | Standard test output |
-| `conformance.yml` (fast) | PR | 5 official diff + generated tier 1-2 + negative | Logs + JSONL reports |
-| `conformance.yml` (full) | Nightly / manual | All 60 official diff + generated all tiers | Logs + JSONL reports |
-| `conformance.yml` (scenarios) | Nightly / manual | Negative + scenario + generated + fixture schema + artifact checksums | Logs + JSONL reports |
-| `conformance.yml` (weekly) | Saturday | Community + npm + third-party (differential) | Logs + JSONL reports |
-
-### Report Locations
-
-After running conformance tests, reports are written to:
-- `tests/ext_conformance/reports/negative/` — policy denial conformance
-- `tests/ext_conformance/reports/parity/` — TS↔Rust parity diffs
-- `tests/ext_conformance/reports/smoke/` — smoke test results
-- `tests/ext_conformance/reports/scenario_conformance.json` — scenario pass rates
-- `tests/ext_conformance/reports/load_time_benchmark.json` — extension load time stats
-
 ---
 
-## 8) Coverage Tooling
+## 7) Coverage Tooling
 
-Coverage reports are generated with `cargo-llvm-cov` (see the **Coverage** section in `README.md`).
+Coverage reports are generated with `cargo-llvm-cov` as described in `README.md`.
 
-Baseline (2026-02-03): **31.07% line coverage** from `cargo llvm-cov --all-targets --workspace --summary-only`.
-CI currently gates on **>= 50% line coverage** (see `.github/workflows/ci.yml`).
+Current historical baseline evidence lives in `docs/coverage-baseline-map.json`:
 
-CI runs llvm-cov in VCR playback mode (`VCR_MODE=playback`) and uploads artifacts (summary + LCOV + HTML) via `.github/workflows/ci.yml`.
+| Metric | Value |
+|---|---:|
+| Generated at | 2026-02-14T14:00:00Z |
+| Source files in baseline | 107 |
+| Current source files | 110 |
+| Line coverage | 79.08% |
+| Branch coverage | 51.95% lower bound |
+| Function coverage | 78.01% |
+| Branch-measurable files | 63 |
+| Branch export SIGSEGV fallback files | 44 |
+
+That baseline is useful evidence, but it is not a current-head full source inventory. This document now supplies the current 110-file inventory; `bd-8t27h.2` owns turning that inventory into an enforced drift guard.
