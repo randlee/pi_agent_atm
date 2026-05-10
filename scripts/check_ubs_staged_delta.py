@@ -10,6 +10,7 @@ lines introduced or modified in the staged diff.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -30,6 +31,8 @@ class Finding:
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 UBS_LOCATION_RE = re.compile(r"(?P<path>/[^:\n]+?\.rs):(?P<line>\d+)\b")
 SUMMARY_RE = re.compile(r"^(Critical|Warning|Info):\s+(\d+)\s*$")
+EXT_RUNTIME_BASELINE = Path("docs/evidence/ubs-extension-runtime-noise-baseline.json")
+EXT_RUNTIME_NOISY_FILES = {"src/extensions.rs", "src/pi_wasm.rs"}
 
 
 def run(args: list[str], cwd: Path, *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -166,6 +169,38 @@ def parse_ubs_output(root: Path, output: str) -> tuple[list[Finding], dict[str, 
     return findings, totals
 
 
+def print_runtime_noise_baseline_note(root: Path, staged_files: list[str]) -> None:
+    noisy_files = sorted(set(staged_files).intersection(EXT_RUNTIME_NOISY_FILES))
+    if not noisy_files:
+        return
+
+    baseline_path = root / EXT_RUNTIME_BASELINE
+    try:
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        print(
+            f"UBS runtime noise baseline unavailable at {EXT_RUNTIME_BASELINE}: {err}",
+            file=sys.stderr,
+        )
+        return
+
+    summary = baseline.get("raw_ubs_summary", {})
+    classification_totals = baseline.get("classification_totals", {})
+    print(
+        "UBS runtime noise baseline: "
+        f"{', '.join(noisy_files)} has classified whole-file baseline totals "
+        f"critical={summary.get('critical', '?')} "
+        f"warning={summary.get('warning', '?')} "
+        f"info={summary.get('info', '?')}."
+    )
+    print(
+        "UBS runtime noise baseline: changed-line critical/warning findings still fail; "
+        f"classified critical={classification_totals.get('critical_classified', '?')} "
+        f"warning={classification_totals.get('warning_classified', '?')} "
+        f"({EXT_RUNTIME_BASELINE})."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run UBS on staged Rust files and fail on changed-line warnings/critical findings.",
@@ -267,6 +302,7 @@ def main() -> int:
             "continuing because no warning/critical finding lands on a staged changed line."
         )
 
+    print_runtime_noise_baseline_note(root, files)
     print("UBS staged delta passed: no warning/critical findings on staged changed lines.")
     if args.print_ubs_output:
         print(proc.stdout)

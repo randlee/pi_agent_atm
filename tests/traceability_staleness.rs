@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 
 const HIGH_VALUE_ARTIFACT_INVENTORY: &str =
     "docs/evidence/high-value-suite-artifact-inventory.json";
+const UBS_EXTENSION_RUNTIME_NOISE_BASELINE: &str =
+    "docs/evidence/ubs-extension-runtime-noise-baseline.json";
 const REQUIRED_ARTIFACT_INVENTORY_AREAS: &[&str] = &[
     "provider_streaming",
     "sessions",
@@ -428,6 +430,112 @@ fn traceability_matrix_links_high_value_artifact_inventory() {
         referenced,
         "docs/traceability_matrix.json evidence_logs must link {HIGH_VALUE_ARTIFACT_INVENTORY}"
     );
+}
+
+#[test]
+fn ubs_extension_runtime_noise_baseline_classifies_blocking_categories() {
+    let root = repo_root();
+    let baseline = load_json_value(&root, UBS_EXTENSION_RUNTIME_NOISE_BASELINE);
+    assert_eq!(
+        baseline["schema"],
+        "pi.ubs.extension_runtime_noise_baseline.v1"
+    );
+    assert_eq!(baseline["bead_id"], "bd-wv10l");
+    assert!(
+        root.join("scripts/check_ubs_staged_delta.py").exists(),
+        "changed-line UBS gate script must exist"
+    );
+    assert!(
+        baseline["changed_line_gate"]["unchanged"]
+            .as_bool()
+            .unwrap_or(false),
+        "UBS runtime baseline must not weaken the changed-line gate"
+    );
+
+    let scanned_files: BTreeSet<String> = baseline["generated_from"]["scanned_files"]
+        .as_array()
+        .expect("generated_from.scanned_files must be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("scanned file must be a string")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        scanned_files,
+        BTreeSet::from([
+            "src/extensions.rs".to_string(),
+            "src/pi_wasm.rs".to_string()
+        ])
+    );
+
+    let categories = baseline["finding_categories"]
+        .as_array()
+        .expect("finding_categories must be an array");
+    assert!(
+        !categories.is_empty(),
+        "UBS runtime baseline must classify warning/critical categories"
+    );
+
+    let mut critical_total = 0_u64;
+    let mut warning_total = 0_u64;
+    let mut dispositions = BTreeSet::new();
+    for category in categories {
+        let severity = category["severity"]
+            .as_str()
+            .expect("category severity must be a string");
+        let count = category["count"]
+            .as_u64()
+            .expect("category count must be a number");
+        assert!(
+            count > 0,
+            "category counts must be positive for classified UBS rows"
+        );
+        let disposition = category["disposition"]
+            .as_str()
+            .expect("category disposition must be a string");
+        assert!(
+            !disposition.trim().is_empty(),
+            "category disposition must be non-empty"
+        );
+        assert_eq!(
+            category["changed_line_policy"].as_str(),
+            Some("fail_on_new_or_modified_lines"),
+            "each UBS category must preserve changed-line blocking policy"
+        );
+        dispositions.insert(disposition.to_string());
+        match severity {
+            "critical" => critical_total = critical_total.saturating_add(count),
+            "warning" => warning_total = warning_total.saturating_add(count),
+            other => test_fail(format!("unexpected blocking UBS severity: {other}")),
+        }
+    }
+
+    assert_eq!(
+        critical_total,
+        baseline["raw_ubs_summary"]["critical"]
+            .as_u64()
+            .expect("raw critical total must be present")
+    );
+    assert_eq!(
+        warning_total,
+        baseline["raw_ubs_summary"]["warning"]
+            .as_u64()
+            .expect("raw warning total must be present")
+    );
+    for required in [
+        "test_only",
+        "guarded_runtime_pattern",
+        "heuristic_false_positive",
+        "optimization_inventory",
+    ] {
+        assert!(
+            dispositions.contains(required),
+            "UBS baseline missing required disposition: {required}"
+        );
+    }
 }
 
 #[test]
