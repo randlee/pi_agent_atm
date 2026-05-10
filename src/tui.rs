@@ -746,6 +746,7 @@ impl SpinnerStyle {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "syntax-highlighting")]
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
 
@@ -767,6 +768,7 @@ mod tests {
         segments.iter().map(|s| s.text.as_ref()).collect()
     }
 
+    #[cfg(feature = "syntax-highlighting")]
     fn unique_style_debug_for_tokens(
         segments: &[Segment<'static>],
         tokens: &[&str],
@@ -879,6 +881,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "syntax-highlighting")]
     fn render_markdown_code_fence_uses_syntax_highlighting_when_language_present() {
         let console = PiConsole::with_color();
 
@@ -1294,6 +1297,7 @@ Nested: **bold and *italic*** and ~~**strike bold**~~.
     }
 
     #[test]
+    #[cfg(feature = "syntax-highlighting")]
     fn render_markdown_code_fences_highlight_multiple_languages_and_fallback_unknown() {
         let segments = capture_markdown_segments(
             r#"

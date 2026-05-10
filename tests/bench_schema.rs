@@ -330,6 +330,8 @@ PY
     cat >"$target_dir/perf/legacy_extension_workloads.jsonl" <<'JSON'
 {"schema":"pi.ext.legacy_bench.v1","scenario":"ext_load_init/load_init_cold","extension":"hello","summary":{"p50_ms":10.0}}
 {"schema":"pi.ext.legacy_bench.v1","scenario":"ext_tool_call/hello","extension":"hello","per_call_us":20.0}
+{"schema":"pi.ext.legacy_bench.v1","scenario":"full_e2e_long_session","runtime_kind":"node","elapsed_ms":2400.0}
+{"schema":"pi.ext.legacy_bench.v1","scenario":"full_e2e_long_session","runtime_kind":"bun","elapsed_ms":1800.0}
 JSON
     python3 - "$target_dir/perf/scenario_runner.jsonl" <<'PY'
 import json
@@ -419,6 +421,39 @@ esac
 exit 0
 "#;
     write_executable(&bin_dir.join("cargo"), cargo_stub);
+}
+
+#[cfg(unix)]
+fn install_fake_orchestrate_staging_artifacts(target_dir: &Path) {
+    fn write_json(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().expect("artifact path has parent"))
+            .expect("create fake artifact parent");
+        fs::write(path, content).expect("write fake staging artifact");
+    }
+
+    let criterion_estimate = r#"{"mean":{"point_estimate":1.0},"median":{"point_estimate":1.0},"median_abs_dev":{"point_estimate":0.0}}"#;
+    for path in [
+        target_dir.join("criterion/startup/version/warm/new/estimates.json"),
+        target_dir.join("criterion/ext_load_init/load_init_cold/hello/new/estimates.json"),
+        target_dir.join("criterion/ext_policy/evaluate/hello/new/estimates.json"),
+        target_dir.join("criterion/ext_protocol/parse_and_validate/hello/new/estimates.json"),
+    ] {
+        write_json(&path, criterion_estimate);
+    }
+
+    let release_pi = target_dir.join("release/pi");
+    fs::create_dir_all(release_pi.parent().expect("release path has parent"))
+        .expect("create fake release parent");
+    write_executable(&release_pi, "#!/usr/bin/env sh\nexit 0\n");
+
+    write_json(
+        &target_dir.join("perf/extension_benchmark_stratification.json"),
+        r#"{"schema":"pi.perf.extension_benchmark_stratification.v1"}"#,
+    );
+    write_json(
+        &target_dir.join("perf/results/phase1_matrix_validation.json"),
+        r#"{"schema":"pi.perf.phase1_matrix_validation.v1"}"#,
+    );
 }
 
 fn canonical_protocol_contract() -> Value {
@@ -4736,6 +4771,7 @@ fn run_orchestrate_with_fake_toolchain_with_env(
     fs::create_dir_all(&target_dir).expect("create target dir");
     fs::create_dir_all(&output_dir).expect("create output dir");
     install_fake_orchestrate_toolchain(&bin_dir);
+    install_fake_orchestrate_staging_artifacts(&target_dir);
 
     let path = format!(
         "{}:{}",
@@ -4771,14 +4807,20 @@ fn run_orchestrate_with_fake_toolchain() -> (std::process::Output, PathBuf) {
 }
 
 #[cfg(unix)]
+fn assert_orchestrate_success(output: &std::process::Output) {
+    assert!(
+        output.status.success(),
+        "orchestrate.sh should succeed with stub toolchain. stdout={}\nstderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
 #[test]
 fn orchestrate_generates_extension_stratification_artifact() {
     let (output, temp_root) = run_orchestrate_with_fake_toolchain();
-    assert!(
-        output.status.success(),
-        "orchestrate.sh should succeed with stub toolchain. stderr={}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_orchestrate_success(&output);
 
     let output_dir = temp_root.join("run");
     let manifest_path = output_dir.join("manifest.json");
@@ -4852,11 +4894,7 @@ fn orchestrate_generates_extension_stratification_artifact() {
 #[test]
 fn orchestrate_generates_phase1_matrix_validation_artifact() {
     let (output, temp_root) = run_orchestrate_with_fake_toolchain();
-    assert!(
-        output.status.success(),
-        "orchestrate.sh should succeed with stub toolchain. stderr={}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_orchestrate_success(&output);
 
     let output_dir = temp_root.join("run");
     let manifest_path = output_dir.join("manifest.json");
@@ -5250,11 +5288,7 @@ fn orchestrate_generates_phase1_matrix_validation_artifact() {
 fn orchestrate_phase1_matrix_treats_missing_index_as_incomplete() {
     let (output, temp_root) =
         run_orchestrate_with_fake_toolchain_with_env(&[("PI_FAKE_DROP_INDEX_STAGE_SAMPLE", "1")]);
-    assert!(
-        output.status.success(),
-        "orchestrate.sh should succeed with stub toolchain. stderr={}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_orchestrate_success(&output);
 
     let matrix_path = temp_root
         .join("run")
@@ -5395,11 +5429,7 @@ fn orchestrate_phase1_matrix_treats_missing_index_as_incomplete() {
 fn orchestrate_phase1_matrix_treats_missing_swarm_metrics_as_incomplete() {
     let (output, temp_root) =
         run_orchestrate_with_fake_toolchain_with_env(&[("PI_FAKE_DROP_SWARM_METRICS", "1")]);
-    assert!(
-        output.status.success(),
-        "orchestrate.sh should succeed with stub toolchain. stderr={}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_orchestrate_success(&output);
 
     let matrix_path = temp_root
         .join("run")
@@ -5452,11 +5482,7 @@ fn orchestrate_phase1_matrix_treats_missing_swarm_metrics_as_incomplete() {
 fn orchestrate_phase1_weighted_attribution_missing_when_no_stage_cells_are_valid() {
     let (output, temp_root) =
         run_orchestrate_with_fake_toolchain_with_env(&[("PI_FAKE_DROP_ALL_STAGE_SAMPLES", "1")]);
-    assert!(
-        output.status.success(),
-        "orchestrate.sh should succeed with stub toolchain. stderr={}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_orchestrate_success(&output);
 
     let matrix_path = temp_root
         .join("run")

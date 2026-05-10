@@ -1846,14 +1846,21 @@ mod tests {
         runtime.block_on(future)
     }
 
-    #[test]
-    fn create_agent_session_default_succeeds() {
-        let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
+    fn hermetic_session_options(working_directory: &Path) -> SessionOptions {
+        SessionOptions {
+            provider: Some("openai".to_string()),
+            model: Some("gpt-4o".to_string()),
+            api_key: Some("dummy-key".to_string()),
+            working_directory: Some(working_directory.to_path_buf()),
             no_session: true,
             ..SessionOptions::default()
-        };
+        }
+    }
+
+    #[test]
+    fn create_agent_session_with_explicit_test_provider_succeeds() {
+        let tmp = tempdir().expect("tempdir");
+        let options = hermetic_session_options(tmp.path());
 
         let handle = run_async(create_agent_session(options)).expect("create session");
         let provider = handle.session().agent.provider();
@@ -1889,11 +1896,7 @@ mod tests {
     #[test]
     fn create_agent_session_no_session_keeps_ephemeral_state() {
         let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
-            ..SessionOptions::default()
-        };
+        let options = hermetic_session_options(tmp.path());
 
         let handle = run_async(create_agent_session(options)).expect("create session");
         assert!(!handle.session().save_enabled());
@@ -2087,11 +2090,7 @@ mod tests {
     #[test]
     fn compact_without_history_is_noop() {
         let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
-            ..SessionOptions::default()
-        };
+        let options = hermetic_session_options(tmp.path());
 
         let mut handle = run_async(create_agent_session(options)).expect("create session");
         let events = Arc::new(Mutex::new(Vec::new()));
@@ -2292,14 +2291,12 @@ mod tests {
         let tmp = tempdir().expect("tempdir");
 
         let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
             on_event: Some(Arc::new(move |event| {
                 r.lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .push(format!("{event:?}"));
             })),
-            ..SessionOptions::default()
+            ..hermetic_session_options(tmp.path())
         };
 
         let handle = run_async(create_agent_session(options)).expect("create session");
@@ -2319,11 +2316,7 @@ mod tests {
     #[test]
     fn subscribe_unsubscribe_on_handle() {
         let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
-            ..SessionOptions::default()
-        };
+        let options = hermetic_session_options(tmp.path());
 
         let handle = run_async(create_agent_session(options)).expect("create session");
         let id = handle.subscribe(|_event| {});
@@ -2418,11 +2411,7 @@ mod tests {
     #[test]
     fn has_extensions_false_by_default() {
         let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
-            ..SessionOptions::default()
-        };
+        let options = hermetic_session_options(tmp.path());
 
         let handle = run_async(create_agent_session(options)).expect("create session");
         assert!(
@@ -2554,11 +2543,7 @@ mod tests {
     #[test]
     fn set_session_name_records_session_info_entry() {
         let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
-            ..SessionOptions::default()
-        };
+        let options = hermetic_session_options(tmp.path());
 
         let mut handle = run_async(create_agent_session(options)).expect("create session");
         run_async(handle.set_session_name("renamed-by-sdk")).expect("set session name");
@@ -2586,11 +2571,7 @@ mod tests {
     #[test]
     fn max_tokens_default_is_none_and_set_overrides() {
         let tmp = tempdir().expect("tempdir");
-        let options = SessionOptions {
-            working_directory: Some(tmp.path().to_path_buf()),
-            no_session: true,
-            ..SessionOptions::default()
-        };
+        let options = hermetic_session_options(tmp.path());
 
         let mut handle = run_async(create_agent_session(options)).expect("create session");
         assert_eq!(handle.max_tokens(), None);
