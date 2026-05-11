@@ -10,6 +10,7 @@
 mod common;
 
 use common::TestHarness;
+use futures::StreamExt;
 use pi::agent::{Agent, AgentConfig, AgentSession};
 use pi::auth::AuthStorage;
 use pi::config::Config;
@@ -17,11 +18,12 @@ use pi::extensions::{ExtensionManager, ExtensionRegion, ExtensionUiRequest};
 use pi::http::client::Client;
 use pi::model::{AssistantMessage, ContentBlock, StopReason, TextContent, Usage, UserContent};
 use pi::models::ModelEntry;
-use pi::provider::{InputType, Model, ModelCost, Provider};
+use pi::provider::{Context, InputType, Model, ModelCost, Provider, StreamEvent, StreamOptions};
 use pi::providers::openai::OpenAIProvider;
 use pi::resources::ResourceLoader;
 use pi::rpc::{RpcOptions, RpcScopedModel, run};
 use pi::session::{Session, SessionMessage};
+use pi::session_index::SessionIndex;
 use pi::tools::ToolRegistry;
 use pi::vcr::{VcrMode, VcrRecorder};
 use serde_json::{Value, json};
@@ -91,6 +93,177 @@ fn build_agent_session(session: Session, cassette_dir: &Path) -> AgentSession {
     )
 }
 
+#[derive(Debug)]
+struct KeylessReplayProvider {
+    model_id: String,
+    turn_delay: Duration,
+}
+
+impl KeylessReplayProvider {
+    fn new(model_id: impl Into<String>, turn_delay: Duration) -> Self {
+        Self {
+            model_id: model_id.into(),
+            turn_delay,
+        }
+    }
+
+    fn message(&self, text: impl Into<String>, stop_reason: StopReason) -> AssistantMessage {
+        let text = text.into();
+        AssistantMessage {
+            content: if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![ContentBlock::Text(TextContent::new(text))]
+            },
+            api: self.api().to_string(),
+            provider: self.name().to_string(),
+            model: self.model_id.clone(),
+            usage: Usage::default(),
+            stop_reason,
+            error_message: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Provider for KeylessReplayProvider {
+    fn name(&self) -> &'static str {
+        "keyless-replay"
+    }
+
+    fn api(&self) -> &'static str {
+        "keyless-replay"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
+    async fn stream(
+        &self,
+        _context: &Context<'_>,
+        _options: &StreamOptions,
+    ) -> pi::error::Result<
+        std::pin::Pin<Box<dyn futures::Stream<Item = pi::error::Result<StreamEvent>> + Send>>,
+    > {
+        let partial = self.message("", StopReason::Stop);
+        let done = self.message("keyless replay response", StopReason::Stop);
+        let delay = self.turn_delay;
+        let start = futures::stream::once(async move { Ok(StreamEvent::Start { partial }) });
+        let finish = futures::stream::once(async move {
+            asupersync::time::sleep(asupersync::time::wall_now(), delay).await;
+            Ok(StreamEvent::Done {
+                reason: StopReason::Stop,
+                message: done,
+            })
+        });
+        Ok(Box::pin(start.chain(finish)))
+    }
+}
+
+fn build_persistent_keyless_agent_session(session: Session, cwd: &Path) -> AgentSession {
+    let provider: Arc<dyn Provider> = Arc::new(KeylessReplayProvider::new(
+        "keyless-rpc-replay",
+        Duration::from_secs(2),
+    ));
+    let tools = ToolRegistry::new(&[], cwd, None);
+    let config = AgentConfig::default();
+    let agent = Agent::new(provider, tools, config);
+    let session = Arc::new(asupersync::sync::Mutex::new(session));
+    AgentSession::new(
+        agent,
+        session,
+        true,
+        pi::compaction::ResolvedCompactionSettings::default(),
+    )
+}
+
+fn data_field<'a>(resp: &'a Value, key: &str) -> Option<&'a Value> {
+    resp.get("data")
+        .and_then(Value::as_object)
+        .and_then(|data| data.get(key))
+}
+
+fn require_line(line: Result<String, String>) -> String {
+    match line {
+        Ok(line) => line,
+        Err(err) => {
+            assert!(std::hint::black_box(false), "{err}");
+            String::new()
+        }
+    }
+}
+
+fn require_send<E>(send_result: Result<(), E>, label: &str) {
+    match send_result {
+        Ok(()) => {}
+        Err(_err) => {
+            assert!(std::hint::black_box(false), "send {label}");
+        }
+    }
+}
+
+fn require_response_field_str(resp: &Value, key: &str, label: &str) -> String {
+    data_field(resp, key).and_then(Value::as_str).map_or_else(
+        || {
+            assert!(
+                std::hint::black_box(false),
+                "{label}: missing string data field {key}"
+            );
+            String::new()
+        },
+        str::to_owned,
+    )
+}
+
+fn require_response_field_u64(resp: &Value, key: &str, label: &str) -> u64 {
+    let Some(value) = data_field(resp, key).and_then(Value::as_u64) else {
+        assert!(
+            std::hint::black_box(false),
+            "{label}: missing u64 data field {key}"
+        );
+        return 0;
+    };
+    value
+}
+
+fn is_response_type(value: &Value) -> bool {
+    matches!(value.get("type").and_then(Value::as_str), Some("response"))
+}
+
+fn is_agent_end_type(value: &Value) -> bool {
+    matches!(value.get("type").and_then(Value::as_str), Some("agent_end"))
+}
+
+fn is_response_for_id(value: &Value, expected_id: &str) -> bool {
+    is_response_type(value)
+        && value
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.eq(expected_id))
+}
+
+fn is_aborted_agent_end(value: &Value) -> bool {
+    is_agent_end_type(value)
+        && value
+            .get("error")
+            .and_then(Value::as_str)
+            .is_some_and(|error| error.eq("Aborted"))
+}
+
+fn is_streaming(resp: &Value) -> Option<bool> {
+    data_field(resp, "isStreaming").and_then(Value::as_bool)
+}
+
+fn pending_message_count(resp: &Value) -> Option<u64> {
+    data_field(resp, "pendingMessageCount").and_then(Value::as_u64)
+}
+
+fn session_id_field(resp: &Value) -> Option<&str> {
+    data_field(resp, "sessionId").and_then(Value::as_str)
+}
+
 fn build_options(
     handle: &asupersync::runtime::RuntimeHandle,
     auth_path: PathBuf,
@@ -115,7 +288,9 @@ fn rpc_output_channel() -> (std::sync::mpsc::SyncSender<String>, Receiver<String
 
 async fn recv_line(rx: &Arc<Mutex<Receiver<String>>>, label: &str) -> Result<String, String> {
     let start = Instant::now();
-    loop {
+    let mut disconnected = false;
+
+    while start.elapsed() <= Duration::from_secs(10) {
         let recv_result = {
             let rx = rx.lock().expect("lock rpc output receiver");
             rx.try_recv()
@@ -124,16 +299,19 @@ async fn recv_line(rx: &Arc<Mutex<Receiver<String>>>, label: &str) -> Result<Str
         match recv_result {
             Ok(line) => return Ok(line),
             Err(TryRecvError::Disconnected) => {
-                return Err(format!("{label}: output channel disconnected"));
+                disconnected = true;
+                break;
             }
             Err(TryRecvError::Empty) => {}
         }
 
-        if start.elapsed() > Duration::from_secs(10) {
-            return Err(format!("{label}: timed out waiting for output"));
-        }
-
         asupersync::time::sleep(asupersync::time::wall_now(), Duration::from_millis(5)).await;
+    }
+
+    if disconnected {
+        Err(format!("{label}: output channel disconnected"))
+    } else {
+        Err(format!("{label}: timed out waiting for output"))
     }
 }
 
@@ -201,6 +379,411 @@ fn assert_err(resp: &Value, command: &str) {
         resp["success"], false,
         "expected error for {command}: {resp}"
     );
+}
+
+async fn recv_response_and_agent_end(
+    out_rx: &Arc<Mutex<Receiver<String>>>,
+    expected_id: &str,
+    label: &str,
+) -> (Value, Value) {
+    let start = Instant::now();
+    let mut response = None;
+    let mut agent_end = None;
+
+    while response.is_none() || agent_end.is_none() {
+        let line = require_line(recv_line(out_rx, label).await);
+        let value = parse_response(&line);
+        if is_response_for_id(&value, expected_id) {
+            response = Some(value);
+        } else if is_agent_end_type(&value) {
+            agent_end = Some(value);
+        }
+        assert!(
+            start.elapsed() <= Duration::from_secs(10),
+            "{label}: timed out waiting for response id {expected_id} and agent_end"
+        );
+    }
+
+    let Some(pair) = response.zip(agent_end) else {
+        assert!(
+            std::hint::black_box(false),
+            "{label}: missing response or agent_end"
+        );
+        return (Value::Null, Value::Null);
+    };
+    pair
+}
+
+async fn send_recv_after_abort(
+    in_tx: &asupersync::channel::mpsc::Sender<String>,
+    out_rx: &Arc<Mutex<Receiver<String>>>,
+    cmd: &str,
+    label: &str,
+) -> Value {
+    let cx = asupersync::Cx::for_testing();
+    require_send(in_tx.send(&cx, cmd.to_string()).await, label);
+
+    let start = Instant::now();
+    loop {
+        let line = require_line(recv_line(out_rx, label).await);
+        let value = parse_response(&line);
+        if is_response_type(&value) {
+            return value;
+        }
+        assert!(
+            is_agent_end_type(&value),
+            "{label}: unexpected event while waiting for response after abort: {value}"
+        );
+        assert!(
+            is_aborted_agent_end(&value),
+            "{label}: only already-asserted abort terminal events may be skipped"
+        );
+        assert!(
+            start.elapsed() <= Duration::from_secs(10),
+            "{label}: timed out waiting for RPC response after abort"
+        );
+    }
+}
+
+async fn wait_for_streaming_state(
+    in_tx: &asupersync::channel::mpsc::Sender<String>,
+    out_rx: &Arc<Mutex<Receiver<String>>>,
+    session_idx: usize,
+) -> Value {
+    let cmd = json!({
+        "id": format!("s{session_idx}-streaming"),
+        "type": "get_state",
+    })
+    .to_string();
+    for _attempt in 0..100 {
+        let resp = send_recv(in_tx, out_rx, &cmd, "get_state(wait streaming)").await;
+        assert_ok(&resp, "get_state");
+        if matches!(is_streaming(&resp), Some(true)) {
+            return resp;
+        }
+        asupersync::time::sleep(asupersync::time::wall_now(), Duration::from_millis(10)).await;
+    }
+
+    assert!(
+        std::hint::black_box(false),
+        "session {session_idx}: prompt never entered streaming state"
+    );
+    Value::Null
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[derive(Debug)]
+struct RpcSwarmSessionEvidence {
+    session_id: String,
+    session_file: PathBuf,
+    marker_path: PathBuf,
+    message_count: u64,
+}
+
+const fn rpc_swarm_command_ids(session_idx: usize) -> &'static str {
+    match session_idx {
+        0 => "s0-bash,s0-prompt,s0-follow,s0-abort",
+        1 => "s1-bash,s1-prompt,s1-follow,s1-abort",
+        2 => "s2-bash,s2-prompt,s2-follow,s2-abort",
+        _ => "s-extra-bash,s-extra-prompt,s-extra-follow,s-extra-abort",
+    }
+}
+
+fn log_rpc_swarm_session(
+    logger: &common::logging::TestLogger,
+    session_idx: usize,
+    evidence: &RpcSwarmSessionEvidence,
+) {
+    let session_id = evidence.session_id.as_str();
+    let command_ids = rpc_swarm_command_ids(session_idx);
+    let session_file = evidence.session_file.display().to_string();
+
+    logger.info_ctx("rpc-swarm", "session completed", |ctx| {
+        ctx.push(("session_id".into(), session_id.to_string()));
+        ctx.push(("command_ids".into(), command_ids.into()));
+        ctx.push((
+            "queue_state".into(),
+            "follow_up_pending=1_before_abort".into(),
+        ));
+        ctx.push(("session_file".into(), session_file));
+    });
+}
+
+async fn run_rpc_swarm_session(
+    handle: asupersync::runtime::RuntimeHandle,
+    session_idx: usize,
+    project_dir: PathBuf,
+    sessions_root: PathBuf,
+    auth_path: PathBuf,
+    marker_path: PathBuf,
+) -> RpcSwarmSessionEvidence {
+    let mut session = Session::create_with_dir(Some(sessions_root));
+    session.header.cwd = project_dir.display().to_string();
+    session.header.provider = Some("keyless-replay".to_string());
+    session.header.model_id = Some("keyless-rpc-replay".to_string());
+    session.header.thinking_level = Some("off".to_string());
+    let session_id = session.header.id.clone();
+
+    let agent_session = build_persistent_keyless_agent_session(session, &project_dir);
+    let options = build_options(&handle, auth_path, vec![], vec![]);
+    let (in_tx, in_rx) = asupersync::channel::mpsc::channel::<String>(16);
+    let (out_tx, out_rx) = rpc_output_channel();
+    let out_rx = Arc::new(Mutex::new(out_rx));
+    let server = handle.spawn(async move { run(agent_session, options, in_rx, out_tx).await });
+
+    let marker_content = format!("session-{session_idx}-filesystem-side-effect");
+    let bash_cmd = format!(
+        "printf {} > {}",
+        shell_single_quote(&marker_content),
+        shell_single_quote(&marker_path.display().to_string())
+    );
+    let bash = json!({
+        "id": format!("s{session_idx}-bash"),
+        "type": "bash",
+        "command": bash_cmd,
+    })
+    .to_string();
+    let bash_resp = send_recv(&in_tx, &out_rx, &bash, "bash(filesystem side effect)").await;
+    assert_ok(&bash_resp, "bash");
+    assert_eq!(
+        require_response_field_u64(&bash_resp, "exitCode", "bash(filesystem side effect)"),
+        0
+    );
+
+    let prompt = json!({
+        "id": format!("s{session_idx}-prompt"),
+        "type": "prompt",
+        "message": format!("swarm prompt {session_idx}"),
+    })
+    .to_string();
+    let prompt_resp = send_recv(&in_tx, &out_rx, &prompt, "prompt(start keyless replay)").await;
+    assert_ok(&prompt_resp, "prompt");
+
+    let streaming_state = wait_for_streaming_state(&in_tx, &out_rx, session_idx).await;
+    assert!(
+        session_id_field(&streaming_state).is_some_and(|id| id.eq(&session_id)),
+        "streaming state session ID mismatch: {streaming_state}"
+    );
+    assert!(
+        matches!(pending_message_count(&streaming_state), Some(0)),
+        "streaming state should have no pending messages: {streaming_state}"
+    );
+
+    let follow_up = json!({
+        "id": format!("s{session_idx}-follow"),
+        "type": "follow_up",
+        "message": format!("queued follow-up {session_idx}"),
+    })
+    .to_string();
+    let follow_resp = send_recv(&in_tx, &out_rx, &follow_up, "follow_up(queue)").await;
+    assert_ok(&follow_resp, "follow_up");
+
+    let queued_state_cmd = json!({
+        "id": format!("s{session_idx}-queued-state"),
+        "type": "get_state",
+    })
+    .to_string();
+    let queued_state = send_recv(&in_tx, &out_rx, &queued_state_cmd, "get_state(queued)").await;
+    assert_ok(&queued_state, "get_state");
+    assert!(
+        matches!(is_streaming(&queued_state), Some(true)),
+        "queued state should still be streaming: {queued_state}"
+    );
+    assert!(
+        matches!(pending_message_count(&queued_state), Some(1)),
+        "queued state should have one pending message: {queued_state}"
+    );
+
+    let abort = json!({
+        "id": format!("s{session_idx}-abort"),
+        "type": "abort",
+    })
+    .to_string();
+    let cx = asupersync::Cx::for_testing();
+    require_send(
+        in_tx.send(&cx, abort).await,
+        "abort command after queue assertion",
+    );
+    let (abort_resp, agent_end) = recv_response_and_agent_end(
+        &out_rx,
+        &format!("s{session_idx}-abort"),
+        "abort(streaming)",
+    )
+    .await;
+    assert_ok(&abort_resp, "abort");
+    assert!(
+        is_aborted_agent_end(&agent_end),
+        "abort terminal event: {agent_end}"
+    );
+
+    let final_state_cmd = json!({
+        "id": format!("s{session_idx}-final-state"),
+        "type": "get_state",
+    })
+    .to_string();
+    let final_state =
+        send_recv_after_abort(&in_tx, &out_rx, &final_state_cmd, "get_state(final)").await;
+    assert_ok(&final_state, "get_state");
+    assert!(
+        matches!(is_streaming(&final_state), Some(false)),
+        "final state should not be streaming: {final_state}"
+    );
+    let session_file = PathBuf::from(require_response_field_str(
+        &final_state,
+        "sessionFile",
+        "get_state(final)",
+    ));
+    let message_count =
+        require_response_field_u64(&final_state, "messageCount", "get_state(final)");
+
+    drop(in_tx);
+    let result = server.await;
+    assert!(result.is_ok(), "rpc server error: {result:?}");
+    assert_eq!(
+        std::fs::read_to_string(&marker_path).expect("read filesystem marker"),
+        marker_content
+    );
+
+    RpcSwarmSessionEvidence {
+        session_id,
+        session_file,
+        marker_path,
+        message_count,
+    }
+}
+
+#[test]
+fn rpc_concurrent_keyless_swarm_e2e_preserves_session_index_and_filesystem_state() {
+    let harness = TestHarness::new(
+        "rpc_concurrent_keyless_swarm_e2e_preserves_session_index_and_filesystem_state",
+    );
+    let logger = harness.log();
+    let runtime = asupersync::runtime::RuntimeBuilder::current_thread()
+        .build()
+        .expect("build test runtime");
+    let handle = runtime.handle();
+
+    runtime.block_on(async {
+        let project_dir = harness.temp_path("project");
+        let sessions_root = harness.temp_path("sessions");
+        let auth_root = harness.temp_path("auth");
+        let marker_root = harness.temp_path("markers");
+        std::fs::create_dir_all(&project_dir).expect("create project dir");
+        std::fs::create_dir_all(&sessions_root).expect("create session root");
+        std::fs::create_dir_all(&auth_root).expect("create auth root");
+        std::fs::create_dir_all(&marker_root).expect("create marker root");
+
+        logger.info_ctx("rpc-swarm", "keyless replay path", |ctx| {
+            ctx.push(("provider_path".into(), "keyless-replay/no-network".into()));
+            ctx.push((
+                "redaction_summary".into(),
+                "authorization_context_redacted".into(),
+            ));
+            ctx.push(("Authorization".into(), "Bearer rpc-swarm-secret".into()));
+        });
+
+        let tasks = (0..3)
+            .map(|session_idx| {
+                let task_handle = handle.clone();
+                let project_dir = project_dir.clone();
+                let sessions_root = sessions_root.clone();
+                let auth_path = auth_root.join(format!("auth-{session_idx}.json"));
+                let marker_path = marker_root.join(format!("session-{session_idx}.txt"));
+                handle.spawn(async move {
+                    run_rpc_swarm_session(
+                        task_handle,
+                        session_idx,
+                        project_dir,
+                        sessions_root,
+                        auth_path,
+                        marker_path,
+                    )
+                    .await
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let evidences = futures::future::join_all(tasks).await;
+        assert_eq!(evidences.len(), 3);
+
+        let index = SessionIndex::for_sessions_root(&sessions_root);
+        let summary = index.refresh_incremental().expect("refresh session index");
+        assert_eq!(
+            summary.failed_files, 0,
+            "session index refresh should be clean"
+        );
+        let sessions = index
+            .list_sessions(Some(&project_dir.display().to_string()))
+            .expect("list indexed swarm sessions");
+        assert!(
+            sessions.len() >= evidences.len(),
+            "expected all swarm sessions in index, got {sessions:?}"
+        );
+
+        for (session_idx, evidence) in evidences.iter().enumerate() {
+            let marker_label = match session_idx {
+                0 => "rpc-swarm-marker-0",
+                1 => "rpc-swarm-marker-1",
+                2 => "rpc-swarm-marker-2",
+                _ => "rpc-swarm-marker-extra",
+            };
+            let session_label = match session_idx {
+                0 => "rpc-swarm-session-0",
+                1 => "rpc-swarm-session-1",
+                2 => "rpc-swarm-session-2",
+                _ => "rpc-swarm-session-extra",
+            };
+            harness.record_artifact(marker_label, &evidence.marker_path);
+            harness.record_artifact(session_label, &evidence.session_file);
+            log_rpc_swarm_session(logger, session_idx, evidence);
+
+            let Some(meta) = sessions
+                .iter()
+                .find(|meta| meta.id.as_str().eq(evidence.session_id.as_str()))
+            else {
+                assert!(
+                    std::hint::black_box(false),
+                    "missing session index row for {evidence:?}"
+                );
+                continue;
+            };
+            assert_eq!(PathBuf::from(&meta.path), evidence.session_file);
+            assert!(evidence.session_file.exists(), "session file should exist");
+            assert!(
+                meta.message_count >= 3,
+                "bash, prompt, and aborted assistant should be indexed: {meta:?}"
+            );
+            assert!(
+                meta.message_count >= evidence.message_count,
+                "indexed message count should not lag final RPC state"
+            );
+        }
+
+        let log_dump = logger.dump();
+        assert!(
+            log_dump.contains("session_id"),
+            "logs should include session IDs"
+        );
+        assert!(
+            log_dump.contains("queue_state"),
+            "logs should include queue state"
+        );
+        assert!(
+            log_dump.contains("command_ids"),
+            "logs should include command IDs"
+        );
+        assert!(
+            log_dump.contains("redaction_summary = authorization_context_redacted"),
+            "logs should include redaction summary"
+        );
+        assert!(
+            log_dump.contains("Authorization = [REDACTED]"),
+            "structured log context should redact sensitive fields"
+        );
+    });
 }
 
 // ---------------------------------------------------------------------------
