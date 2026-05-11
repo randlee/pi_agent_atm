@@ -1881,7 +1881,9 @@ impl PackageManager {
 
         let (_, pinned_version) = parse_npm_spec(spec);
         if pinned {
-            return pinned_version.is_some_and(|pv| pv != installed_version);
+            return pinned_version
+                .as_deref()
+                .is_some_and(|pv| pinned_npm_version_needs_update(pv, &installed_version));
         }
 
         Box::pin(get_latest_npm_version(installed_path, spec))
@@ -3613,6 +3615,17 @@ fn parse_npm_spec(spec: &str) -> (String, Option<String>) {
         }
         _ => (spec.to_string(), None),
     }
+}
+
+fn pinned_npm_version_needs_update(requested_version: &str, installed_version: &str) -> bool {
+    !is_local_npm_reference(requested_version) && requested_version != installed_version
+}
+
+fn is_local_npm_reference(reference: &str) -> bool {
+    let reference = reference.trim();
+    reference.starts_with("file:")
+        || reference.starts_with("link:")
+        || reference.starts_with("workspace:")
 }
 
 fn ensure_npm_project(root: &Path) -> Result<()> {
