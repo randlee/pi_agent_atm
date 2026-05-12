@@ -45,6 +45,8 @@ const SWARM_DOCTOR_RCH_AFFINITY_SCHEMA: &str = "pi.doctor.rch_warm_target_affini
 const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
     "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
 const SWARM_DOCTOR_CONFLICT_PREDICTOR_SCHEMA: &str = "pi.doctor.cross_agent_conflict_predictor.v1";
+const SWARM_DOCTOR_RESERVATION_RECOMMENDATIONS_SCHEMA: &str =
+    "pi.doctor.swarm_reservation_recommendations.v1";
 const SWARM_CARGO_SCRATCH_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
 const SWARM_RCH_AFFINITY_JOBS_ENV: &str = "PI_DOCTOR_RCH_AFFINITY_JOBS_JSON";
 const SWARM_BUILD_SLOT_SOON_EXPIRING_MINUTES: i64 = 30;
@@ -2920,8 +2922,54 @@ impl SwarmConflictPredictionPlan {
                 .safe_fallback_lanes
                 .iter()
                 .map(SwarmConflictFallbackLane::to_json)
+                .collect::<Vec<_>>(),
+            "reservation_recommendations": self.reservation_recommendations_json()
+        })
+    }
+
+    fn reservation_recommendations_json(&self) -> serde_json::Value {
+        let degraded_caveats = self.reservation_recommendation_caveats();
+        let avoid = self
+            .predictions
+            .iter()
+            .filter(|prediction| prediction.risk_level() != "low")
+            .map(SwarmConflictPrediction::to_reservation_recommendation_json)
+            .collect::<Vec<_>>();
+        let observe = self
+            .predictions
+            .iter()
+            .filter(|prediction| prediction.risk_level() == "low")
+            .map(SwarmConflictPrediction::to_reservation_recommendation_json)
+            .collect::<Vec<_>>();
+
+        serde_json::json!({
+            "schema": SWARM_DOCTOR_RESERVATION_RECOMMENDATIONS_SCHEMA,
+            "diagnostic_only": true,
+            "mutation_performed": false,
+            "mail_available": !self.reservations_unavailable,
+            "degraded_caveats": degraded_caveats,
+            "avoid": avoid,
+            "observe": observe,
+            "safe_fallback_lanes": self
+                .safe_fallback_lanes
+                .iter()
+                .map(SwarmConflictFallbackLane::to_json)
                 .collect::<Vec<_>>()
         })
+    }
+
+    fn reservation_recommendation_caveats(&self) -> Vec<&'static str> {
+        let mut caveats = Vec::new();
+        if self.reservations_unavailable {
+            caveats.push("agent_mail_reservations_unavailable");
+        }
+        if self.git_unavailable {
+            caveats.push("git_status_unavailable");
+        }
+        if self.parse_errors > 0 {
+            caveats.push("beads_parse_errors");
+        }
+        caveats
     }
 }
 
@@ -2976,6 +3024,59 @@ impl SwarmConflictPrediction {
             "suggested_reservation": self.path_pattern,
             "recommended_action": self.recommended_action()
         })
+    }
+
+    fn to_reservation_recommendation_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "path_pattern": self.path_pattern,
+            "suggested_reservation": self.path_pattern,
+            "risk_level": self.risk_level(),
+            "score": self.score,
+            "bead_families": self.bead_families(),
+            "conflict_reasons": self.reasons.iter().cloned().collect::<Vec<_>>(),
+            "beads": self.beads.iter().cloned().collect::<Vec<_>>(),
+            "agents": self.agents.iter().cloned().collect::<Vec<_>>(),
+            "recommended_action": self.recommended_action()
+        })
+    }
+
+    fn bead_families(&self) -> Vec<&'static str> {
+        let mut families = BTreeSet::new();
+        for reason in &self.reasons {
+            if let Some(family) = conflict_reason_family(reason) {
+                families.insert(family);
+            }
+        }
+        families.into_iter().collect()
+    }
+}
+
+fn conflict_reason_family(reason: &str) -> Option<&'static str> {
+    match reason {
+        "agent_mail_reservations_unavailable"
+        | "active_exclusive_reservation"
+        | "active_shared_reservation"
+        | "recent_inactive_reservation"
+        | "reservation_expiring_soon"
+        | "stale_reservation_holder"
+        | "overlapping_active_reservations" => Some("agent_mail_reservations"),
+        "bead_in_progress"
+        | "open_active_bead"
+        | "stale_in_progress_bead"
+        | "in_progress_bead_closeout_window"
+        | "dirty_beads_closeout_window"
+        | "beads_ledger_coordination_work" => Some("beads"),
+        "dirty_path" | "dirty_path_overlaps_predicted_surface" => Some("worktree"),
+        "swarm_doctor_coordination_work" => Some("swarm_doctor"),
+        "session_persistence_work" => Some("sessions"),
+        "built_in_tool_work" => Some("tools"),
+        "provider_work" => Some("providers"),
+        "interactive_tui_work" | "rpc_surface_work" => Some("interactive_rpc"),
+        "extension_runtime_work" => Some("extensions"),
+        "evidence_or_certification_work" => Some("evidence"),
+        "test_harness_work" => Some("tests"),
+        "unmapped_active_bead" => Some("unmapped"),
+        _ => None,
     }
 }
 
@@ -8434,6 +8535,24 @@ not-json
             data["input_sources"]["agent_mail_reservations"],
             serde_json::json!("unavailable")
         );
+        assert_eq!(
+            data["reservation_recommendations"]["schema"],
+            SWARM_DOCTOR_RESERVATION_RECOMMENDATIONS_SCHEMA
+        );
+        assert_eq!(
+            data["reservation_recommendations"]["diagnostic_only"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            data["reservation_recommendations"]["mail_available"],
+            serde_json::json!(false)
+        );
+        assert!(
+            data["reservation_recommendations"]["degraded_caveats"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("agent_mail_reservations_unavailable"))
+        );
         assert!(
             data["source_errors"][0]
                 .as_str()
@@ -8447,6 +8566,95 @@ not-json
                     |prediction| prediction.path_pattern == ".beads/issues.jsonl"
                         && prediction.has_reason("agent_mail_reservations_unavailable")
                 )
+        );
+    }
+
+    #[test]
+    fn swarm_conflict_predictor_exposes_healthy_reservation_recommendations() {
+        let now = heatmap_test_now();
+        let content = r#"{"id":"bd-tools","title":"Tool harness update","description":"read edit grep tool conformance","status":"open","labels":["tools","testing"]}
+"#;
+        let reservations = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/tools.rs",
+                    "agent": "BlueStone",
+                    "reason": "bd-tools",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:00:00Z"
+                }
+            ]
+        });
+
+        let plan = build_swarm_conflict_prediction_plan(
+            SwarmConflictPredictorInputs {
+                beads_content: Some(content),
+                reservations: Some(&reservations),
+                git_porcelain: Some(""),
+                ..SwarmConflictPredictorInputs::default()
+            },
+            now,
+        );
+        let finding = classify_swarm_conflict_prediction_plan(&plan);
+        let data = finding_data(&finding);
+        let recommendations = &data["reservation_recommendations"];
+
+        assert_eq!(recommendations["mail_available"], serde_json::json!(true));
+        assert!(
+            recommendations["degraded_caveats"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            recommendations["avoid"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["path_pattern"] == "src/tools.rs"
+                    && entry["suggested_reservation"] == "src/tools.rs"
+                    && entry["bead_families"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("tools"))
+                    && entry["agents"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("BlueStone")))
+        );
+    }
+
+    #[test]
+    fn swarm_conflict_predictor_reports_empty_ready_queue_recommendations() {
+        let now = heatmap_test_now();
+        let reservations = serde_json::json!({"reservations": []});
+
+        let plan = build_swarm_conflict_prediction_plan(
+            SwarmConflictPredictorInputs {
+                reservations: Some(&reservations),
+                git_porcelain: Some(""),
+                ..SwarmConflictPredictorInputs::default()
+            },
+            now,
+        );
+        let finding = classify_swarm_conflict_prediction_plan(&plan);
+        let data = finding_data(&finding);
+        let recommendations = &data["reservation_recommendations"];
+
+        assert_eq!(finding.severity, Severity::Pass);
+        assert_eq!(
+            recommendations["schema"],
+            SWARM_DOCTOR_RESERVATION_RECOMMENDATIONS_SCHEMA
+        );
+        assert!(recommendations["avoid"].as_array().unwrap().is_empty());
+        assert!(recommendations["observe"].as_array().unwrap().is_empty());
+        assert_eq!(
+            recommendations["safe_fallback_lanes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
         );
     }
 
@@ -8491,6 +8699,24 @@ not-json
         assert_eq!(session_prediction.risk_level(), "high");
         assert!(session_prediction.has_reason("overlapping_active_reservations"));
         assert!(session_prediction.agents.contains("DarkGoose"));
+
+        let finding = classify_swarm_conflict_prediction_plan(&plan);
+        let avoid = finding_data(&finding)["reservation_recommendations"]["avoid"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert!(avoid.iter().any(|entry| {
+            entry["path_pattern"] == "src/session.rs"
+                && entry["risk_level"] == "high"
+                && entry["conflict_reasons"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("overlapping_active_reservations"))
+                && entry["recommended_action"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("Contact listed reservation holders")
+        }));
     }
 
     #[test]
