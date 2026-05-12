@@ -105,11 +105,43 @@ AUTOPILOT_REQUIRED_SOURCE_IDS = (
     "doctor_swarm",
     "cargo_admission",
     "beads",
+    "agent_mail_status",
+    "agent_mail_reservations",
     "git_status",
 )
 AUTOPILOT_OPTIONAL_SOURCE_IDS = (
     "activity_digest",
     "operator_runpack",
+    "claim_readiness",
+    "smoke_harness",
+)
+AUTOPILOT_SOURCE_COMMAND_IDS: dict[str, tuple[str, ...]] = {
+    "doctor_swarm": ("doctor_swarm",),
+    "cargo_admission": ("cargo_admission",),
+    "beads": ("beads_list",),
+    "agent_mail_status": ("agent_mail_status",),
+    "agent_mail_reservations": ("agent_mail_reservations",),
+    "git_status": (
+        "git_status_porcelain",
+        "git_branch",
+        "git_head",
+        "git_upstream",
+        "git_ahead_behind",
+        "git_recent_commits",
+        "git_recent_remote_commits",
+    ),
+    "activity_digest": (),
+    "operator_runpack": (),
+    "claim_readiness": ("claim_readiness",),
+    "smoke_harness": (),
+}
+AUTOPILOT_FORBIDDEN_ACTIONS = (
+    "git reset --hard",
+    "git clean -fd",
+    "rm -rf",
+    "delete files",
+    "auto-commit",
+    "auto-reserve files",
 )
 TIMESTAMP_KEYS = (
     "generated_at",
@@ -590,11 +622,15 @@ def source_payloads(args: argparse.Namespace) -> list[SourcePayload]:
 
 
 def autopilot_source_payloads(args: argparse.Namespace) -> list[SourcePayload]:
+    agent_mail_status_json = getattr(args, "agent_mail_status_json", None)
+    agent_mail_reservations_json = getattr(args, "agent_mail_reservations_json", None)
     operator_runpack_json = getattr(args, "operator_runpack_json", None)
     return [
         load_json_source("doctor_swarm", args.doctor_json),
         load_cargo_admission(args.cargo_admission_json),
         load_json_source("beads", args.beads_json),
+        load_json_source("agent_mail_status", agent_mail_status_json),
+        load_json_source("agent_mail_reservations", agent_mail_reservations_json),
         load_git_status(args.git_status_file),
         load_json_source(
             "activity_digest",
@@ -605,6 +641,16 @@ def autopilot_source_payloads(args: argparse.Namespace) -> list[SourcePayload]:
             "operator_runpack",
             operator_runpack_json,
             expected_schema=RUNPACK_SCHEMA,
+        ),
+        load_json_source(
+            "claim_readiness",
+            args.claim_readiness_json,
+            expected_schema="pi.swarm.claim_readiness_report.v1",
+        ),
+        load_json_source(
+            "smoke_harness",
+            args.smoke_summary_json,
+            expected_schema="pi.swarm.smoke_harness.v1",
         ),
     ]
 
@@ -749,6 +795,7 @@ def maybe_capture_agent_mail(
     timeout_seconds: int,
     commands: list[dict[str, Any]],
     capture_dir: Path,
+    generated_source_paths: dict[str, str],
 ) -> None:
     am_path = shutil.which("am")
     if am_path is None:
@@ -790,7 +837,10 @@ def maybe_capture_agent_mail(
     )
     commands.append(status_result)
     if json_object_from_stdout(status_stdout) is not None:
-        no_overwrite_write_text(capture_dir / "agent-mail-status.json", status_stdout)
+        status_path = capture_dir / "agent-mail-status.json"
+        no_overwrite_write_text(status_path, status_stdout)
+        args.agent_mail_status_json = status_path
+        generated_source_paths["agent_mail_status"] = str(status_path)
     reservation_result, reservation_stdout = capture_command(
         "agent_mail_reservations",
         reservation_command,
@@ -799,7 +849,10 @@ def maybe_capture_agent_mail(
     )
     commands.append(reservation_result)
     if json_object_from_stdout(reservation_stdout) is not None:
-        no_overwrite_write_text(capture_dir / "agent-mail-reservations.json", reservation_stdout)
+        reservations_path = capture_dir / "agent-mail-reservations.json"
+        no_overwrite_write_text(reservations_path, reservation_stdout)
+        args.agent_mail_reservations_json = reservations_path
+        generated_source_paths["agent_mail_reservations"] = str(reservations_path)
 
 
 def maybe_capture_rch(
@@ -955,6 +1008,7 @@ def capture_current_sources(args: argparse.Namespace) -> None:
         timeout_seconds=timeout_seconds,
         commands=commands,
         capture_dir=capture_dir,
+        generated_source_paths=generated_source_paths,
     )
     maybe_capture_rch(
         repo_root=repo_root,
@@ -987,7 +1041,10 @@ def capture_summary_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "activity_digest": args.activity_digest_json,
         "cargo_admission": args.cargo_admission_json,
         "beads": args.beads_json,
+        "agent_mail_status": getattr(args, "agent_mail_status_json", None),
+        "agent_mail_reservations": getattr(args, "agent_mail_reservations_json", None),
         "git_status": args.git_status_file,
+        "operator_runpack": getattr(args, "operator_runpack_json", None),
     }
     return {
         "schema": RUNPACK_CAPTURE_SCHEMA,
@@ -1821,6 +1878,273 @@ def summarize_git_status(source: SourcePayload, max_items: int) -> dict[str, Any
     }
 
 
+def summarize_operator_runpack(source: SourcePayload, max_items: int) -> dict[str, Any]:
+    payload = source.payload
+    if not isinstance(payload, dict):
+        return {"status": source.status}
+    scorecard = payload.get("swarm_scale_safety_scorecard")
+    if not isinstance(scorecard, dict):
+        scorecard = {}
+    bottleneck = payload.get("bottleneck_attribution")
+    if not isinstance(bottleneck, dict):
+        bottleneck = {}
+    actions = payload.get("operator_next_actions")
+    if not isinstance(actions, list):
+        actions = []
+    return {
+        "status": source.status,
+        "schema": payload.get("schema"),
+        "generated_at": payload.get("generated_at"),
+        "runpack_status": payload.get("status"),
+        "scorecard_status": scorecard.get("overall_status"),
+        "bottleneck_status": bottleneck.get("status"),
+        "operator_next_actions": bounded(actions, max_items),
+    }
+
+
+def command_provenance(
+    capture_summary: dict[str, Any],
+    max_items: int,
+) -> list[dict[str, Any]]:
+    commands = capture_summary.get("commands")
+    if not isinstance(commands, list):
+        return []
+    provenance: list[dict[str, Any]] = []
+    for command in commands:
+        if not isinstance(command, dict):
+            continue
+        provenance.append(
+            {
+                "id": command.get("id"),
+                "command": command.get("command"),
+                "cwd": command.get("cwd"),
+                "status": command.get("status"),
+                "exit_code": command.get("exit_code"),
+                "issue": command.get("issue"),
+                "stdout_path": command.get("stdout_path"),
+                "stdout_snippet": command.get("stdout_snippet"),
+                "stderr_snippet": command.get("stderr_snippet"),
+                "redaction_summary": command.get("redaction_summary"),
+            }
+        )
+    return bounded(provenance, max_items)
+
+
+def merge_command_redaction(capture_summary: dict[str, Any]) -> RedactionStats:
+    stats = RedactionStats()
+    commands = capture_summary.get("commands")
+    if not isinstance(commands, list):
+        return stats
+    for command in commands:
+        if not isinstance(command, dict):
+            continue
+        redaction = command.get("redaction_summary")
+        if not isinstance(redaction, dict):
+            continue
+        stats.redacted_count += int_value(redaction.get("redacted_count"))
+        fields = redaction.get("fields")
+        if isinstance(fields, list):
+            stats.fields.update(str(field) for field in fields)
+    return stats
+
+
+def command_status(commands: list[dict[str, Any]], command_id: str) -> str:
+    for command in commands:
+        if command.get("id") == command_id:
+            value = command.get("status")
+            return str(value) if value is not None else "unknown"
+    return "not_captured"
+
+
+def summarize_agent_mail_autopilot(
+    capture_summary: dict[str, Any],
+    max_items: int,
+) -> dict[str, Any]:
+    commands = [
+        command
+        for command in command_provenance(capture_summary, max_items)
+        if str(command.get("id") or "").startswith("agent_mail")
+    ]
+    command_statuses = [str(command.get("status")) for command in commands]
+    if not commands:
+        status = "not_captured"
+    elif all(item == "ok" for item in command_statuses):
+        status = "ok"
+    elif any(item in {"failed", "timeout"} for item in command_statuses):
+        status = "degraded"
+    else:
+        status = "not_available"
+    return {
+        "status": status,
+        "capture_mode": capture_summary.get("mode"),
+        "read_status": command_status(commands, "agent_mail_status"),
+        "reservation_status": command_status(commands, "agent_mail_reservations"),
+        "fallback_action": "use_beads_soft_lock" if status != "ok" else None,
+        "commands": commands,
+    }
+
+
+def classify_autopilot_source(
+    source: SourcePayload,
+    *,
+    generated_at: datetime,
+    stale_after_hours: int,
+    required: bool,
+) -> dict[str, Any]:
+    if source.status != "ok":
+        return {
+            "id": source.id,
+            "required": required,
+            "status": source.status,
+            "schema": source.schema,
+            "classification": "blocker" if required else "optional_missing",
+            "freshness_hours": None,
+            "timestamp": None,
+            "issue": source.issue or "source was not provided",
+        }
+    timestamp = top_level_timestamp(source.payload)
+    if timestamp is None:
+        return {
+            "id": source.id,
+            "required": required,
+            "status": source.status,
+            "schema": source.schema,
+            "classification": "freshness_unknown",
+            "freshness_hours": None,
+            "timestamp": None,
+            "issue": "source has no top-level timestamp",
+        }
+    try:
+        source_time = parse_utc(timestamp)
+    except ValueError:
+        return {
+            "id": source.id,
+            "required": required,
+            "status": source.status,
+            "schema": source.schema,
+            "classification": "blocker",
+            "freshness_hours": None,
+            "timestamp": timestamp,
+            "issue": "source timestamp is invalid",
+        }
+    age_hours = (generated_at - source_time).total_seconds() / 3600
+    if age_hours < 0:
+        return {
+            "id": source.id,
+            "required": required,
+            "status": source.status,
+            "schema": source.schema,
+            "classification": "blocker",
+            "freshness_hours": round(age_hours, 2),
+            "timestamp": source_time.isoformat(),
+            "issue": "source timestamp is in the future",
+        }
+    if age_hours > stale_after_hours:
+        return {
+            "id": source.id,
+            "required": required,
+            "status": source.status,
+            "schema": source.schema,
+            "classification": "stale",
+            "freshness_hours": round(age_hours, 2),
+            "timestamp": source_time.isoformat(),
+            "issue": f"source is older than stale_after_hours={stale_after_hours}",
+        }
+    return {
+        "id": source.id,
+        "required": required,
+        "status": source.status,
+        "schema": source.schema,
+        "classification": "fresh",
+        "freshness_hours": round(age_hours, 2),
+        "timestamp": source_time.isoformat(),
+        "issue": None,
+    }
+
+
+def derive_autopilot_input_pack_status(
+    pack: dict[str, Any],
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
+    status_by_id = {
+        str(item.get("id")): str(item.get("status"))
+        for item in pack.get("source_statuses", [])
+        if isinstance(item, dict)
+    }
+    for source_id in AUTOPILOT_REQUIRED_SOURCE_IDS:
+        if status_by_id.get(source_id) != "ok":
+            reasons.append(f"required source `{source_id}` status is `{status_by_id.get(source_id)}`")
+    for item in pack.get("source_classification", []):
+        if not isinstance(item, dict) or item.get("required") is not True:
+            continue
+        if item.get("classification") in {"blocker", "stale"}:
+            reasons.append(f"required source `{item.get('id')}` is {item.get('classification')}")
+    agent_mail = pack.get("normalized_inputs", {}).get("agent_mail", {})
+    if isinstance(agent_mail, dict) and agent_mail.get("status") != "ok":
+        reasons.append(f"Agent Mail status is `{agent_mail.get('status')}`")
+    if not pack.get("command_provenance"):
+        reasons.append("command provenance was not captured")
+    return ("degraded" if reasons else "ready", reasons)
+
+
+def build_autopilot_input_pack(args: argparse.Namespace) -> dict[str, Any]:
+    generated_at = parse_utc(args.generated_at) if args.generated_at else parse_utc(utc_now_iso())
+    sources = autopilot_source_payloads(args)
+    by_id = {source.id: source for source in sources}
+    capture_summary = capture_summary_from_args(args)
+    redaction = RedactionStats()
+    for source in sources:
+        redaction.redacted_count += source.redacted_count
+        redaction.fields.update(source.redacted_fields)
+    redaction.merge(merge_command_redaction(capture_summary))
+    doctor_summary = summarize_doctor(by_id["doctor_swarm"], args.max_items)
+    pack = {
+        "schema": AUTOPILOT_INPUT_PACK_SCHEMA,
+        "generated_at": generated_at.isoformat(),
+        "status": "unknown",
+        "purpose": "dry_run_swarm_autopilot_input_not_source_of_truth",
+        "stale_after_hours": args.stale_after_hours,
+        "capture": capture_summary,
+        "source_statuses": [source.to_status() for source in sources],
+        "source_classification": [
+            classify_autopilot_source(
+                source,
+                generated_at=generated_at,
+                stale_after_hours=args.stale_after_hours,
+                required=source.id in AUTOPILOT_REQUIRED_SOURCE_IDS,
+            )
+            for source in sources
+        ],
+        "command_provenance": command_provenance(capture_summary, args.max_items),
+        "normalized_inputs": {
+            "doctor_swarm": doctor_summary,
+            "cargo_admission": summarize_cargo_admission(by_id["cargo_admission"]),
+            "beads": summarize_beads(
+                by_id["beads"],
+                generated_at=generated_at,
+                stale_after_hours=args.stale_after_hours,
+                max_items=args.max_items,
+            ),
+            "agent_mail": summarize_agent_mail_autopilot(capture_summary, args.max_items),
+            "git_state": summarize_git_status(by_id["git_status"], args.max_items),
+            "activity_digest": summarize_activity_digest(
+                by_id["activity_digest"],
+                args.max_items,
+            ),
+            "operator_runpack": summarize_operator_runpack(
+                by_id["operator_runpack"],
+                args.max_items,
+            ),
+        },
+        "redaction_summary": redaction.to_json(),
+        "degraded_reasons": [],
+    }
+    status, reasons = derive_autopilot_input_pack_status(pack)
+    pack["status"] = status
+    pack["degraded_reasons"] = reasons
+    return pack
+
+
 def int_value(value: Any) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -2413,6 +2737,21 @@ def write_outputs(args: argparse.Namespace, runpack: dict[str, Any]) -> None:
         args.out_md.write_text(render_markdown(runpack), encoding="utf-8")
 
 
+def write_autopilot_input_pack_output(
+    args: argparse.Namespace,
+    input_pack: dict[str, Any],
+) -> None:
+    output_path = getattr(args, "out_autopilot_input_pack_json", None)
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        raise RunpackError(
+            f"refusing to overwrite existing autopilot input pack: {output_path}"
+        )
+    output_path.write_text(json_dumps(input_pack, pretty=True), encoding="utf-8")
+
+
 def write_json(path: Path, payload: Any) -> Path:
     path.write_text(json_dumps(payload, pretty=True), encoding="utf-8")
     return path
@@ -2508,6 +2847,58 @@ def assert_runpack_contract(runpack: dict[str, Any]) -> None:
     action_text = "\n".join(str(action) for action in actions)
     for fragment in contract.get("required_next_action_fragments", []):
         assert fragment in action_text, f"missing next-action fragment: {fragment}"
+
+
+def assert_autopilot_input_pack_contract(input_pack: dict[str, Any]) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    contract_path = repo_root / AUTOPILOT_INPUT_PACK_CONTRACT_PATH
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(f"missing autopilot input-pack contract: {contract_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"autopilot input-pack contract is malformed JSON: {contract_path}: {exc}"
+        ) from exc
+    assert contract.get("schema") == AUTOPILOT_INPUT_PACK_CONTRACT_SCHEMA
+    assert contract.get("input_pack_schema") == AUTOPILOT_INPUT_PACK_SCHEMA
+    assert input_pack.get("schema") == contract["input_pack_schema"]
+    assert input_pack.get("purpose") == contract.get("purpose")
+    assert input_pack.get("status") in set(contract.get("allowed_statuses", []))
+    for key in contract.get("required_top_level_keys", []):
+        assert key in input_pack, f"missing top-level input-pack key: {key}"
+    source_ids = {
+        item.get("id")
+        for item in input_pack.get("source_statuses", [])
+        if isinstance(item, dict)
+    }
+    required_source_ids = set(contract.get("required_source_ids", []))
+    optional_source_ids = set(contract.get("optional_source_ids", []))
+    assert source_ids.issuperset(required_source_ids)
+    unknown_source_ids = source_ids - required_source_ids - optional_source_ids
+    assert not unknown_source_ids, f"unexpected input-pack source ids: {sorted(unknown_source_ids)}"
+    for path in contract.get("required_summary_paths", []):
+        get_dotted(input_pack, path)
+    for field in contract.get("required_source_status_fields", []):
+        for source in input_pack.get("source_statuses", []):
+            if isinstance(source, dict) and source.get("status") == "ok":
+                assert source.get(field) not in {None, ""}, (
+                    f"input-pack source {source.get('id')} missing required status field {field}"
+                )
+    redaction = input_pack.get("redaction_summary")
+    assert isinstance(redaction, dict)
+    assert redaction.get("redacted_count", 0) >= contract.get("minimum_redacted_count", 0)
+    fields = set(redaction.get("fields", []))
+    assert fields.issuperset(set(contract.get("required_redacted_fields", [])))
+    classifications = input_pack.get("source_classification")
+    assert isinstance(classifications, list) and classifications
+    for item in classifications:
+        assert isinstance(item, dict)
+        assert item.get("classification") in set(contract.get("allowed_classifications", []))
+    reasons = input_pack.get("degraded_reasons")
+    assert isinstance(reasons, list)
+    if input_pack.get("status") == "degraded":
+        assert reasons, "degraded input pack must explain why it is degraded"
 
 
 def canonicalize_for_golden(value: Any, workspace: Path) -> Any:
@@ -2875,6 +3266,9 @@ def run_self_test() -> int:
         capture_dir=workspace / "capture",
         out_json=workspace / "runpack.json",
         out_md=workspace / "runpack.md",
+        operator_runpack_json=None,
+        out_autopilot_input_pack_json=None,
+        print_autopilot_input_pack=False,
         generated_at=generated_at,
         stale_after_hours=24,
         max_items=4,
@@ -2957,6 +3351,28 @@ def run_self_test() -> int:
         assert "Git Context" in markdown
         assert_runpack_contract(runpack)
         assert_runpack_golden(runpack, workspace)
+        autopilot_args = argparse.Namespace(
+            **{
+                **vars(args),
+                "operator_runpack_json": args.out_json,
+                "out_autopilot_input_pack_json": workspace / "autopilot-input-pack.json",
+            }
+        )
+        input_pack = build_autopilot_input_pack(autopilot_args)
+        write_autopilot_input_pack_output(autopilot_args, input_pack)
+        assert input_pack["schema"] == AUTOPILOT_INPUT_PACK_SCHEMA
+        assert input_pack["status"] == "degraded"
+        assert input_pack["normalized_inputs"]["agent_mail"]["status"] == "degraded"
+        assert input_pack["normalized_inputs"]["agent_mail"]["fallback_action"] == "use_beads_soft_lock"
+        assert input_pack["normalized_inputs"]["operator_runpack"]["status"] == "ok"
+        assert any(
+            item.get("id") == "operator_runpack" and item.get("status") == "ok"
+            for item in input_pack["source_statuses"]
+        )
+        assert any("Agent Mail status" in reason for reason in input_pack["degraded_reasons"])
+        assert input_pack["redaction_summary"]["redacted_count"] >= 1
+        assert autopilot_args.out_autopilot_input_pack_json.exists()
+        assert_autopilot_input_pack_contract(input_pack)
         malformed = workspace / "malformed.json"
         malformed.write_text("{not valid json", encoding="utf-8")
         bad_args = argparse.Namespace(**{**vars(args), "doctor_json": malformed})
@@ -3157,6 +3573,11 @@ def parse_args() -> argparse.Namespace:
         help="captured validation log/output to summarize in the handoff bundle",
     )
     parser.add_argument(
+        "--operator-runpack-json",
+        type=Path,
+        help="optional pi.swarm.operator_runpack.v1 JSON to summarize in the autopilot input pack",
+    )
+    parser.add_argument(
         "--capture-current",
         action="store_true",
         help="capture current git, Beads, Agent Mail, RCH, and safe evidence sources before building",
@@ -3184,10 +3605,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out-json", type=Path, help="write runpack JSON; refuses to overwrite")
     parser.add_argument("--out-md", type=Path, help="write runpack Markdown; refuses to overwrite")
+    parser.add_argument(
+        "--out-autopilot-input-pack-json",
+        type=Path,
+        help="write pi.swarm.autopilot_input_pack.v1 JSON; refuses to overwrite",
+    )
     parser.add_argument("--generated-at", help="override generated timestamp for deterministic tests")
     parser.add_argument("--stale-after-hours", type=int, default=DEFAULT_STALE_AFTER_HOURS)
     parser.add_argument("--max-items", type=int, default=DEFAULT_MAX_ITEMS)
     parser.add_argument("--json", action="store_true", help="print the runpack JSON")
+    parser.add_argument(
+        "--print-autopilot-input-pack",
+        action="store_true",
+        help="print the autopilot input pack JSON",
+    )
     parser.add_argument("--self-test", action="store_true", help="run fixture-backed self-test")
     return parser.parse_args()
 
@@ -3209,10 +3640,20 @@ def main() -> int:
         capture_current_sources(args)
         runpack = build_runpack(args)
         write_outputs(args, runpack)
+        if args.out_autopilot_input_pack_json or args.print_autopilot_input_pack:
+            input_pack = build_autopilot_input_pack(args)
+            write_autopilot_input_pack_output(args, input_pack)
+            if args.print_autopilot_input_pack:
+                print(json_dumps(input_pack, pretty=True))
     except (RunpackError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    if args.json or (not args.out_json and not args.out_md):
+    if args.json or (
+        not args.out_json
+        and not args.out_md
+        and not args.out_autopilot_input_pack_json
+        and not args.print_autopilot_input_pack
+    ):
         print(json_dumps(runpack, pretty=True))
     return 0
 
