@@ -18,7 +18,7 @@ use crate::session::SessionHeader;
 use crate::session_index::walk_sessions;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -41,9 +41,11 @@ const SWARM_DOCTOR_AGENT_MAIL_DEGRADED_SCHEMA: &str = "pi.doctor.agent_mail_degr
 const SWARM_DOCTOR_STALLED_REAPER_SCHEMA: &str = "pi.doctor.stalled_bead_reaper.v1";
 const SWARM_DOCTOR_NEXT_ACTION_SCHEMA: &str = "pi.doctor.communication_purgatory_next_action.v1";
 const SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA: &str = "pi.doctor.swarm_operations_dashboard.v1";
+const SWARM_DOCTOR_RCH_AFFINITY_SCHEMA: &str = "pi.doctor.rch_warm_target_affinity.v1";
 const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
     "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
 const SWARM_CARGO_SCRATCH_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
+const SWARM_RCH_AFFINITY_JOBS_ENV: &str = "PI_DOCTOR_RCH_AFFINITY_JOBS_JSON";
 const SWARM_BUILD_SLOT_SOON_EXPIRING_MINUTES: i64 = 30;
 const SWARM_ACTIVE_AGENT_WINDOW_HOURS: i64 = 24;
 const SWARM_DASHBOARD_AGENT_LIMIT: usize = 12;
@@ -1113,6 +1115,7 @@ fn check_swarm(cwd: &Path, findings: &mut Vec<Finding>) {
     check_swarm_next_action(cwd, findings);
     check_swarm_git(cwd, findings);
     check_swarm_rch(findings);
+    check_swarm_rch_affinity(cwd, findings);
     check_swarm_temp_dirs(findings);
     check_swarm_operations_dashboard(cwd, findings);
 }
@@ -6021,6 +6024,492 @@ fn check_swarm_rch(findings: &mut Vec<Finding>) {
     }
 }
 
+fn check_swarm_rch_affinity(cwd: &Path, findings: &mut Vec<Finding>) {
+    let current_git_commit = current_git_commit(cwd);
+    let finding = match build_rch_affinity_plan_from_env(current_git_commit.as_deref()) {
+        Ok(plan) => classify_rch_affinity_plan(&plan),
+        Err(err) => rch_affinity_parse_error_finding(&err, current_git_commit.as_deref()),
+    };
+    findings.push(finding);
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RchAffinityJobSpec {
+    id: String,
+    command: String,
+    #[serde(default)]
+    worker: Option<String>,
+    #[serde(default)]
+    target_dir: Option<String>,
+    #[serde(default)]
+    git_commit: Option<String>,
+    #[serde(default)]
+    features: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RchAffinityKey {
+    worker: String,
+    target_dir: String,
+    git_commit: String,
+    command_family: String,
+    profile: String,
+    features: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RchAffinityJob {
+    id: String,
+    command: String,
+    key: RchAffinityKey,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RchAffinityGroup {
+    key: RchAffinityKey,
+    job_ids: Vec<String>,
+    recommendation: &'static str,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RchAffinityPlan {
+    source: &'static str,
+    current_git_commit: Option<String>,
+    recommended_target_dir: String,
+    jobs: Vec<RchAffinityJob>,
+    groups: Vec<RchAffinityGroup>,
+    blockers: Vec<String>,
+    notes: Vec<String>,
+}
+
+type RchAffinityTargetCompatibility<'a> = (&'a str, &'a str, Vec<String>);
+
+fn build_rch_affinity_plan_from_env(
+    current_git_commit: Option<&str>,
+) -> std::result::Result<RchAffinityPlan, String> {
+    let recommended_target_dir = default_rch_affinity_target_dir();
+    let current_git_commit = current_git_commit.map(str::to_string);
+    let raw_jobs = match std::env::var(SWARM_RCH_AFFINITY_JOBS_ENV) {
+        Ok(raw) if raw.trim().is_empty() => None,
+        Ok(raw) => Some(raw),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!(
+                "{SWARM_RCH_AFFINITY_JOBS_ENV} contains non-UTF-8 data"
+            ));
+        }
+    };
+
+    let Some(raw_jobs) = raw_jobs else {
+        return Ok(RchAffinityPlan {
+            source: "no_job_specs",
+            current_git_commit,
+            recommended_target_dir,
+            jobs: Vec::new(),
+            groups: Vec::new(),
+            blockers: vec!["no_job_specs".to_string()],
+            notes: vec![format!(
+                "Set {SWARM_RCH_AFFINITY_JOBS_ENV} to a JSON array of cargo jobs before launching a swarm"
+            )],
+        });
+    };
+
+    let specs = serde_json::from_str::<Vec<RchAffinityJobSpec>>(&raw_jobs)
+        .map_err(|err| format!("{SWARM_RCH_AFFINITY_JOBS_ENV} is not a valid job array: {err}"))?;
+    Ok(build_rch_affinity_plan_from_specs(
+        specs,
+        current_git_commit,
+        recommended_target_dir,
+    ))
+}
+
+fn build_rch_affinity_plan_from_specs(
+    specs: Vec<RchAffinityJobSpec>,
+    current_git_commit: Option<String>,
+    recommended_target_dir: String,
+) -> RchAffinityPlan {
+    let mut blockers = Vec::new();
+    let mut notes = Vec::new();
+    let mut jobs = Vec::new();
+
+    for spec in specs {
+        let id = spec.id.trim();
+        let command = spec.command.trim();
+        if id.is_empty() {
+            blockers.push("job_with_empty_id".to_string());
+            continue;
+        }
+        if command.is_empty() {
+            blockers.push(format!("{id}:empty_command"));
+            continue;
+        }
+
+        let worker = normalized_affinity_field(spec.worker.as_deref(), "unassigned");
+        let target_dir = spec
+            .target_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map_or_else(|| recommended_target_dir.clone(), str::to_string);
+        let git_commit = spec
+            .git_commit
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| current_git_commit.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        let command_family = rch_affinity_command_family(command);
+        let profile = rch_affinity_profile(command);
+        let features = rch_affinity_features(command, &spec.features);
+
+        let mut reasons = Vec::new();
+        if spec
+            .worker
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            reasons.push("worker_unassigned".to_string());
+        }
+        if spec
+            .target_dir
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            reasons.push("uses_recommended_target_dir".to_string());
+        }
+        if !path_under_swarm_scratch_root(Path::new(&target_dir)) {
+            blockers.push(format!("{id}:target_dir_outside_swarm_scratch_root"));
+            reasons.push("target_dir_outside_swarm_scratch_root".to_string());
+        }
+        if current_git_commit
+            .as_deref()
+            .is_some_and(|current| git_commit != current)
+        {
+            reasons.push("git_commit_differs_from_current_checkout".to_string());
+        }
+
+        jobs.push(RchAffinityJob {
+            id: id.to_string(),
+            command: command.to_string(),
+            key: RchAffinityKey {
+                worker,
+                target_dir,
+                git_commit,
+                command_family,
+                profile,
+                features,
+            },
+            reasons,
+        });
+    }
+
+    blockers.extend(rch_affinity_target_conflicts(&jobs));
+    if jobs.is_empty() {
+        blockers.push("no_valid_jobs".to_string());
+    }
+    if current_git_commit.is_none() {
+        notes.push("current_git_commit_unavailable".to_string());
+    }
+
+    let groups = rch_affinity_groups(&jobs);
+    RchAffinityPlan {
+        source: "env_job_specs",
+        current_git_commit,
+        recommended_target_dir,
+        jobs,
+        groups,
+        blockers,
+        notes,
+    }
+}
+
+fn rch_affinity_groups(jobs: &[RchAffinityJob]) -> Vec<RchAffinityGroup> {
+    let mut grouped: BTreeMap<RchAffinityKey, Vec<&RchAffinityJob>> = BTreeMap::new();
+    for job in jobs {
+        grouped.entry(job.key.clone()).or_default().push(job);
+    }
+
+    grouped
+        .into_iter()
+        .map(|(key, jobs)| {
+            let mut reasons = jobs
+                .iter()
+                .flat_map(|job| job.reasons.iter().cloned())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let recommendation = if jobs.len() > 1 {
+                reasons.push("same_worker_target_commit_features_profile_and_family".to_string());
+                "share_warm_target"
+            } else {
+                "single_job_or_wait_for_compatible_peer"
+            };
+            RchAffinityGroup {
+                key,
+                job_ids: jobs.iter().map(|job| job.id.clone()).collect(),
+                recommendation,
+                reasons,
+            }
+        })
+        .collect()
+}
+
+fn rch_affinity_target_conflicts(jobs: &[RchAffinityJob]) -> Vec<String> {
+    let mut by_target: BTreeMap<&str, BTreeSet<RchAffinityTargetCompatibility<'_>>> =
+        BTreeMap::new();
+    for job in jobs {
+        by_target
+            .entry(job.key.target_dir.as_str())
+            .or_default()
+            .insert((
+                job.key.git_commit.as_str(),
+                job.key.profile.as_str(),
+                job.key.features.clone(),
+            ));
+    }
+
+    by_target
+        .into_iter()
+        .filter_map(|(target_dir, compatibility_keys)| {
+            (compatibility_keys.len() > 1).then(|| format!("target_dir_conflict:{target_dir}"))
+        })
+        .collect()
+}
+
+fn classify_rch_affinity_plan(plan: &RchAffinityPlan) -> Finding {
+    let data = rch_affinity_plan_data(plan);
+    let shareable_groups = plan
+        .groups
+        .iter()
+        .filter(|group| group.recommendation == "share_warm_target")
+        .count();
+    let detail = format!(
+        "jobs={}, groups={}, shareable_groups={}, blockers={}",
+        plan.jobs.len(),
+        plan.groups.len(),
+        shareable_groups,
+        plan.blockers.len()
+    );
+
+    if plan.source == "no_job_specs" {
+        return Finding::info(CheckCategory::Swarm, "RCH warm-target affinity plan needs job specs")
+            .with_detail(detail)
+            .with_remediation(format!(
+                "Set {SWARM_RCH_AFFINITY_JOBS_ENV} before swarm launches to preview safe worker/target reuse"
+            ))
+            .with_data(data);
+    }
+    if !plan.blockers.is_empty() {
+        return Finding::warn(CheckCategory::Swarm, "RCH warm-target affinity plan has blockers")
+            .with_detail(detail)
+            .with_remediation(
+                "Separate incompatible jobs by target dir, align features/profile/commit, or assign a worker before sharing warm targets",
+            )
+            .with_data(data);
+    }
+
+    Finding::pass(CheckCategory::Swarm, "RCH warm-target affinity plan ready")
+        .with_detail(detail)
+        .with_data(data)
+}
+
+fn rch_affinity_parse_error_finding(err: &str, current_git_commit: Option<&str>) -> Finding {
+    Finding::warn(
+        CheckCategory::Swarm,
+        "RCH warm-target affinity plan unavailable",
+    )
+    .with_detail(err.to_string())
+    .with_remediation(format!(
+        "Fix {SWARM_RCH_AFFINITY_JOBS_ENV} JSON or unset it to use the default no-job diagnostic"
+    ))
+    .with_data(serde_json::json!({
+        "schema": SWARM_DOCTOR_RCH_AFFINITY_SCHEMA,
+        "source": "env_job_specs",
+        "current_git_commit": current_git_commit,
+        "job_count": 0,
+        "groups": [],
+        "blockers": [err],
+        "notes": ["invalid_job_specs"]
+    }))
+}
+
+fn rch_affinity_plan_data(plan: &RchAffinityPlan) -> serde_json::Value {
+    serde_json::json!({
+        "schema": SWARM_DOCTOR_RCH_AFFINITY_SCHEMA,
+        "source": plan.source,
+        "job_spec_env": SWARM_RCH_AFFINITY_JOBS_ENV,
+        "current_git_commit": &plan.current_git_commit,
+        "scratch_root": SWARM_CARGO_SCRATCH_ROOT,
+        "recommended_target_dir": &plan.recommended_target_dir,
+        "job_count": plan.jobs.len(),
+        "jobs": plan.jobs.iter().map(rch_affinity_job_json).collect::<Vec<_>>(),
+        "groups": plan.groups.iter().enumerate().map(rch_affinity_group_json).collect::<Vec<_>>(),
+        "blockers": &plan.blockers,
+        "notes": &plan.notes,
+        "template": {
+            "id": "cargo-test-tools",
+            "command": "rch exec -- cargo test --test tools_conformance",
+            "worker": "vmi-worker-id",
+            "target_dir": format!("{SWARM_CARGO_SCRATCH_ROOT}/<agent>/target"),
+            "git_commit": &plan.current_git_commit,
+            "features": ["default"]
+        }
+    })
+}
+
+fn rch_affinity_job_json(job: &RchAffinityJob) -> serde_json::Value {
+    serde_json::json!({
+        "id": &job.id,
+        "command": &job.command,
+        "worker": &job.key.worker,
+        "target_dir": &job.key.target_dir,
+        "git_commit": &job.key.git_commit,
+        "command_family": &job.key.command_family,
+        "profile": &job.key.profile,
+        "features": &job.key.features,
+        "reasons": &job.reasons,
+    })
+}
+
+fn rch_affinity_group_json((idx, group): (usize, &RchAffinityGroup)) -> serde_json::Value {
+    serde_json::json!({
+        "group_id": format!("rch-affinity-{}", idx + 1),
+        "job_ids": &group.job_ids,
+        "worker": &group.key.worker,
+        "target_dir": &group.key.target_dir,
+        "git_commit": &group.key.git_commit,
+        "command_family": &group.key.command_family,
+        "profile": &group.key.profile,
+        "features": &group.key.features,
+        "recommendation": group.recommendation,
+        "reasons": &group.reasons,
+    })
+}
+
+fn rch_affinity_command_family(command: &str) -> String {
+    let words = command.split_whitespace().collect::<Vec<_>>();
+    let mut idx = 0usize;
+    if words.get(idx) == Some(&"rch") && words.get(idx + 1) == Some(&"exec") {
+        idx += 2;
+        if words.get(idx) == Some(&"--") {
+            idx += 1;
+        }
+    }
+    if words.get(idx) == Some(&"cargo") {
+        return words.get(idx + 1).map_or_else(
+            || "cargo unknown".to_string(),
+            |subcommand| format!("cargo {subcommand}"),
+        );
+    }
+    words
+        .get(idx)
+        .map_or_else(|| "unknown".to_string(), |word| (*word).to_string())
+}
+
+fn rch_affinity_profile(command: &str) -> String {
+    if command.split_whitespace().any(|word| word == "--release") {
+        "release".to_string()
+    } else {
+        "debug".to_string()
+    }
+}
+
+fn rch_affinity_features(command: &str, explicit_features: &[String]) -> Vec<String> {
+    let words = command.split_whitespace().collect::<Vec<_>>();
+    let mut features = explicit_features
+        .iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+
+    let mut idx = 0usize;
+    while idx < words.len() {
+        match words[idx] {
+            "--all-features" => {
+                features.insert("all-features".to_string());
+            }
+            "--no-default-features" => {
+                features.insert("no-default-features".to_string());
+            }
+            "--features" => {
+                if let Some(value) = words.get(idx + 1) {
+                    for feature in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                        features.insert(feature.to_string());
+                    }
+                    idx += 1;
+                }
+            }
+            value if value.starts_with("--features=") => {
+                let value = value.trim_start_matches("--features=");
+                for feature in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                    features.insert(feature.to_string());
+                }
+            }
+            _ => {}
+        }
+        idx += 1;
+    }
+
+    if features.is_empty() {
+        features.insert("default".to_string());
+    }
+    features.into_iter().collect()
+}
+
+fn default_rch_affinity_target_dir() -> String {
+    let agent = first_non_empty_env(&["AGENT_NAME", "AGENT_MAIL_AGENT", "USER"])
+        .unwrap_or_else(|| "agent".to_string());
+    format!(
+        "{}/{}/target",
+        SWARM_CARGO_SCRATCH_ROOT,
+        sanitize_path_component(&agent)
+    )
+}
+
+fn normalized_affinity_field(value: Option<&str>, fallback: &str) -> String {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map_or_else(|| fallback.to_string(), str::to_string)
+}
+
+fn sanitize_path_component(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "agent".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn current_git_commit(cwd: &Path) -> Option<String> {
+    let outcome = run_tool_with_timeout(
+        SwarmProbeCommand::Git,
+        &["rev-parse", "HEAD"],
+        Some(cwd),
+        SWARM_PROBE_TIMEOUT,
+    )
+    .ok()?;
+    outcome
+        .success
+        .then(|| outcome.stdout.trim().to_string())
+        .filter(|commit| !commit.is_empty())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RchFailureKind {
     ArtifactRetrievalDiskPressure,
@@ -8046,6 +8535,86 @@ not-json
                 .unwrap_or_default()
                 .contains("do not classify this as disk pressure or a code regression")
         );
+    }
+
+    #[test]
+    fn swarm_rch_affinity_groups_compatible_jobs_on_warm_target() {
+        let target = "/data/tmp/pi_agent_rust_cargo/goldenglacier/target".to_string();
+        let specs = vec![
+            RchAffinityJobSpec {
+                id: "tools-a".to_string(),
+                command: "rch exec -- cargo test --test tools_conformance".to_string(),
+                worker: Some("vmi-a".to_string()),
+                target_dir: Some(target.clone()),
+                git_commit: Some("abc123".to_string()),
+                features: vec!["default".to_string()],
+            },
+            RchAffinityJobSpec {
+                id: "tools-b".to_string(),
+                command: "cargo test --test tools_conformance".to_string(),
+                worker: Some("vmi-a".to_string()),
+                target_dir: Some(target),
+                git_commit: Some("abc123".to_string()),
+                features: vec!["default".to_string()],
+            },
+        ];
+
+        let plan = build_rch_affinity_plan_from_specs(
+            specs,
+            Some("abc123".to_string()),
+            "/data/tmp/pi_agent_rust_cargo/goldenglacier/target".to_string(),
+        );
+        let finding = classify_rch_affinity_plan(&plan);
+        let data = finding_data(&finding);
+
+        assert_eq!(finding.severity, Severity::Pass);
+        assert!(plan.blockers.is_empty());
+        assert_eq!(data["schema"], SWARM_DOCTOR_RCH_AFFINITY_SCHEMA);
+        assert_eq!(data["job_count"], serde_json::json!(2));
+        assert_eq!(data["groups"][0]["recommendation"], "share_warm_target");
+        assert_eq!(data["groups"][0]["command_family"], "cargo test");
+        assert_eq!(
+            data["groups"][0]["job_ids"],
+            serde_json::json!(["tools-a", "tools-b"])
+        );
+    }
+
+    #[test]
+    fn swarm_rch_affinity_blocks_incompatible_features_on_same_target() {
+        let target = "/data/tmp/pi_agent_rust_cargo/goldenglacier/target".to_string();
+        let specs = vec![
+            RchAffinityJobSpec {
+                id: "default-features".to_string(),
+                command: "cargo test --test tools_conformance".to_string(),
+                worker: Some("vmi-a".to_string()),
+                target_dir: Some(target.clone()),
+                git_commit: Some("abc123".to_string()),
+                features: vec!["default".to_string()],
+            },
+            RchAffinityJobSpec {
+                id: "all-features".to_string(),
+                command: "cargo test --all-features --test tools_conformance".to_string(),
+                worker: Some("vmi-a".to_string()),
+                target_dir: Some(target.clone()),
+                git_commit: Some("abc123".to_string()),
+                features: Vec::new(),
+            },
+        ];
+
+        let plan = build_rch_affinity_plan_from_specs(
+            specs,
+            Some("abc123".to_string()),
+            "/data/tmp/pi_agent_rust_cargo/goldenglacier/target".to_string(),
+        );
+        let finding = classify_rch_affinity_plan(&plan);
+        let data = finding_data(&finding);
+
+        assert_eq!(finding.severity, Severity::Warn);
+        assert!(
+            plan.blockers
+                .contains(&format!("target_dir_conflict:{target}"))
+        );
+        assert_eq!(data["blockers"][0], format!("target_dir_conflict:{target}"));
     }
 
     #[test]
