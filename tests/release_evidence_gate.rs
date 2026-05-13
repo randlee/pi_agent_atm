@@ -28,6 +28,12 @@ fn require_json(relative: &str) -> Value {
     load_json(relative).unwrap_or_else(|| panic!("required evidence file missing: {relative}"))
 }
 
+fn require_text(relative: &str) -> String {
+    let path = repo_root().join(relative);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| format!("__UNREADABLE_TEXT_FILE__ {relative}: {err}"))
+}
+
 const FRANKEN_NODE_CLAIM_CONTRACT_PATH: &str = "docs/franken-node-claim-gating-contract.json";
 const FRANKEN_NODE_CLAIM_CONTRACT_SCHEMA: &str = "pi.frankennode.claim_gating_contract.v1";
 const FRANKEN_NODE_REQUIRED_TIER_IDS: &[&str] = &[
@@ -524,6 +530,103 @@ fn all_evidence_artifacts_are_valid_json() {
             "evidence artifact is not valid JSON: {label} ({path})"
         );
     }
+}
+
+#[test]
+fn agent_release_profile_guidance_matches_cargo_and_readme() {
+    let cargo_text = require_text("Cargo.toml");
+    let cargo = cargo_text.parse::<toml::Table>();
+    assert!(
+        cargo.is_ok(),
+        "Cargo.toml must parse as TOML: {:?}",
+        cargo.err()
+    );
+    let Ok(cargo) = cargo else {
+        return;
+    };
+
+    let release = cargo
+        .get("profile")
+        .and_then(toml::Value::as_table)
+        .and_then(|profiles| profiles.get("release"))
+        .and_then(toml::Value::as_table);
+    assert!(
+        release.is_some(),
+        "Cargo.toml must define [profile.release]"
+    );
+    let Some(release) = release else {
+        return;
+    };
+
+    let opt_level = release
+        .get("opt-level")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("");
+    assert_eq!(
+        opt_level, "z",
+        "shipping release profile must stay size-budgeted"
+    );
+    assert_eq!(
+        release.get("lto").and_then(toml::Value::as_bool),
+        Some(true),
+        "release profile must keep LTO enabled"
+    );
+    assert_eq!(
+        release
+            .get("codegen-units")
+            .and_then(toml::Value::as_integer),
+        Some(1),
+        "release profile must keep single-codegen-unit optimization"
+    );
+    assert_eq!(
+        release.get("panic").and_then(toml::Value::as_str),
+        Some("abort"),
+        "release profile must keep panic=abort"
+    );
+    assert_eq!(
+        release.get("strip").and_then(toml::Value::as_bool),
+        Some(true),
+        "release profile must keep symbol stripping enabled"
+    );
+
+    let agents = require_text("AGENTS.md");
+    let readme = require_text("README.md");
+    let release_profile_tokens = [
+        "[profile.release]",
+        "opt-level = \"z\"",
+        "lto = true",
+        "codegen-units = 1",
+        "panic = \"abort\"",
+        "strip = true",
+    ];
+
+    for token in release_profile_tokens {
+        assert!(
+            agents.contains(token),
+            "AGENTS.md release profile guidance missing Cargo.toml token: {token}"
+        );
+        assert!(
+            readme.contains(token),
+            "README.md release profile guidance missing Cargo.toml token: {token}"
+        );
+    }
+
+    assert!(
+        agents.contains("jemalloc is opt-in via `--features jemalloc`"),
+        "AGENTS.md must describe jemalloc as opt-in"
+    );
+    assert!(
+        readme.contains("opt-in jemalloc benchmark variants"),
+        "README.md must describe jemalloc benchmark variants as opt-in"
+    );
+    assert!(
+        !agents.contains("jemalloc is enabled by default"),
+        "AGENTS.md must not describe jemalloc as enabled by default"
+    );
+    assert!(
+        agents.contains("<22 MiB") && readme.contains("22.0 MiB"),
+        "AGENTS.md and README.md must agree on the release binary size budget"
+    );
 }
 
 #[test]
