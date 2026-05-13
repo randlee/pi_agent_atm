@@ -9,7 +9,7 @@ mod common;
 use async_trait::async_trait;
 use common::{TestHarness, run_async};
 use futures::Stream;
-use pi::agent::{Agent, AgentConfig, AgentEvent, AgentSession};
+use pi::agent::{Agent, AgentConfig, AgentEvent, AgentSession, SemanticContextBundleInjection};
 use pi::compaction::ResolvedCompactionSettings;
 use pi::error::{Error, Result};
 use pi::model::{
@@ -17,12 +17,19 @@ use pi::model::{
     ToolResultMessage, Usage,
 };
 use pi::provider::{Context, Provider, StreamOptions};
+use pi::semantic_workspace_graph::{
+    ContextArtifactCacheScope, ContextBundleBudget, ContextBundleRequest, SemanticContextBundle,
+    SemanticContextBundlePlanner, SemanticWorkspaceGraphBuilder,
+};
 use pi::session::Session;
 use pi::tools::ToolRegistry;
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::fs;
 use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -46,6 +53,23 @@ enum Scenario {
 struct ScriptedProvider {
     scenario: Scenario,
     stream_calls: AtomicUsize,
+}
+
+#[derive(Debug, Default)]
+struct CapturedProviderContext {
+    system_prompt: Option<String>,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Default)]
+struct ContextCaptureProvider {
+    calls: Arc<Mutex<Vec<CapturedProviderContext>>>,
+}
+
+impl ContextCaptureProvider {
+    fn calls(&self) -> Arc<Mutex<Vec<CapturedProviderContext>>> {
+        Arc::clone(&self.calls)
+    }
 }
 
 impl ScriptedProvider {
@@ -371,6 +395,63 @@ impl Provider for ScriptedProvider {
     }
 }
 
+#[async_trait]
+#[allow(clippy::unnecessary_literal_bound)]
+impl Provider for ContextCaptureProvider {
+    fn name(&self) -> &str {
+        "context-capture-provider"
+    }
+
+    fn api(&self) -> &str {
+        "openai-responses"
+    }
+
+    fn model_id(&self) -> &str {
+        "context-capture-model"
+    }
+
+    async fn stream(
+        &self,
+        context: &Context<'_>,
+        _options: &StreamOptions,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
+        {
+            let mut calls = match self.calls.lock() {
+                Ok(calls) => calls,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            calls.push(CapturedProviderContext {
+                system_prompt: context.system_prompt.as_ref().map(ToString::to_string),
+                messages: context.messages.iter().cloned().collect(),
+            });
+        }
+
+        let message = AssistantMessage {
+            content: vec![ContentBlock::Text(TextContent::new(
+                "context intelligence bundle consumed",
+            ))],
+            api: self.api().to_string(),
+            provider: self.name().to_string(),
+            model: self.model_id().to_string(),
+            usage: Usage {
+                total_tokens: 31,
+                output: 31,
+                ..Usage::default()
+            },
+            stop_reason: StopReason::Stop,
+            error_message: None,
+            timestamp: 0,
+        };
+
+        Ok(Box::pin(futures::stream::iter(vec![Ok(
+            StreamEvent::Done {
+                reason: StopReason::Stop,
+                message,
+            },
+        )])))
+    }
+}
+
 #[derive(Debug, Default)]
 struct EventCapture {
     timeline: Vec<serde_json::Value>,
@@ -465,6 +546,140 @@ fn write_jsonl_artifacts(harness: &TestHarness, test_name: &str) {
     harness.record_artifact(format!("{test_name}.artifacts.jsonl"), &artifacts_path);
 }
 
+fn write_json_value_artifact(
+    harness: &TestHarness,
+    artifact_name: &str,
+    entries: impl IntoIterator<Item = serde_json::Value>,
+) -> PathBuf {
+    let path = harness.temp_path(artifact_name);
+    let mut file = fs::File::create(&path).expect("create jsonl artifact");
+    for entry in entries {
+        let line = serde_json::to_string(&entry).expect("serialize jsonl artifact entry");
+        writeln!(file, "{line}").expect("write jsonl artifact entry");
+    }
+    harness.record_artifact(artifact_name, &path);
+    path
+}
+
+fn init_real_git_workspace(root: &Path) {
+    let output = Command::new("git")
+        .args(["init", "--initial-branch", "main"])
+        .current_dir(root)
+        .output()
+        .expect("run git init");
+    assert!(
+        output.status.success(),
+        "git init failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[allow(clippy::too_many_lines)]
+fn write_context_intelligence_workspace(root: &Path) {
+    init_real_git_workspace(root);
+    fs::create_dir_all(root.join("src/providers")).expect("create source dirs");
+    fs::create_dir_all(root.join("tests")).expect("create tests dir");
+    fs::create_dir_all(root.join("docs/evidence")).expect("create evidence dir");
+    fs::create_dir_all(root.join(".beads")).expect("create beads dir");
+    fs::create_dir_all(root.join("logs")).expect("create logs dir");
+
+    fs::write(
+        root.join("README.md"),
+        "# Context Intelligence Fixture\n\nThe release-facing context bundle cites docs/evidence/context-intelligence-current.json.\nStrict drop-in certification cites docs/evidence/dropin-certification-verdict.json.\nOperator debugging references docs/evidence/auth-secret-transcript.json.\n",
+    )
+    .expect("write README");
+    fs::write(
+        root.join("src/agent.rs"),
+        "pub struct AgentSession;\n\nimpl AgentSession {\n    pub fn assemble_context_prompt() -> &'static str {\n        \"context intelligence prompt assembly\"\n    }\n}\n",
+    )
+    .expect("write agent source");
+    fs::write(
+        root.join("src/session.rs"),
+        "pub struct SessionStore;\n\nimpl SessionStore {\n    pub fn persist_context_provenance() -> bool {\n        true\n    }\n}\n",
+    )
+    .expect("write session source");
+    fs::write(
+        root.join("src/providers/openai.rs"),
+        "pub fn provider_context_window() -> usize {\n    128_000\n}\n",
+    )
+    .expect("write provider source");
+    fs::write(
+        root.join("tests/context_intelligence.rs"),
+        "#[test]\nfn context_intelligence_no_mock_harness() {\n    assert_eq!(2 + 2, 4);\n}\n",
+    )
+    .expect("write integration test");
+    fs::write(
+        root.join("docs/evidence/context-intelligence-current.json"),
+        r#"{
+  "schema": "pi.context_intelligence.evidence.v1",
+  "generated_at": "2026-05-12T00:00:00Z",
+  "overall_verdict": "CERTIFIED",
+  "claim_surface": "release_facing",
+  "validation_command": "cargo test --test context_intelligence context_intelligence_no_mock_harness"
+}"#,
+    )
+    .expect("write current evidence");
+    fs::write(
+        root.join("docs/evidence/dropin-certification-verdict.json"),
+        r#"{
+  "schema": "pi.dropin_certification.verdict.v1",
+  "generated_at": "2025-01-01T00:00:00Z",
+  "overall_verdict": "CERTIFIED",
+  "claim_surface": "release_facing"
+}"#,
+    )
+    .expect("write stale evidence");
+    fs::write(
+        root.join("docs/evidence/auth-secret-transcript.json"),
+        r#"{
+  "schema": "pi.context_intelligence.secret_transcript.v1",
+  "generated_at": "2026-05-12T00:00:00Z",
+  "overall_verdict": "CERTIFIED",
+  "claim_surface": "operator_evidence",
+  "api_key": "sk-test-redacted",
+  "messages": [{"role": "user", "content": "private debugging payload"}]
+}"#,
+    )
+    .expect("write unsafe evidence");
+    fs::write(
+        root.join(".beads/issues.jsonl"),
+        concat!(
+            "{\"id\":\"bd-context\",\"title\":\"Context intelligence no-mock harness\",",
+            "\"status\":\"open\",\"priority\":2,\"issue_type\":\"test\",",
+            "\"description\":\"Assemble context intelligence over real source, tests, evidence, sessions, and provider loop\",",
+            "\"external_ref\":\"docs/evidence/context-intelligence-current.json\"}\n",
+            "{\"id\":\"bd-closed\",\"title\":\"Closed reference context\",",
+            "\"status\":\"closed\",\"priority\":3,\"issue_type\":\"task\"}\n"
+        ),
+    )
+    .expect("write beads jsonl");
+    fs::write(
+        root.join("logs/session-context.log"),
+        "{\"event\":\"session_context\",\"request\":\"context intelligence prompt\",\"token\":\"redacted\"}\n",
+    )
+    .expect("write runtime log");
+}
+
+fn context_bundle_source_paths(bundle: &SemanticContextBundle) -> Vec<&str> {
+    bundle
+        .selected_items
+        .iter()
+        .map(|item| item.source_path.as_str())
+        .collect()
+}
+
+fn assert_bundle_has_source(bundle: &SemanticContextBundle, source_path: &str) {
+    assert!(
+        bundle
+            .selected_items
+            .iter()
+            .any(|item| item.source_path == source_path),
+        "expected selected context to include {source_path}; selected={:?}",
+        context_bundle_source_paths(bundle)
+    );
+}
+
 fn run_scenario(
     harness: &TestHarness,
     scenario: Scenario,
@@ -503,7 +718,10 @@ fn run_scenario(
         let message = agent_session
             .run_text(user_prompt, move |event| {
                 let elapsed_ms = started_at.elapsed().as_millis();
-                let mut guard = capture_ref.lock().expect("lock event capture");
+                let mut guard = match capture_ref.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 match &event {
                     AgentEvent::TurnStart { turn_index, .. } => {
                         guard.turn_starts.insert(*turn_index, Instant::now());
@@ -552,6 +770,374 @@ fn run_scenario(
             total_tokens: total_assistant_tokens(&messages),
         }
     })
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn context_intelligence_no_mock_harness() {
+    let test_name = "e2e_agent_loop_context_intelligence_no_mock_harness";
+    let harness = TestHarness::new(test_name);
+    let root = harness.temp_dir();
+    write_context_intelligence_workspace(root);
+
+    let head = fs::read_to_string(root.join(".git/HEAD")).expect("read git HEAD");
+    assert!(
+        head.contains("refs/heads/main"),
+        "fixture should be a real git workspace on main, got {head:?}"
+    );
+
+    let reference_time = chrono::DateTime::parse_from_rfc3339("2026-05-13T12:00:00Z")
+        .expect("parse reference time")
+        .with_timezone(&chrono::Utc);
+    let cache_scope = ContextArtifactCacheScope::new(
+        "workspace:context-intelligence-e2e",
+        "branch:main",
+        "session:context-intelligence-e2e",
+    );
+    let graph = SemanticWorkspaceGraphBuilder::new(root)
+        .with_reference_time(reference_time)
+        .with_cache_scope(cache_scope)
+        .with_cache_ttl_seconds(900)
+        .add_expected_path("logs/session-context.log")
+        .build()
+        .expect("build semantic graph from real workspace");
+    assert!(
+        graph.nodes.len() >= 16,
+        "expected real graph nodes from source/tests/docs/evidence/beads/logs, got {}",
+        graph.nodes.len()
+    );
+    assert!(
+        graph
+            .input_fingerprints
+            .iter()
+            .any(|fingerprint| fingerprint.source_path == ".beads/issues.jsonl"),
+        "graph should fingerprint real Beads JSONL inputs"
+    );
+    assert!(
+        graph
+            .input_fingerprints
+            .iter()
+            .any(|fingerprint| fingerprint.source_path == "logs/session-context.log"),
+        "graph should fingerprint runtime/session log inputs"
+    );
+
+    let request = ContextBundleRequest {
+        query: Some(
+            "context intelligence prompt assembly drop-in certification verdict auth secret transcript"
+                .to_string(),
+        ),
+        bead_id: Some("bd-context".to_string()),
+        changed_paths: vec![
+            "src/agent.rs".to_string(),
+            "src/session.rs".to_string(),
+            "tests/context_intelligence.rs".to_string(),
+        ],
+        failing_command: Some(
+            "cargo test --test context_intelligence context_intelligence_no_mock_harness"
+                .to_string(),
+        ),
+        workspace_id: Some("workspace:context-intelligence-e2e".to_string()),
+        branch: Some("main".to_string()),
+        session_id: Some("session:context-intelligence-e2e".to_string()),
+        generated_at_utc: Some("2026-05-13T12:00:00Z".to_string()),
+        cache_ttl_seconds: 900,
+        budget: ContextBundleBudget {
+            max_items: 20,
+            max_bytes: 20 * 1024,
+        },
+    };
+    let planner = SemanticContextBundlePlanner::new(&graph);
+    let bundle = planner.plan(&request);
+
+    assert_eq!(bundle.schema, "pi.semantic_context_bundle.v1");
+    assert!(bundle.selected_items.len() <= bundle.budget.max_items);
+    assert!(bundle.estimated_bytes <= bundle.budget.max_bytes);
+    assert!(bundle.invalidation_policy.cacheable);
+    assert_bundle_has_source(&bundle, "src/agent.rs");
+    assert_bundle_has_source(&bundle, "src/session.rs");
+    assert_bundle_has_source(&bundle, "tests/context_intelligence.rs");
+    assert_bundle_has_source(&bundle, "docs/evidence/context-intelligence-current.json");
+    assert!(
+        !bundle
+            .selected_items
+            .iter()
+            .any(|item| item.source_path == "docs/evidence/dropin-certification-verdict.json"),
+        "stale verdict raw file entries must not be selected: {:?}",
+        bundle.selected_items
+    );
+    assert!(
+        bundle.suggested_validation_commands.iter().any(|command| {
+            command == "cargo test --test context_intelligence context_intelligence_no_mock_harness"
+        }),
+        "focused validation command missing from bundle: {:?}",
+        bundle.suggested_validation_commands
+    );
+    assert!(
+        bundle.stale_evidence_suppressions.iter().any(|item| {
+            item.source_path == "docs/evidence/dropin-certification-verdict.json"
+                && item.reason == "suppressed_stale_or_unsafe_evidence"
+        }),
+        "stale release evidence should be omitted explicitly: {:?}",
+        bundle.stale_evidence_suppressions
+    );
+    assert!(
+        bundle.excluded_items.iter().any(|item| {
+            item.source_path == "docs/evidence/auth-secret-transcript.json"
+                && item.reason.contains("unsafe_to_emit_by_redaction_policy")
+        }),
+        "unsafe credential transcript should be excluded: {:?}",
+        bundle.excluded_items
+    );
+    assert!(bundle.redaction_summary.suppressed_unsafe_nodes > 0);
+    assert!(
+        bundle
+            .redaction_summary
+            .redacted_metadata_keys
+            .contains("credential_like")
+    );
+    assert!(
+        bundle
+            .redaction_summary
+            .redacted_metadata_keys
+            .contains("prompt_or_payload")
+    );
+    assert!(
+        bundle
+            .redaction_summary
+            .sensitive_path_kinds
+            .contains("credential_path")
+    );
+
+    let replay_graph = SemanticWorkspaceGraphBuilder::new(root)
+        .with_reference_time(reference_time)
+        .with_cache_scope(ContextArtifactCacheScope::new(
+            "workspace:context-intelligence-e2e",
+            "branch:main",
+            "session:context-intelligence-e2e",
+        ))
+        .with_cache_ttl_seconds(900)
+        .add_expected_path("logs/session-context.log")
+        .build()
+        .expect("rebuild semantic graph");
+    let replay_bundle = SemanticContextBundlePlanner::new(&replay_graph).plan(&request);
+    assert_eq!(
+        serde_json::to_value(&bundle).expect("serialize bundle"),
+        serde_json::to_value(&replay_bundle).expect("serialize replay bundle"),
+        "deterministic replay should reproduce the same semantic context bundle"
+    );
+
+    let graph_artifact = write_json_value_artifact(
+        &harness,
+        "context_intelligence.graph_trace.jsonl",
+        graph
+            .trace
+            .iter()
+            .map(|entry| serde_json::to_value(entry).expect("serialize graph trace")),
+    );
+    let planner_artifact = write_json_value_artifact(
+        &harness,
+        "context_intelligence.planner_decisions.jsonl",
+        [
+            json!({
+                "schema": "pi.context_intelligence.e2e.planner.v1",
+                "phase": "selected",
+                "items": &bundle.selected_items,
+            }),
+            json!({
+                "schema": "pi.context_intelligence.e2e.planner.v1",
+                "phase": "excluded",
+                "items": &bundle.excluded_items,
+            }),
+            json!({
+                "schema": "pi.context_intelligence.e2e.planner.v1",
+                "phase": "validation",
+                "commands": &bundle.suggested_validation_commands,
+            }),
+        ],
+    );
+    assert!(
+        graph_artifact
+            .metadata()
+            .expect("stat graph artifact")
+            .len()
+            > 0,
+        "graph JSONL artifact should be durable"
+    );
+    assert!(
+        planner_artifact
+            .metadata()
+            .expect("stat planner artifact")
+            .len()
+            > 0,
+        "planner JSONL artifact should be durable"
+    );
+
+    let provider = ContextCaptureProvider::default();
+    let calls = provider.calls();
+    let agent = Agent::new(
+        Arc::new(provider),
+        ToolRegistry::new(&tool_names(), root, None),
+        AgentConfig {
+            system_prompt: None,
+            max_tool_iterations: 1,
+            stream_options: StreamOptions {
+                api_key: Some("test-key".to_string()),
+                ..StreamOptions::default()
+            },
+            block_images: false,
+            fail_closed_hooks: false,
+        },
+    );
+    let session = Arc::new(asupersync::sync::Mutex::new(Session::create_with_dir(
+        Some(root.to_path_buf()),
+    )));
+    let mut agent_session = AgentSession::new(
+        agent,
+        Arc::clone(&session),
+        true,
+        ResolvedCompactionSettings::default(),
+    );
+    agent_session.set_semantic_context_bundle(Some(
+        SemanticContextBundleInjection::enabled(bundle.clone()).with_prompt_budget(8, 4096),
+    ));
+
+    let message = run_async(async move {
+        let assistant = agent_session
+            .run_text(
+                "Use the context intelligence bundle to plan the focused fix.".to_string(),
+                |_| {},
+            )
+            .await
+            .expect("run context intelligence provider loop");
+        agent_session
+            .persist_session()
+            .await
+            .expect("persist context intelligence session");
+        assistant
+    });
+    assert_eq!(message.stop_reason, StopReason::Stop);
+    assert!(assistant_text(&message).contains("context intelligence bundle consumed"));
+
+    let calls = match calls.lock() {
+        Ok(calls) => calls,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let [captured_call] = calls.as_slice() else {
+        assert_eq!(calls.len(), 1);
+        return;
+    };
+    assert!(captured_call.system_prompt.is_none());
+    let custom_message = captured_call
+        .messages
+        .iter()
+        .find_map(|message| match message {
+            Message::Custom(custom) if custom.custom_type == "semantic_context_bundle" => {
+                Some(custom)
+            }
+            _ => None,
+        });
+    assert!(
+        custom_message.is_some(),
+        "provider should receive semantic context custom message"
+    );
+    let Some(custom_message) = custom_message else {
+        return;
+    };
+    assert!(custom_message.display);
+    assert!(custom_message.content.len() <= 4096);
+    assert!(custom_message.content.contains("Semantic Context Bundle"));
+    assert!(custom_message.content.contains("src/agent.rs"));
+    assert!(
+        custom_message
+            .content
+            .contains("tests/context_intelligence.rs")
+    );
+    assert!(
+        custom_message
+            .content
+            .contains("Suppressed or excluded context")
+    );
+    assert!(
+        custom_message.content.contains(
+            "cargo test --test context_intelligence context_intelligence_no_mock_harness"
+        )
+    );
+    assert_eq!(
+        custom_message
+            .details
+            .as_ref()
+            .and_then(|details| details.pointer("/provider/promptShape"))
+            .and_then(serde_json::Value::as_str),
+        Some("custom_user_message")
+    );
+    let prompt_artifact = write_json_value_artifact(
+        &harness,
+        "context_intelligence.prompt_assembly.jsonl",
+        [json!({
+            "schema": "pi.context_intelligence.e2e.prompt.v1",
+            "provider": "context-capture-provider",
+            "message_count": captured_call.messages.len(),
+            "custom_type": &custom_message.custom_type,
+            "content_bytes": custom_message.content.len(),
+            "details": &custom_message.details,
+        })],
+    );
+    assert!(
+        prompt_artifact
+            .metadata()
+            .expect("stat prompt artifact")
+            .len()
+            > 0,
+        "prompt JSONL artifact should be durable"
+    );
+    drop(calls);
+
+    let session_for_assert = Arc::clone(&session);
+    let stored = run_async(async move {
+        let cx = asupersync::Cx::for_testing();
+        let guard = session_for_assert
+            .lock(&cx)
+            .await
+            .expect("lock persisted session");
+        assert!(
+            guard.path.as_ref().is_some_and(|path| path.exists()),
+            "session path should exist after real persistence: {:?}",
+            guard.path
+        );
+        guard.to_messages_for_current_path()
+    });
+    assert!(
+        stored.iter().any(|message| {
+            matches!(
+                message,
+                Message::Custom(custom)
+                    if custom.custom_type == "semantic_context_bundle" && custom.display
+            )
+        }),
+        "semantic context custom message should be persisted in real session: {stored:?}"
+    );
+
+    harness.log().info_ctx(
+        "summary",
+        "context_intelligence_no_mock_harness complete",
+        |ctx| {
+            ctx.push(("graph_nodes".into(), graph.nodes.len().to_string()));
+            ctx.push(("graph_edges".into(), graph.edges.len().to_string()));
+            ctx.push((
+                "selected_items".into(),
+                bundle.selected_items.len().to_string(),
+            ));
+            ctx.push((
+                "excluded_items".into(),
+                bundle.excluded_items.len().to_string(),
+            ));
+            ctx.push((
+                "estimated_tokens".into(),
+                bundle.estimated_tokens.to_string(),
+            ));
+        },
+    );
+    write_jsonl_artifacts(&harness, test_name);
 }
 
 #[test]

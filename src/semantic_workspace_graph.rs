@@ -1144,6 +1144,12 @@ impl<'a> SemanticContextBundlePlanner<'a> {
             .failing_command
             .as_deref()
             .map(str::to_ascii_lowercase);
+        let suppressible_evidence_paths: BTreeSet<&str> = self
+            .graph
+            .suppressible_claim_evidence()
+            .into_iter()
+            .map(|node| node.source_path.as_str())
+            .collect();
         self.graph
             .nodes
             .iter()
@@ -1197,7 +1203,8 @@ impl<'a> SemanticContextBundlePlanner<'a> {
                     .metadata
                     .get("suppresses_release_claim_context")
                     .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                    .unwrap_or(false)
+                    || suppressible_evidence_paths.contains(node.source_path.as_str());
                 if must_suppress && score > 0 {
                     reasons.push("suppressed_by_claim_gate");
                 }

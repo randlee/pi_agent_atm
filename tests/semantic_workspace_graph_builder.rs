@@ -1,7 +1,15 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::too_many_lines)]
 
+use asupersync::runtime::RuntimeBuilder;
+use asupersync::sync::Mutex;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::Stream;
+use pi::agent::{Agent, AgentConfig, AgentSession, SemanticContextBundleInjection};
+use pi::compaction::ResolvedCompactionSettings;
+use pi::model::{AssistantMessage, ContentBlock, Message, StopReason, TextContent, Usage};
+use pi::provider::{Context, Provider, StreamEvent, StreamOptions};
 use pi::semantic_workspace_graph::{
     BeadActionabilityStatus, ContextArtifactCacheScope, ContextArtifactCacheStatus,
     ContextBundleBudget, ContextBundleCacheProbe, ContextBundleRequest, EvidenceFreshnessStatus,
@@ -9,10 +17,16 @@ use pi::semantic_workspace_graph::{
     SemanticNodeType, SemanticWorkspaceGraph, SemanticWorkspaceGraphBuilder,
     normalize_context_artifact_path,
 };
+use pi::session::Session;
+use pi::tools::ToolRegistry;
 use serde_json::json;
 use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
+use std::pin::Pin;
+use std::process::Command;
+use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::TempDir;
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -27,6 +41,32 @@ fn write_fixture(root: &Path, relative_path: &str, content: &str) -> TestResult 
         fs::create_dir_all(parent)?;
     }
     fs::write(path, content)?;
+    Ok(())
+}
+
+fn run_fixture_git(root: &Path, args: &[&str]) -> TestResult {
+    let output = Command::new("git").args(args).current_dir(root).output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} failed: stdout={} stderr={}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn initialize_fixture_git_workspace(root: &Path) -> TestResult {
+    run_fixture_git(root, &["init", "-b", "main"])?;
+    run_fixture_git(
+        root,
+        &["config", "user.email", "pi-context-e2e@example.invalid"],
+    )?;
+    run_fixture_git(root, &["config", "user.name", "Pi Context E2E"])?;
+    run_fixture_git(root, &["add", "."])?;
+    run_fixture_git(root, &["commit", "-m", "fixture baseline"])?;
     Ok(())
 }
 
@@ -257,6 +297,106 @@ fn add_sensitive_context_fixtures(root: &Path) -> TestResult {
         "tests/fixtures/context_artifacts/provider-auth.log",
         "request body contains API_KEY=sk-secret and prompt text",
     )
+}
+
+fn e2e_assistant_message(text: &str) -> AssistantMessage {
+    AssistantMessage {
+        content: vec![ContentBlock::Text(TextContent::new(text))],
+        api: "openai-responses".to_string(),
+        provider: "context-e2e-provider".to_string(),
+        model: "context-e2e-model".to_string(),
+        usage: Usage::default(),
+        stop_reason: StopReason::Stop,
+        error_message: None,
+        timestamp: 0,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CapturedContextE2eCall {
+    system_prompt: Option<String>,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Clone)]
+struct ContextE2eProvider {
+    calls: Arc<StdMutex<Vec<CapturedContextE2eCall>>>,
+}
+
+impl ContextE2eProvider {
+    fn new() -> Self {
+        Self {
+            calls: Arc::new(StdMutex::new(Vec::new())),
+        }
+    }
+
+    fn calls(&self) -> Arc<StdMutex<Vec<CapturedContextE2eCall>>> {
+        Arc::clone(&self.calls)
+    }
+}
+
+#[async_trait]
+impl Provider for ContextE2eProvider {
+    fn name(&self) -> &'static str {
+        "context-e2e-provider"
+    }
+
+    fn api(&self) -> &'static str {
+        "openai-responses"
+    }
+
+    fn model_id(&self) -> &'static str {
+        "context-e2e-model"
+    }
+
+    async fn stream(
+        &self,
+        context: &Context<'_>,
+        _options: &StreamOptions,
+    ) -> pi::error::Result<Pin<Box<dyn Stream<Item = pi::error::Result<StreamEvent>> + Send>>> {
+        match self.calls.lock() {
+            Ok(calls) => calls,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+        .push(CapturedContextE2eCall {
+            system_prompt: context.system_prompt.as_ref().map(ToString::to_string),
+            messages: context.messages.iter().cloned().collect(),
+        });
+        Ok(Box::pin(futures::stream::iter(vec![Ok(
+            StreamEvent::Done {
+                reason: StopReason::Stop,
+                message: e2e_assistant_message("deterministic context response"),
+            },
+        )])))
+    }
+}
+
+fn write_context_e2e_jsonl_log(root: &Path, records: &[serde_json::Value]) -> TestResult<String> {
+    let path = root.join("context-intelligence-e2e.jsonl");
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    for record in records {
+        writeln!(file, "{}", serde_json::to_string(record)?)?;
+    }
+    let log = fs::read_to_string(path)?;
+    for line in log.lines() {
+        let _: serde_json::Value = serde_json::from_str(line)?;
+    }
+    Ok(log)
+}
+
+fn context_message_content(messages: &[Message]) -> TestResult<&str> {
+    messages
+        .iter()
+        .find_map(|message| match message {
+            Message::Custom(custom) if custom.custom_type == "semantic_context_bundle" => {
+                Some(custom.content.as_str())
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing semantic context custom message".into())
 }
 
 fn build_fixture_graph(root: &Path) -> TestResult<SemanticWorkspaceGraph> {
@@ -932,6 +1072,254 @@ fn planner_redacts_sensitive_artifacts_and_fails_closed_cache_validation() -> Te
             .invalidation_reasons
             .contains(&"cache_ttl_expired".to_string())
     );
+
+    Ok(())
+}
+
+#[test]
+fn no_mock_context_intelligence_e2e_logs_and_replays_real_workspace() -> TestResult {
+    let runtime = RuntimeBuilder::current_thread().build()?;
+
+    runtime.block_on(async {
+        let temp = fixture_workspace()?;
+        add_sensitive_context_fixtures(temp.path())?;
+        initialize_fixture_git_workspace(temp.path())?;
+
+        let graph = build_fixture_graph(temp.path())?;
+        let planner = SemanticContextBundlePlanner::new(&graph);
+        let request = ContextBundleRequest {
+            query: Some("openai provider streaming oauth drop-in parity ledger".to_string()),
+            bead_id: Some("bd-open".to_string()),
+            changed_paths: vec![
+                "src/providers/openai.rs".to_string(),
+                "tests/fixtures/vcr/oauth_refresh_sensitive.json".to_string(),
+                "README.md".to_string(),
+                "../outside/auth.json".to_string(),
+            ],
+            failing_command: Some(
+                "cargo test --test provider_streaming streams_openai_provider".to_string(),
+            ),
+            workspace_id: Some("workspace-context-e2e".to_string()),
+            branch: Some("main".to_string()),
+            session_id: Some("context-e2e-session".to_string()),
+            generated_at_utc: Some("2026-05-13T00:00:00Z".to_string()),
+            cache_ttl_seconds: 900,
+            budget: ContextBundleBudget {
+                max_items: 8,
+                max_bytes: 8192,
+            },
+        };
+        let bundle = planner.plan(&request);
+
+        assert!(temp.path().join(".git").is_dir());
+        assert!(bundle.budget.max_items >= bundle.selected_items.len());
+        assert!(bundle.estimated_bytes <= bundle.budget.max_bytes);
+        assert!(bundle.selected_items.iter().any(|item| {
+            item.source_path == "src/providers/openai.rs" && item.reason.contains("query_match")
+        }));
+        assert!(bundle.selected_items.iter().any(|item| {
+            item.source_path == "tests/provider_streaming.rs"
+                && item.title.contains("provider_streaming")
+        }));
+        assert!(bundle.selected_items.iter().any(|item| {
+            item.source_path == "docs/evidence/dropin-parity-gap-ledger.json"
+                && item.reason.contains("related_to_bead_or_changed_path")
+        }));
+        for stale_path in [
+            "docs/evidence/dropin-certification-verdict.json",
+            "docs/evidence/uncertified.json",
+            "docs/evidence/missing.json",
+        ] {
+            assert!(
+                bundle
+                    .stale_evidence_suppressions
+                    .iter()
+                    .any(|item| item.source_path == stale_path
+                        && item.reason == "suppressed_stale_or_unsafe_evidence"),
+                "missing stale suppression for {stale_path}"
+            );
+        }
+        assert!(bundle.excluded_items.iter().any(|item| {
+            item.source_path == "tests/fixtures/vcr/oauth_refresh_sensitive.json"
+                && item.reason.contains("unsafe_to_emit_by_redaction_policy")
+        }));
+        assert!(bundle.redaction_summary.suppressed_unsafe_nodes >= 1);
+        assert!(
+            bundle
+                .redaction_summary
+                .sensitive_path_kinds
+                .contains("vcr_fixture")
+        );
+        assert!(
+            bundle
+                .path_normalization
+                .iter()
+                .any(|path| !path.accepted && path.reason == "parent_escape_rejected")
+        );
+        assert_eq!(
+            bundle.suggested_validation_commands,
+            vec!["cargo test --test provider_streaming streams_openai_provider"]
+        );
+        assert!(bundle.invalidation_policy.cacheable);
+        let valid_probe = ContextBundleCacheProbe {
+            workspace_id: "workspace-context-e2e".to_string(),
+            branch: Some("main".to_string()),
+            session_id: Some("context-e2e-session".to_string()),
+            input_fingerprint_sha256: bundle.invalidation_policy.input_fingerprint_sha256.clone(),
+            now_utc: Some("2026-05-13T00:05:00Z".to_string()),
+        };
+        assert!(
+            bundle
+                .invalidation_policy
+                .validate_probe(&valid_probe)
+                .valid
+        );
+
+        let replay =
+            SemanticContextBundlePlanner::new(&build_fixture_graph(temp.path())?).plan(&request);
+        assert_eq!(
+            serde_json::to_value(&bundle)?,
+            serde_json::to_value(&replay)?
+        );
+
+        let provider = ContextE2eProvider::new();
+        let calls = provider.calls();
+        let agent = Agent::new(
+            Arc::new(provider),
+            ToolRegistry::from_tools(Vec::new()),
+            AgentConfig::default(),
+        );
+        let sessions_root = temp.path().join(".pi-sessions");
+        let mut session_state = Session::create_with_dir(Some(sessions_root.clone()));
+        session_state.header.cwd = temp.path().display().to_string();
+        session_state.header.id = "context-e2e-session".to_string();
+        let session = Arc::new(Mutex::new(session_state));
+        let mut agent_session = AgentSession::new(
+            agent,
+            Arc::clone(&session),
+            true,
+            ResolvedCompactionSettings::default(),
+        );
+        agent_session.set_semantic_context_bundle(Some(
+            SemanticContextBundleInjection::enabled(bundle.clone()).with_prompt_budget(8, 8192),
+        ));
+
+        agent_session
+            .run_text("use no-mock context intelligence".to_string(), |_| {})
+            .await?;
+
+        let (call_count, captured) = {
+            let calls = match calls.lock() {
+                Ok(calls) => calls,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let call_count = calls.len();
+            let captured = calls.first().cloned();
+            drop(calls);
+            (call_count, captured)
+        };
+        let Some(captured) = captured.filter(|_| call_count == 1) else {
+            return Err(format!("expected one provider call, got {call_count}").into());
+        };
+        assert!(captured.system_prompt.is_none());
+        let context_content = context_message_content(&captured.messages)?;
+        assert!(context_content.contains("Semantic Context Bundle"));
+        assert!(context_content.contains("src/providers/openai.rs"));
+        assert!(context_content.contains("tests/provider_streaming.rs"));
+        assert!(!context_content.contains("sk-secret"));
+        assert!(!context_content.contains("hidden token"));
+
+        let session_path = {
+            let cx = pi::agent_cx::AgentCx::for_request();
+            let session = session
+                .lock(cx.cx())
+                .await
+                .map_err(|error| format!("session lock failed: {error}"))?;
+            session
+                .path
+                .clone()
+                .ok_or("session path missing after persisted agent run")?
+        };
+        let session_jsonl = fs::read_to_string(&session_path)?;
+        assert!(session_jsonl.contains("semantic_context_bundle"));
+        assert!(session_jsonl.contains("context-e2e-session"));
+        assert!(!session_jsonl.contains("sk-secret"));
+        assert!(!session_jsonl.contains("hidden token"));
+
+        let log = write_context_e2e_jsonl_log(
+            temp.path(),
+            &[
+                json!({
+                    "event": "graph_built",
+                    "git_workspace": temp.path().join(".git").is_dir(),
+                    "nodes": graph.nodes.len(),
+                    "edges": graph.edges.len(),
+                    "trace_events": graph.trace.len()
+                }),
+                json!({
+                    "event": "planner_decision",
+                    "selected": bundle
+                        .selected_items
+                        .iter()
+                        .map(|item| &item.source_path)
+                        .collect::<Vec<_>>(),
+                    "excluded": bundle
+                        .excluded_items
+                        .iter()
+                        .map(|item| json!({
+                            "path": &item.source_path,
+                            "reason": &item.reason
+                        }))
+                        .collect::<Vec<_>>(),
+                    "stale_suppressions": bundle
+                        .stale_evidence_suppressions
+                        .iter()
+                        .map(|item| &item.source_path)
+                        .collect::<Vec<_>>(),
+                    "redaction": &bundle.redaction_summary,
+                    "validation": &bundle.suggested_validation_commands,
+                    "budget": {
+                        "max_items": bundle.budget.max_items,
+                        "max_bytes": bundle.budget.max_bytes,
+                        "estimated_bytes": bundle.estimated_bytes
+                    }
+                }),
+                json!({
+                    "event": "prompt_assembled",
+                    "provider_calls": 1,
+                    "custom_context": true,
+                    "session_path": session_path.strip_prefix(temp.path())
+                        .unwrap_or(session_path.as_path())
+                        .display()
+                        .to_string()
+                }),
+                json!({
+                    "event": "deterministic_replay",
+                    "matched": true,
+                    "cacheable": bundle.invalidation_policy.cacheable
+                }),
+            ],
+        )?;
+        assert_eq!(
+            log.lines()
+                .map(|line| {
+                    let value: serde_json::Value =
+                        serde_json::from_str(line).expect("valid JSONL record");
+                    value["event"].as_str().expect("event string").to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "graph_built".to_string(),
+                "planner_decision".to_string(),
+                "prompt_assembled".to_string(),
+                "deterministic_replay".to_string()
+            ]
+        );
+        assert!(!log.contains("sk-secret"));
+        assert!(!log.contains("hidden token"));
+
+        Ok::<(), Box<dyn Error>>(())
+    })?;
 
     Ok(())
 }
