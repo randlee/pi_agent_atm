@@ -20998,7 +20998,8 @@ fn discover_related_extension_entries(primary: &Path) -> Result<Vec<PathBuf>> {
         }
     }
 
-    if !selected_resolved.is_empty() {
+    let has_declared_package_entries = !selected_resolved.is_empty();
+    if has_declared_package_entries {
         for path in selected_resolved {
             if seen.insert(path.clone()) {
                 out.push(path);
@@ -21027,9 +21028,11 @@ fn discover_related_extension_entries(primary: &Path) -> Result<Vec<PathBuf>> {
         return Ok(out);
     }
 
-    for path in discover_sibling_extension_entries(&canonical_primary) {
-        if seen.insert(path.clone()) {
-            out.push(path);
+    if !has_declared_package_entries {
+        for path in discover_sibling_extension_entries(&canonical_primary) {
+            if seen.insert(path.clone()) {
+                out.push(path);
+            }
         }
     }
     if let Some(package_dir) = selected_package_dir.as_deref() {
@@ -21039,9 +21042,11 @@ fn discover_related_extension_entries(primary: &Path) -> Result<Vec<PathBuf>> {
             }
         }
     }
-    for path in discover_sibling_index_entries(&canonical_primary) {
-        if seen.insert(path.clone()) {
-            out.push(path);
+    if !has_declared_package_entries {
+        for path in discover_sibling_index_entries(&canonical_primary) {
+            if seen.insert(path.clone()) {
+                out.push(path);
+            }
         }
     }
 
@@ -31616,6 +31621,40 @@ mod tests {
 
         let discovered = discover_related_extension_entries(&index)
             .expect("discover should ignore flat helpers");
+        assert_eq!(discovered, vec![safe_canonicalize(&index)]);
+    }
+
+    #[test]
+    fn discover_related_extension_entries_trusts_single_manifest_entry_over_helper_indexes() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("manifest-package");
+        let commands = root.join("commands");
+        let hooks = root.join("hooks");
+        std::fs::create_dir_all(&commands).expect("mkdir commands");
+        std::fs::create_dir_all(&hooks).expect("mkdir hooks");
+
+        let index = root.join("index.ts");
+        let command_index = commands.join("index.ts");
+        let hook_index = hooks.join("index.ts");
+        std::fs::write(
+            root.join("package.json"),
+            r#"{ "pi": { "extensions": ["./index.ts"] } }"#,
+        )
+        .expect("write package.json");
+        std::fs::write(&index, "export default function init(_pi) {}\n").expect("write index");
+        std::fs::write(
+            &command_index,
+            "export function setupCommands(_pi, _manager) {}\n",
+        )
+        .expect("write command helper");
+        std::fs::write(
+            &hook_index,
+            "export function setupHooks(_pi, _manager) {}\n",
+        )
+        .expect("write hook helper");
+
+        let discovered = discover_related_extension_entries(&index)
+            .expect("manifest should keep internal helper indexes private");
         assert_eq!(discovered, vec![safe_canonicalize(&index)]);
     }
 
