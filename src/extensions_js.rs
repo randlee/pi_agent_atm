@@ -10534,6 +10534,7 @@ const __pi_vfs = (() => {
   state.toBytes = toBytes;
   state.decodeBytes = decodeBytes;
   state.listChildren = listChildren;
+  state.makeDirent = makeDirent;
   state.makeStat = makeStat;
   state.resolvePath = resolvePath;
   state.checkWriteAccess = checkWriteAccess;
@@ -10602,11 +10603,52 @@ export function writeFileSync(path, data, opts) {
 
 export function readdirSync(path, opts) {
   const resolved = __pi_vfs.resolvePath(path, true);
-  if (!__pi_vfs.dirs.has(resolved)) {
-    throw new Error(`ENOENT: no such file or directory, scandir '${String(path ?? "")}'`);
-  }
   const withFileTypes = !!(opts && typeof opts === "object" && opts.withFileTypes);
-  return __pi_vfs.listChildren(resolved, withFileTypes);
+  const children = new Map();
+  let foundDir = __pi_vfs.dirs.has(resolved);
+
+  if (foundDir) {
+    for (const entry of __pi_vfs.listChildren(resolved, true)) {
+      const kind = entry.isDirectory()
+        ? "dir"
+        : entry.isFile()
+          ? "file"
+          : entry.isSymbolicLink()
+            ? "symlink"
+            : "other";
+      children.set(entry.name, kind);
+    }
+  }
+
+  let hostError;
+  if (typeof globalThis.__pi_host_read_dir_sync === "function") {
+    try {
+      const hostEntries = JSON.parse(globalThis.__pi_host_read_dir_sync(resolved));
+      foundDir = true;
+      __pi_vfs.ensureDir(resolved);
+      for (const entry of hostEntries) {
+        if (!entry || typeof entry.name !== "string") continue;
+        children.set(entry.name, typeof entry.kind === "string" ? entry.kind : "other");
+      }
+    } catch (e) {
+      const message = String((e && e.message) ? e.message : e);
+      if (message.includes("host readdir denied")) {
+        throw e;
+      }
+      hostError = message;
+    }
+  }
+
+  if (!foundDir) {
+    const detail = hostError ? ` (host: ${hostError})` : "";
+    throw new Error(`ENOENT: no such file or directory, scandir '${String(path ?? "")}'${detail}`);
+  }
+
+  const names = Array.from(children.keys()).sort();
+  if (withFileTypes) {
+    return names.map((name) => __pi_vfs.makeDirent(name, children.get(name)));
+  }
+  return names;
 }
 
 const __fakeStat = {
@@ -16570,6 +16612,95 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                 "size": metadata.len(),
                             })
                             .to_string())
+                        }
+                    }),
+                )?;
+
+                // __pi_host_read_dir_sync(path) -> JSON string (throws on error)
+                // Synchronous real-filesystem directory listing fallback for
+                // node:fs readdirSync. Confined to the workspace root and
+                // registered extension roots, matching stat/read fallbacks.
+                global.set(
+                    "__pi_host_read_dir_sync",
+                    Func::from({
+                        let process_cwd = process_cwd.clone();
+                        let allowed_read_roots = Arc::clone(&allowed_read_roots);
+                        let module_state = Rc::clone(&module_state);
+                        move |ctx: Ctx<'_>, path: String| -> rquickjs::Result<String> {
+                            let extension_id = current_extension_id(&ctx);
+                            let workspace_root =
+                                crate::extensions::safe_canonicalize(Path::new(&process_cwd));
+
+                            let requested = PathBuf::from(&path);
+                            let requested_abs = if requested.is_absolute() {
+                                requested
+                            } else {
+                                workspace_root.join(requested)
+                            };
+                            let checked_path =
+                                crate::extensions::safe_canonicalize(&requested_abs);
+
+                            let in_ext_root = path_is_in_allowed_extension_root(
+                                &checked_path,
+                                extension_id.as_deref(),
+                                &module_state,
+                                &allowed_read_roots,
+                            );
+                            let allowed =
+                                checked_path.starts_with(&workspace_root) || in_ext_root;
+
+                            if !allowed {
+                                return Err(rquickjs::Error::new_loading_message(
+                                    &path,
+                                    "host readdir denied: path outside extension root".to_string(),
+                                ));
+                            }
+
+                            let mut entries = Vec::new();
+                            for entry in std::fs::read_dir(&checked_path).map_err(|err| {
+                                rquickjs::Error::new_loading_message(
+                                    &path,
+                                    format!("host readdir: {err}"),
+                                )
+                            })? {
+                                let entry = entry.map_err(|err| {
+                                    rquickjs::Error::new_loading_message(
+                                        &path,
+                                        format!("host readdir entry: {err}"),
+                                    )
+                                })?;
+                                let file_type = entry.file_type().map_err(|err| {
+                                    rquickjs::Error::new_loading_message(
+                                        &path,
+                                        format!("host readdir file type: {err}"),
+                                    )
+                                })?;
+                                let kind = if file_type.is_symlink() {
+                                    "symlink"
+                                } else if file_type.is_dir() {
+                                    "dir"
+                                } else if file_type.is_file() {
+                                    "file"
+                                } else {
+                                    "other"
+                                };
+                                entries.push(serde_json::json!({
+                                    "name": entry.file_name().to_string_lossy(),
+                                    "kind": kind,
+                                }));
+                            }
+                            entries.sort_by(|a, b| {
+                                let a = a.get("name").and_then(serde_json::Value::as_str).unwrap_or("");
+                                let b = b.get("name").and_then(serde_json::Value::as_str).unwrap_or("");
+                                a.cmp(b)
+                            });
+
+                            serde_json::to_string(&entries).map_err(|err| {
+                                rquickjs::Error::new_loading_message(
+                                    &path,
+                                    format!("host readdir encode: {err}"),
+                                )
+                            })
                         }
                     }),
                 )?;
@@ -25239,7 +25370,11 @@ export const bundled = globalThis.__doomWadFinderProbe.bundled;
                 .expect("eval path extended");
 
             let r = get_global_json(&runtime, "pathResults").await;
-            assert_eq!(r["done"], serde_json::json!(true));
+            assert_eq!(
+                r["done"],
+                serde_json::json!(true),
+                "host readdir result: {r}"
+            );
             assert_eq!(r["isAbsRoot"], serde_json::json!(true));
             assert_eq!(r["isAbsRel"], serde_json::json!(false));
             assert_eq!(r["extJs"], serde_json::json!(".js"));
@@ -25357,6 +25492,76 @@ export const bundled = globalThis.__doomWadFinderProbe.bundled;
             assert_eq!(r["isFile"], serde_json::json!(true));
             assert_eq!(r["direntHasMethods"], serde_json::json!(true));
             assert_eq!(r["names"], serde_json::json!(["hello.txt", "raw.bin"]));
+        });
+    }
+
+    #[test]
+    fn pijs_host_read_dir_sync_lists_host_workspace_entries() {
+        futures::executor::block_on(async {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos();
+            let workspace = std::env::temp_dir().join(format!("pijs-host-readdir-{unique}"));
+            let prompt_dir = workspace.join(".pi").join("prompts");
+            std::fs::create_dir_all(&prompt_dir).expect("mkdir prompt dir");
+            std::fs::write(
+                prompt_dir.join("model-mode.md"),
+                "model: anthropic/claude-sonnet-4-20250514\n",
+            )
+            .expect("write prompt");
+            std::fs::create_dir_all(prompt_dir.join("nested")).expect("mkdir nested");
+            let clock = Arc::new(DeterministicClock::new(0));
+            let config = PiJsRuntimeConfig {
+                cwd: workspace.display().to_string(),
+                ..PiJsRuntimeConfig::default()
+            };
+            let runtime =
+                PiJsRuntime::with_clock_and_config_with_policy(Arc::clone(&clock), config, None)
+                    .await
+                    .expect("create runtime");
+
+            runtime
+                .eval(
+                    r"
+                    globalThis.hostReaddir = {};
+                    import('node:fs').then((fs) => {
+                        try {
+                            const dir = `${process.cwd()}/.pi/prompts`;
+                            const entries = fs.readdirSync(dir, { withFileTypes: true });
+                            const names = entries.map((entry) => entry.name);
+                            const prompt = entries.find((entry) => entry.name === 'model-mode.md');
+                            const nested = entries.find((entry) => entry.name === 'nested');
+                            globalThis.hostReaddir.exists = fs.existsSync(`${dir}/model-mode.md`);
+                            globalThis.hostReaddir.content = fs.readFileSync(`${dir}/model-mode.md`, 'utf8');
+                            globalThis.hostReaddir.names = names;
+                            globalThis.hostReaddir.promptKind = prompt && prompt.isFile() ? 'file' : null;
+                            globalThis.hostReaddir.nestedKind = nested && nested.isDirectory() ? 'dir' : null;
+                            globalThis.hostReaddir.done = true;
+                        } catch (e) {
+                            globalThis.hostReaddir.error = String((e && e.stack) ? e.stack : e);
+                            globalThis.hostReaddir.done = false;
+                        }
+                    });
+                    ",
+                )
+                .await
+                .expect("eval host readdir");
+
+            let r = get_global_json(&runtime, "hostReaddir").await;
+            assert_eq!(
+                r["done"],
+                serde_json::json!(true),
+                "host readdir result: {r}"
+            );
+            assert_eq!(r["names"], serde_json::json!(["model-mode.md", "nested"]));
+            assert_eq!(r["exists"], serde_json::json!(true));
+            assert_eq!(
+                r["content"],
+                serde_json::json!("model: anthropic/claude-sonnet-4-20250514\n")
+            );
+            assert_eq!(r["promptKind"], serde_json::json!("file"));
+            assert_eq!(r["nestedKind"], serde_json::json!("dir"));
         });
     }
 

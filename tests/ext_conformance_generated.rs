@@ -189,6 +189,37 @@ fn conformance_work_dir(name: impl AsRef<str>) -> PathBuf {
     std::fs::canonicalize(&dir).unwrap_or(dir)
 }
 
+const PROMPT_TEMPLATE_MODEL_EXT_ID: &str = "npm/pi-prompt-template-model";
+const PROMPT_TEMPLATE_MODEL_FIXTURE_COMMAND: &str = "model-mode";
+const PROMPT_TEMPLATE_MODEL_FIXTURE_FILE: &str = "model-mode.md";
+const PROMPT_TEMPLATE_MODEL_FIXTURE_BODY: &str = "\
+---
+description: Conformance prompt template with model routing
+model: anthropic/claude-sonnet-4-20250514
+thinking: low
+restore: false
+---
+Use this conformance prompt: $@
+";
+
+fn prepare_extension_fixture(ext_id: &str, cwd: &Path) {
+    if ext_id != PROMPT_TEMPLATE_MODEL_EXT_ID {
+        return;
+    }
+
+    for prompt_dir in [
+        cwd.join(".pi").join("prompts"),
+        cwd.join("home").join(".pi").join("agent").join("prompts"),
+    ] {
+        std::fs::create_dir_all(&prompt_dir).expect("create prompt-template-model fixture dir");
+        std::fs::write(
+            prompt_dir.join(PROMPT_TEMPLATE_MODEL_FIXTURE_FILE),
+            PROMPT_TEMPLATE_MODEL_FIXTURE_BODY,
+        )
+        .expect("write prompt-template-model fixture prompt");
+    }
+}
+
 // ─── Core conformance test runner ───────────────────────────────────────────
 
 /// Load an extension from the artifacts directory, validate registrations match
@@ -202,6 +233,7 @@ fn run_conformance_test(ext_id: &str) {
 
     let harness = common::TestHarness::new(format!("conformance_{}", ext_id.replace('/', "_")));
     let cwd = harness.temp_dir().to_path_buf();
+    prepare_extension_fixture(ext_id, &cwd);
 
     // Resolve the extension entry file.
     // Some artifacts live under dist/ which rch excludes from sync.
@@ -398,6 +430,7 @@ fn load_extension_runtime_for_journey(
         "pi-journey-regression-{}",
         ext_id.replace('/', "_")
     ));
+    prepare_extension_fixture(ext_id, &cwd);
     let entry_file = artifacts_dir().join(&entry.entry_path);
     assert!(
         entry_file.exists(),
@@ -489,6 +522,36 @@ fn assert_event_registration_evidence(ext_id: &str, expected_hooks: &[&str], reg
     }
 }
 
+fn assert_command_registration_evidence(ext_id: &str, expected_command: &str, regs: &Value) {
+    let commands = regs
+        .get("commands")
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("registration snapshot missing commands array for '{ext_id}'"));
+    let actual_names: Vec<&str> = commands
+        .iter()
+        .filter_map(|cmd| cmd.get("name").and_then(Value::as_str))
+        .collect();
+
+    let command = commands
+        .iter()
+        .find(|cmd| cmd.get("name").and_then(Value::as_str) == Some(expected_command))
+        .unwrap_or_else(|| {
+            panic!(
+                "Extension '{ext_id}' runtime command evidence missing expected command '{expected_command}': {actual_names:?}"
+            )
+        });
+    let description = command
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    assert!(
+        description.contains("Conformance prompt template")
+            && description.contains("claude-sonnet-4-20250514")
+            && description.contains("low"),
+        "Extension '{ext_id}' command '{expected_command}' description should expose prompt metadata, got: {description}"
+    );
+}
+
 #[test]
 fn event_subscriber_journeys_record_concrete_registration_evidence() {
     let representative_ids: [(&str, &[&str]); 4] = [
@@ -532,6 +595,53 @@ fn event_subscriber_journeys_record_concrete_registration_evidence() {
         );
         assert_event_registration_evidence(ext_id, expected_hooks, &journey_regs);
     }
+}
+
+#[test]
+fn prompt_template_model_multi_capability_journey_registers_fixture_command() {
+    let (entry, manager, _runtime) =
+        load_extension_runtime_for_journey(PROMPT_TEMPLATE_MODEL_EXT_ID);
+    assert_eq!(
+        JourneyCategory::classify(&entry),
+        JourneyCategory::MultiCapability,
+        "prompt-template-model must exercise the multi-capability journey lane"
+    );
+
+    let regs = snapshot_registrations(&manager);
+    assert_command_registration_evidence(
+        PROMPT_TEMPLATE_MODEL_EXT_ID,
+        PROMPT_TEMPLATE_MODEL_FIXTURE_COMMAND,
+        &regs,
+    );
+    assert_event_registration_evidence(
+        PROMPT_TEMPLATE_MODEL_EXT_ID,
+        &["agent_end", "before_agent_start", "session_start"],
+        &regs,
+    );
+
+    let (failure, completed, journey_regs) = run_category_journey(
+        PROMPT_TEMPLATE_MODEL_EXT_ID,
+        &entry,
+        JourneyCategory::MultiCapability,
+    );
+    assert!(
+        failure.is_none(),
+        "prompt-template-model multi-capability journey failed: {failure:?}"
+    );
+    assert_eq!(
+        completed, 3,
+        "prompt-template-model journey should complete every multi-capability step"
+    );
+    assert_command_registration_evidence(
+        PROMPT_TEMPLATE_MODEL_EXT_ID,
+        PROMPT_TEMPLATE_MODEL_FIXTURE_COMMAND,
+        &journey_regs,
+    );
+    assert_event_registration_evidence(
+        PROMPT_TEMPLATE_MODEL_EXT_ID,
+        &["agent_end", "before_agent_start", "session_start"],
+        &journey_regs,
+    );
 }
 
 #[test]
@@ -622,6 +732,7 @@ fn try_conformance(ext_id: &str) -> ExtensionConformanceResult {
         "pi-conformance-report-{}",
         ext_id.replace('/', "_")
     ));
+    prepare_extension_fixture(ext_id, &cwd);
 
     let entry_file = artifacts_dir().join(&entry.entry_path);
     if !entry_file.exists() {
@@ -3603,6 +3714,7 @@ fn run_category_journey(
 ) -> (Option<(String, String)>, usize, serde_json::Value) {
     // Re-load extension to get fresh registration state for journey checks.
     let cwd = conformance_work_dir(format!("pi-journey-{}", ext_id.replace('/', "_")));
+    prepare_extension_fixture(ext_id, &cwd);
 
     let entry_file = artifacts_dir().join(&entry.entry_path);
     let spec = match JsExtensionLoadSpec::from_entry_path(&entry_file) {
