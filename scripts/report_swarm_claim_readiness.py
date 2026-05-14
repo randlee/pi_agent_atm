@@ -1587,13 +1587,18 @@ def build_report(
     ]
     blocking_issues.extend(check_readme_release_snapshot(repo_root))
 
+    blocking_count = len(blocking_issues)
+    overall_status = "blocked" if blocking_issues else "ready"
+
     return {
         "schema": REPORT_SCHEMA,
         "generated_at": format_datetime(now),
         "repo_root": str(repo_root),
         "max_age_days": max_age_days,
-        "overall_status": "blocked" if blocking_issues else "ready",
-        "blocking_issue_count": len(blocking_issues),
+        "overall_status": overall_status,
+        "overall_ready": overall_status == "ready",
+        "blocking_issue_count": blocking_count,
+        "blocking_count": blocking_count,
         "categories": category_summary(checks),
         "artifacts": [check.to_json() for check in checks],
         "stale_claims": stale_claims,
@@ -1606,7 +1611,9 @@ def print_text_report(report: dict[str, Any]) -> None:
     print(f"schema: {report['schema']}")
     print(f"generated_at: {report['generated_at']}")
     print(f"overall_status: {report['overall_status']}")
+    print(f"overall_ready: {str(report['overall_ready']).lower()}")
     print(f"blocking_issue_count: {report['blocking_issue_count']}")
+    print(f"blocking_count: {report['blocking_count']}")
     print("")
     print("categories:")
     for category in report["categories"]:
@@ -1924,7 +1931,9 @@ def canonical_report_projection(report: dict[str, Any]) -> dict[str, Any]:
         "generated_at": report["generated_at"],
         "max_age_days": report["max_age_days"],
         "overall_status": report["overall_status"],
+        "overall_ready": report["overall_ready"],
         "blocking_issue_count": report["blocking_issue_count"],
+        "blocking_count": report["blocking_count"],
         "categories": report["categories"],
         "artifact_statuses": [
             {
@@ -1996,6 +2005,11 @@ def run_self_test() -> int:
         write_beads_ledger(repo_root, [])
         report = build_report(repo_root, now=now)
         assert_condition(report["overall_status"] == "ready", "fresh fixture should be ready")
+        assert_condition(report["overall_ready"] is True, "overall_ready should mirror ready status")
+        assert_condition(
+            report["blocking_count"] == report["blocking_issue_count"],
+            "blocking_count should mirror blocking_issue_count",
+        )
         assert_report_matches_golden(report)
         hostcall = report["hostcall_queue_telemetry"]
         assert_condition(

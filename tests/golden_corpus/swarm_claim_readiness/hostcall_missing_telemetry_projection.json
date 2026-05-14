@@ -188,6 +188,7 @@
       "status": "ready"
     }
   ],
+  "blocking_count": 0,
   "blocking_issue_count": 0,
   "categories": [
     {
@@ -456,6 +457,7 @@
     }
   },
   "max_age_days": 14,
+  "overall_ready": true,
   "overall_status": "ready",
   "schema": "pi.swarm.claim_readiness_report.v1",
   "stale_claims": {
