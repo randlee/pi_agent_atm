@@ -1218,55 +1218,55 @@ fn policy_resource_metrics(
         peak_rch_fanout,
         peak_rch_queue_depth,
         peak_estimated_rss_gib,
-        cpu_pressure: peak.cpu_pressure,
-        memory_pressure: peak.memory_pressure,
-        tmpdir_pressure: peak.tmpdir_pressure,
-        target_dir_pressure: peak.target_dir_pressure,
-        rch_worker_pressure: peak.rch_worker_pressure,
-        extension_lane_pressure: peak.extension_lane_pressure,
+        cpu_pressure: peak.cpu,
+        memory_pressure: peak.memory,
+        tmpdir_pressure: peak.tmpdir,
+        target_dir_pressure: peak.target_dir,
+        rch_worker_pressure: peak.rch_worker,
+        extension_lane_pressure: peak.extension_lane,
         numa_hint,
     }
 }
 
 #[derive(Debug, Clone)]
 struct PeakResourcePressure {
-    cpu_pressure: String,
-    memory_pressure: String,
-    tmpdir_pressure: String,
-    target_dir_pressure: String,
-    rch_worker_pressure: String,
-    extension_lane_pressure: String,
+    cpu: String,
+    memory: String,
+    tmpdir: String,
+    target_dir: String,
+    rch_worker: String,
+    extension_lane: String,
 }
 
 impl PeakResourcePressure {
     fn from_timeline(timeline: &[SwarmReplayResourcePressureSnapshot]) -> Self {
         Self {
-            cpu_pressure: peak_pressure(
+            cpu: peak_pressure(
                 timeline
                     .iter()
                     .map(|snapshot| snapshot.cpu_pressure.as_str()),
             ),
-            memory_pressure: peak_pressure(
+            memory: peak_pressure(
                 timeline
                     .iter()
                     .map(|snapshot| snapshot.memory_pressure.as_str()),
             ),
-            tmpdir_pressure: peak_pressure(
+            tmpdir: peak_pressure(
                 timeline
                     .iter()
                     .map(|snapshot| snapshot.tmpdir_pressure.as_str()),
             ),
-            target_dir_pressure: peak_pressure(
+            target_dir: peak_pressure(
                 timeline
                     .iter()
                     .map(|snapshot| snapshot.target_dir_pressure.as_str()),
             ),
-            rch_worker_pressure: peak_pressure(
+            rch_worker: peak_pressure(
                 timeline
                     .iter()
                     .map(|snapshot| snapshot.rch_worker_pressure.as_str()),
             ),
-            extension_lane_pressure: peak_pressure(
+            extension_lane: peak_pressure(
                 timeline
                     .iter()
                     .map(|snapshot| snapshot.extension_lane_pressure.as_str()),
@@ -1923,14 +1923,14 @@ impl ResourceDemandSnapshot {
         }
     }
 
-    fn estimated_rss_gib(self) -> u64 {
+    const fn estimated_rss_gib(self) -> u64 {
         self.active_agents
             .saturating_mul(2)
             .saturating_add(self.active_build_slots.saturating_mul(4))
             .saturating_add(self.active_rch_jobs.saturating_mul(4))
     }
 
-    fn cpu_work_units(self) -> u64 {
+    const fn cpu_work_units(self) -> u64 {
         self.active_agents
             .saturating_add(self.active_build_slots.saturating_mul(4))
             .saturating_add(self.active_rch_jobs.saturating_mul(4))
@@ -3224,8 +3224,9 @@ fn resource_profile_event_from_value(
     redaction: &mut RedactionAccumulator,
 ) -> PendingEvent {
     let profile_id = string_field(value, &["profile_id", "id", "name"], "host-profile");
+    let event_fragment = format!("resource-profile-{profile_id}");
     let payload = json!({
-        "profile_id": profile_id.clone(),
+        "profile_id": profile_id,
         "cpu_cores": value.get("cpu_cores").and_then(Value::as_u64),
         "memory_gib": value.get("memory_gib").and_then(Value::as_u64),
         "numa_nodes": value.get("numa_nodes").and_then(Value::as_u64),
@@ -3246,7 +3247,7 @@ fn resource_profile_event_from_value(
         row,
         event_seed(
             "host_resource_profile",
-            format!("resource-profile-{profile_id}"),
+            event_fragment,
             "doctor",
             timestamp_field(value, request.generated_at_utc.as_str()),
             payload,

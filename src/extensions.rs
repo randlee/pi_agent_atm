@@ -36953,14 +36953,24 @@ mod tests {
             };
             assert_eq!(value["text"], json!("mock completion"));
 
-            let requests = actions
-                .ai_requests
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            assert_eq!(requests.len(), 1);
-            assert_eq!(requests[0].model["id"], json!("mock-model"));
-            assert_eq!(requests[0].context[0]["content"], json!("hello"));
-            assert!(!requests[0].simple);
+            let (request_len, model_id, content, simple) = {
+                let requests = actions
+                    .ai_requests
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                (
+                    requests.len(),
+                    requests.first().map(|request| request.model["id"].clone()),
+                    requests
+                        .first()
+                        .map(|request| request.context[0]["content"].clone()),
+                    requests.first().is_none_or(|request| request.simple),
+                )
+            };
+            assert_eq!(request_len, 1);
+            assert_eq!(model_id, Some(json!("mock-model")));
+            assert_eq!(content, Some(json!("hello")));
+            assert!(!simple);
         });
     }
 

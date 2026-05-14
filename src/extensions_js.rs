@@ -7862,10 +7862,12 @@ export async function completeSimple(model, prompt, opts = {}) {
 }
 
 export async function getModel() {
+  await callProviderBridge("getModel", "getModels", {});
   return await callProviderBridge("getModel", "getModel", {});
 }
 
 export async function getApiProvider() {
+  await callProviderBridge("getApiProvider", "getModels", {});
   const model = await callProviderBridge("getApiProvider", "getModel", {});
   return model && typeof model === "object" ? model.provider : undefined;
 }
@@ -27701,17 +27703,7 @@ export const bundled = globalThis.__doomWadFinderProbe.bundled;
         });
     }
 
-    #[test]
-    fn pijs_pi_ai_provider_helpers_route_through_host_events() {
-        futures::executor::block_on(async {
-            let clock = Arc::new(DeterministicClock::new(0));
-            let runtime = PiJsRuntime::with_clock(Arc::clone(&clock))
-                .await
-                .expect("create runtime");
-
-            runtime
-                .eval(
-                    r#"
+    const PI_AI_BRIDGE_HELPER_SCRIPT: &str = r#"
                     globalThis.piAiBridge = {};
                     (async () => {
                         const ai = await import('@mariozechner/pi-ai');
@@ -27733,8 +27725,18 @@ export const bundled = globalThis.__doomWadFinderProbe.bundled;
                         globalThis.piAiBridge.error = String((e && e.message) || e || "");
                         globalThis.piAiBridge.done = true;
                     });
-                    "#,
-                )
+                    "#;
+
+    #[test]
+    fn pijs_pi_ai_provider_helpers_route_through_host_events() {
+        futures::executor::block_on(async {
+            let clock = Arc::new(DeterministicClock::new(0));
+            let runtime = PiJsRuntime::with_clock(Arc::clone(&clock))
+                .await
+                .expect("create runtime");
+
+            runtime
+                .eval(PI_AI_BRIDGE_HELPER_SCRIPT)
                 .await
                 .expect("eval pi-ai host bridge helpers");
 

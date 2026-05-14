@@ -1149,9 +1149,15 @@ fn resource_profile_payload(profile: ResourceProfileFixture<'_>) -> Value {
         "max_tool_concurrency": profile.rch_worker_slots,
         "extension_hostcall_lanes": profile.extension_hostcall_lanes,
         "rch_worker_slots": profile.rch_worker_slots,
-        "target_dir": format!("/data/tmp/pi_agent_rust_cargo/{}/target", profile.profile_id),
+        "target_dir": format!(
+            "/data/tmp/pi_agent_rust_cargo/{profile_id}/target",
+            profile_id = profile.profile_id
+        ),
         "target_free_gib": profile.target_free_gib,
-        "tmpdir": format!("/data/tmp/pi_agent_rust_cargo/{}/tmp", profile.profile_id),
+        "tmpdir": format!(
+            "/data/tmp/pi_agent_rust_cargo/{profile_id}/tmp",
+            profile_id = profile.profile_id
+        ),
         "tmpdir_free_gib": profile.tmpdir_free_gib,
         "numa_hint": profile.numa_hint
     })

@@ -4754,15 +4754,15 @@ mod extensions_integration_tests {
 
     #[async_trait]
     impl Provider for PiAiCaptureProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "capturing-provider"
         }
 
-        fn api(&self) -> &str {
+        fn api(&self) -> &'static str {
             "test-api"
         }
 
-        fn model_id(&self) -> &str {
+        fn model_id(&self) -> &'static str {
             "capture-model"
         }
 
@@ -4849,20 +4849,31 @@ mod extensions_integration_tests {
             assert_eq!(result["provider"], json!("capturing-provider"));
             assert_eq!(result["api"], json!("test-api"));
 
-            let captured = calls.lock().expect("calls lock");
-            assert_eq!(captured.len(), 1);
-            assert_eq!(captured[0].system_prompt.as_deref(), Some("answer tersely"));
-            assert_eq!(captured[0].messages.len(), 1);
+            let (captured_len, captured_system_prompt, captured_messages) = {
+                let captured = match calls.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                (
+                    captured.len(),
+                    captured.first().and_then(|call| call.system_prompt.clone()),
+                    captured
+                        .first()
+                        .map(|call| call.messages.clone())
+                        .unwrap_or_default(),
+                )
+            };
+            assert_eq!(captured_len, 1);
+            assert_eq!(captured_system_prompt.as_deref(), Some("answer tersely"));
+            assert_eq!(captured_messages.len(), 1);
             assert!(
                 matches!(
-                    &captured[0].messages[0],
-                    Message::User(UserMessage { content: UserContent::Text(text), .. })
+                    captured_messages.first(),
+                    Some(Message::User(UserMessage { content: UserContent::Text(text), .. }))
                         if text == "ping"
                 ),
-                "expected user message context, got {:?}",
-                captured[0].messages
+                "expected user message context, got {captured_messages:?}"
             );
-            drop(captured);
 
             let models = actions.list_ai_models().await.expect("list models");
             assert_eq!(models[0]["id"], json!("capture-model"));
