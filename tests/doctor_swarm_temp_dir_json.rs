@@ -18,6 +18,7 @@ const SWARM_RESOURCE_PREFLIGHT_SCHEMA: &str = "pi.doctor.swarm_resource_prefligh
 const SWARM_MAIL_DEGRADED_SCHEMA: &str = "pi.doctor.agent_mail_degraded_mode.v1";
 const SWARM_CONTEXT_INTELLIGENCE_SCHEMA: &str = "pi.doctor.context_intelligence_posture.v1";
 const SWARM_VALIDATION_BROKER_SCHEMA: &str = "pi.doctor.validation_broker_posture.v1";
+const SWARM_INCIDENT_DIAGNOSTICS_SCHEMA: &str = "pi.doctor.swarm_incident_diagnostics.v1";
 const SWARM_TEMP_EXPECTED_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
 const SWARM_TEMP_WARN_AVAILABLE_KB: u64 = 10 * 1024 * 1024;
 
@@ -781,6 +782,69 @@ fn doctor_swarm_agent_mail_degraded_mode_json_reports_beads_fallback() -> TestRe
 
     require_agent_mail_write_paths_blocked(data)?;
     Ok(())
+}
+
+#[test]
+fn doctor_swarm_incident_diagnostics_json_reports_stable_components() -> TestResult {
+    let report = run_doctor_json(&[("CARGO_TARGET_DIR", None), ("TMPDIR", None)])?;
+    let finding = finding_by_schema(&report, SWARM_INCIDENT_DIAGNOSTICS_SCHEMA)?;
+    require(
+        ["pass", "warn", "fail"].contains(&field_str(finding, "severity")?),
+        format!("incident diagnostics should use a stable severity: {finding}"),
+    )?;
+
+    let data = field(finding, "data")?;
+    require_eq(
+        field_str(data, "schema")?,
+        SWARM_INCIDENT_DIAGNOSTICS_SCHEMA,
+        "schema",
+    )?;
+    require_eq(field_str(data, "mode")?, "audit_only", "mode")?;
+    require_eq(
+        &field_bool(data, "mutation_performed")?,
+        &false,
+        "mutation flag",
+    )?;
+    require(
+        field(data, "primary_failure_domain")?.is_string(),
+        format!("primary_failure_domain should be a string: {data}"),
+    )?;
+    let components = field(data, "components")?;
+    for domain in [
+        "agent_mail",
+        "beads",
+        "rch",
+        "temp_dirs",
+        "resource_governor",
+        "session_queue",
+    ] {
+        let component = field(components, domain)?;
+        let _ = field_str(component, "status")?;
+        let _ = field_str(component, "classification")?;
+        require(
+            field(component, "evidence")?.is_object(),
+            "component evidence should be an object",
+        )?;
+    }
+    require_eq(
+        field_str(field(components, "temp_dirs")?, "classification")?,
+        "temp_env_missing",
+        "temp classification",
+    )?;
+    require(
+        field(data, "failure_domains")?.is_array(),
+        format!("failure_domains should be an array: {data}"),
+    )?;
+    require_eq(
+        &field_bool(field(data, "redaction")?, "sensitive_line_redaction")?,
+        &true,
+        "redaction flag",
+    )?;
+    require_eq(
+        &field_bool(field(data, "guards")?, "read_only")?,
+        &true,
+        "read-only guard",
+    )
 }
 
 #[test]

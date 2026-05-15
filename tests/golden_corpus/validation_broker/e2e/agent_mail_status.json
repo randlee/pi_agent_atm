@@ -1,7 +1,19 @@
 {
   "schema": "pi.agent_mail.robot_status.v1",
-  "generated_at": "2026-05-14T08:30:00Z",
+  "generated_at": "2026-05-15T17:13:03Z",
   "status": "error",
   "health_level": "red",
-  "issue": "database schema missing required tables"
+  "environment": "development",
+  "issue": "sqlite schema missing required health_check tables: projects, agents, messages, message_recipients",
+  "semantic_readiness": {
+    "status": "fail",
+    "detail": "sqlite schema missing required health_check tables: projects, agents, messages, message_recipients"
+  },
+  "recovery": {
+    "mode": "corrupt",
+    "next_action": "Run `am doctor repair --yes` or restore from archive backup",
+    "bundle_path": "/home/ubuntu/.mcp_agent_mail_git_mailbox_repo/doctor/forensics/storage.sqlite3/repair-20260510_035043_378",
+    "recovery_lock_active": false
+  },
+  "registration_token": "fixture-secret-registration-token"
 }

@@ -312,10 +312,24 @@ fn e2e_inputs(
         normalize_available_source(provenance("agent_mail")?)?
     } else {
         let status = read_fixture_json("agent_mail_status.json")?;
-        let reason = status
+        let issue = status
             .get("issue")
             .and_then(Value::as_str)
             .unwrap_or("agent_mail_unavailable_fixture");
+        let semantic = status
+            .pointer("/semantic_readiness/detail")
+            .and_then(Value::as_str);
+        let recovery = status
+            .pointer("/recovery/next_action")
+            .and_then(Value::as_str);
+        let mut reasons = vec![issue.to_string()];
+        if let Some(detail) = semantic {
+            reasons.push(format!("semantic_readiness: {detail}"));
+        }
+        if let Some(action) = recovery {
+            reasons.push(format!("recovery.next_action: {action}"));
+        }
+        let reason = reasons.join("; ");
         normalize_unavailable_source(provenance("agent_mail")?, reason)?
     };
 
@@ -743,6 +757,35 @@ fn validation_broker_no_mock_e2e_harness_emits_decisions_and_runpack_projection(
             .and_then(|status| status.get("state"))
             .and_then(Value::as_str),
         Some("unavailable")
+    );
+    let agent_mail_status = allow_plan
+        .pointer("/decision/source_statuses")
+        .and_then(Value::as_array)
+        .and_then(|statuses| {
+            statuses.iter().find(|status| {
+                status.get("source_id").and_then(Value::as_str) == Some("agent_mail")
+            })
+        })
+        .ok_or_else(|| test_error("missing agent_mail source status"))?;
+    let agent_mail_reasons = agent_mail_status
+        .get("degraded_reasons")
+        .and_then(Value::as_array)
+        .ok_or_else(|| test_error("missing agent_mail degraded reasons"))?;
+    assert!(
+        agent_mail_reasons.iter().any(|reason| {
+            reason
+                .as_str()
+                .is_some_and(|value| value.contains("semantic_readiness"))
+        }),
+        "agent_mail status should expose corrupt semantic readiness"
+    );
+    assert!(
+        agent_mail_reasons.iter().any(|reason| {
+            reason
+                .as_str()
+                .is_some_and(|value| value.contains("am doctor repair --yes"))
+        }),
+        "agent_mail status should expose recovery action"
     );
     artifact_entries.push(json!({
         "id": "plan_allow_agent_mail_unavailable",

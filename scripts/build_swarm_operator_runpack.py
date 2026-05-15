@@ -3928,11 +3928,44 @@ def agent_mail_source_status(source: SourcePayload) -> str:
         return "ok"
     health_level = str(payload.get("health_level") or "").lower()
     status = str(payload.get("status") or payload.get("overall_status") or "ok").lower()
+    semantic = payload.get("semantic_readiness")
+    semantic_status = (
+        str(semantic.get("status") or "").lower() if isinstance(semantic, dict) else ""
+    )
+    recovery = payload.get("recovery")
+    recovery_mode = (
+        str(recovery.get("mode") or "").lower() if isinstance(recovery, dict) else ""
+    )
     if health_level in {"red", "error", "critical"}:
         return "degraded"
     if status in {"error", "failed", "fail", "degraded", "red"}:
         return "degraded"
+    if semantic_status in {"fail", "failed", "error"}:
+        return "degraded"
+    if recovery_mode in {"corrupt", "degraded", "read_only", "readonly"}:
+        return "degraded"
     return status
+
+
+def agent_mail_diagnostics(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    semantic = payload.get("semantic_readiness")
+    semantic = semantic if isinstance(semantic, dict) else {}
+    recovery = payload.get("recovery")
+    recovery = recovery if isinstance(recovery, dict) else {}
+    next_action = recovery.get("next_action")
+    preview_action = None
+    if isinstance(next_action, str) and "doctor repair --yes" in next_action:
+        preview_action = "am doctor repair --dry-run"
+    return {
+        "health_level": payload.get("health_level"),
+        "semantic_readiness_status": semantic.get("status"),
+        "semantic_readiness_detail": semantic.get("detail"),
+        "recovery_mode": recovery.get("mode"),
+        "recovery_action": next_action,
+        "recovery_preview_action": preview_action,
+    }
 
 
 def agent_mail_unavailable_operations(
@@ -4038,7 +4071,12 @@ def summarize_agent_mail_autopilot(
     no_mail_closeout_steps: list[str] = []
     if status != "ok":
         no_mail_closeout_steps = build_no_mail_closeout_steps()
-    return {
+    redaction = RedactionStats()
+    redaction.redacted_count += status_source.redacted_count
+    redaction.fields.update(status_source.redacted_fields)
+    redaction.redacted_count += reservations_source.redacted_count
+    redaction.fields.update(reservations_source.redacted_fields)
+    summary = {
         "status": status,
         "capture_mode": capture_summary.get("mode"),
         "read_status": read_status,
@@ -4055,7 +4093,10 @@ def summarize_agent_mail_autopilot(
         "fallback_action": "use_beads_soft_lock" if status != "ok" else None,
         "no_mail_closeout_steps": no_mail_closeout_steps,
         "commands": commands,
+        "redaction_summary": redaction.to_json(),
     }
+    summary.update(agent_mail_diagnostics(status_source.payload))
+    return summary
 
 
 def classify_autopilot_source(
@@ -5047,6 +5088,29 @@ def build_autopilot_plan(
 
     agent_mail = normalized_section(input_pack, "agent_mail")
     if agent_mail.get("status") != "ok":
+        evidence_paths = [
+            "normalized_inputs.agent_mail.status",
+            "normalized_inputs.agent_mail.read_status",
+            "normalized_inputs.agent_mail.reservation_status",
+            "normalized_inputs.agent_mail.unavailable_operations",
+            "normalized_inputs.beads.active_count",
+        ]
+        rationale_parts = [
+            f"Agent Mail status={agent_mail.get('status')}",
+            f"fallback={agent_mail.get('fallback_action')}",
+        ]
+        if agent_mail.get("recovery_mode") is not None:
+            rationale_parts.append(f"recovery_mode={agent_mail.get('recovery_mode')}")
+        if agent_mail.get("recovery_preview_action") is not None:
+            evidence_paths.append("normalized_inputs.agent_mail.recovery_action")
+            evidence_paths.append("normalized_inputs.agent_mail.recovery_preview_action")
+            rationale_parts.append(
+                f"recovery_preview={agent_mail.get('recovery_preview_action')}"
+            )
+        rationale_parts.append(
+            "unavailable_operations="
+            f"{','.join(agent_mail.get('unavailable_operations') or [])}"
+        )
         actions.append(
             autopilot_plan_action(
                 action="use_beads_soft_lock",
@@ -5057,13 +5121,7 @@ def build_autopilot_plan(
                     "Agent Mail message read/write and reservation status is degraded or unavailable.",
                     "Announce/reserve through Agent Mail only after health recovers.",
                 ],
-                evidence_paths=[
-                    "normalized_inputs.agent_mail.status",
-                    "normalized_inputs.agent_mail.read_status",
-                    "normalized_inputs.agent_mail.reservation_status",
-                    "normalized_inputs.agent_mail.unavailable_operations",
-                    "normalized_inputs.beads.active_count",
-                ],
+                evidence_paths=evidence_paths,
                 commands=[
                     plan_command("Inspect active ownership", "br list --status=in_progress --json"),
                     plan_command("Inspect candidate bead before editing", "br show <issue-id> --json"),
@@ -5074,12 +5132,7 @@ def build_autopilot_plan(
                     omitted_command("Agent Mail reservation", "coordination transport is degraded; retry after health is green"),
                 ],
                 forbidden_actions=["automatic file reservation"],
-                rationale=(
-                    f"Agent Mail status={agent_mail.get('status')}; "
-                    f"fallback={agent_mail.get('fallback_action')}; "
-                    "unavailable_operations="
-                    f"{','.join(agent_mail.get('unavailable_operations') or [])}"
-                ),
+                rationale="; ".join(rationale_parts),
             )
         )
 
@@ -5821,6 +5874,16 @@ def operator_next_actions(runpack: dict[str, Any]) -> list[str]:
     mail_state = runpack.get("agent_mail_read_state", {})
     if mail_state.get("status") in {"degraded", "not_available"}:
         actions.append("Treat Agent Mail read state as unavailable and fall back to Beads ownership evidence")
+        recovery_preview_action = mail_state.get("recovery_preview_action")
+        recovery_action = mail_state.get("recovery_action")
+        if recovery_preview_action:
+            actions.append(
+                f"Preview Agent Mail recovery with `{recovery_preview_action}` before any repair; keep using Beads soft locks meanwhile"
+            )
+        elif recovery_action:
+            actions.append(
+                f"Review Agent Mail recovery action `{recovery_action}` without mutating Mail during runpack generation"
+            )
         actions.extend(proof_string(step) for step in mail_state.get("no_mail_closeout_steps", []))
     if runpack.get("validation_outputs", {}).get("status") == "failed":
         actions.append("Inspect failed validation output before resuming or closing the active bead")
@@ -5921,6 +5984,14 @@ def render_markdown(runpack: dict[str, Any]) -> str:
     lines.append(f"- Evidence readiness: `{runpack['evidence_readiness'].get('overall_status')}`")
     lines.append(f"- Git dirty: `{runpack['git_state'].get('dirty')}`")
     lines.append(f"- Agent Mail read state: `{runpack['agent_mail_read_state'].get('status')}`")
+    mail_state = runpack.get("agent_mail_read_state", {})
+    if isinstance(mail_state, dict) and mail_state.get("recovery_mode"):
+        lines.append(
+            "- Agent Mail recovery: "
+            f"`{mail_state.get('recovery_mode')}` "
+            f"(preview `{mail_state.get('recovery_preview_action')}`, "
+            f"source action `{mail_state.get('recovery_action')}`)"
+        )
     lines.append(f"- Validation outputs: `{runpack['validation_outputs'].get('status')}`")
     lines.append(f"- Activity saturated: `{runpack['activity_digest'].get('saturated')}`")
     validation_broker = runpack.get("validation_broker")
@@ -7270,6 +7341,22 @@ def autopilot_e2e_result_from_plan(
         assert "claim_ready_bead" not in action_names, (
             f"{scenario_id} must not emit Agent Mail-ready claim action: {action_names}"
         )
+        if scenario_id == "degraded_agent_mail_soft_lock":
+            assert agent_mail["semantic_readiness_status"] == "fail"
+            assert agent_mail["recovery_mode"] == "corrupt"
+            assert agent_mail["recovery_preview_action"] == "am doctor repair --dry-run"
+            assert agent_mail["redaction_summary"]["redacted_count"] >= 1
+            mail_actions = [
+                action
+                for action in plan["actions"]
+                if action.get("action") == "use_beads_soft_lock"
+            ]
+            assert mail_actions
+            assert any(
+                "recovery_preview=am doctor repair --dry-run"
+                in action.get("rationale", "")
+                for action in mail_actions
+            )
     selected_action = action_names[0] if action_names else None
     first_action = plan["actions"][0]
     budget_state = plan.get("budget_drift") if isinstance(plan.get("budget_drift"), dict) else {}

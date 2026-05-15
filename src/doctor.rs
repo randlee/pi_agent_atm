@@ -52,6 +52,7 @@ const SWARM_DOCTOR_CONTEXT_INTELLIGENCE_SCHEMA: &str = "pi.doctor.context_intell
 const SWARM_DOCTOR_VALIDATION_BROKER_SCHEMA: &str = "pi.doctor.validation_broker_posture.v1";
 const SWARM_DOCTOR_PROGRESS_SLO_SCHEMA: &str = "pi.doctor.swarm_progress_slo_posture.v1";
 const SWARM_DOCTOR_RCH_AFFINITY_SCHEMA: &str = "pi.doctor.rch_warm_target_affinity.v1";
+const SWARM_DOCTOR_INCIDENT_DIAGNOSTICS_SCHEMA: &str = "pi.doctor.swarm_incident_diagnostics.v1";
 const SWARM_RCH_AFFINITY_PLAN_ARTIFACT_SCHEMA: &str = "pi.swarm.rch_affinity_plan.v1";
 const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
     "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
@@ -1138,6 +1139,7 @@ fn check_swarm(cwd: &Path, findings: &mut Vec<Finding>) {
     check_swarm_validation_broker(cwd, findings);
     check_swarm_progress_slo(cwd, findings);
     check_swarm_operations_dashboard(cwd, findings);
+    check_swarm_incident_diagnostics(findings);
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -5998,6 +6000,564 @@ fn swarm_operations_dashboard_json(
     })
 }
 
+fn check_swarm_incident_diagnostics(findings: &mut Vec<Finding>) {
+    let finding = classify_swarm_incident_diagnostics(findings);
+    findings.push(finding);
+}
+
+#[derive(Debug, Clone)]
+struct SwarmIncidentComponent {
+    domain: &'static str,
+    status: &'static str,
+    classification: String,
+    source_schema: Option<&'static str>,
+    title: String,
+    detail: Option<String>,
+    remediation: Option<String>,
+    evidence: serde_json::Value,
+}
+
+impl SwarmIncidentComponent {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "domain": self.domain,
+            "status": self.status,
+            "classification": self.classification,
+            "source_schema": self.source_schema,
+            "title": self.title,
+            "detail": self.detail,
+            "remediation": self.remediation,
+            "evidence": self.evidence,
+        })
+    }
+
+    fn failure_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "domain": self.domain,
+            "status": self.status,
+            "classification": self.classification,
+            "title": self.title,
+            "detail": self.detail,
+            "remediation": self.remediation,
+        })
+    }
+}
+
+fn classify_swarm_incident_diagnostics(findings: &[Finding]) -> Finding {
+    let components = vec![
+        incident_agent_mail_component(findings),
+        incident_beads_component(findings),
+        incident_rch_component(findings),
+        incident_temp_dirs_component(findings),
+        incident_resource_governor_component(findings),
+        incident_session_queue_component(findings),
+    ];
+    let overall_status = incident_overall_status(&components);
+    let primary = incident_primary_component(&components);
+    let blocked_count = components
+        .iter()
+        .filter(|component| component.status == "blocked")
+        .count();
+    let degraded_count = components
+        .iter()
+        .filter(|component| component.status == "degraded")
+        .count();
+    let failure_domains = components
+        .iter()
+        .filter(|component| matches!(component.status, "blocked" | "degraded"))
+        .map(SwarmIncidentComponent::failure_json)
+        .collect::<Vec<_>>();
+    let mut component_map = serde_json::Map::new();
+    for component in &components {
+        component_map.insert(component.domain.to_string(), component.to_json());
+    }
+    let remediation = primary.map_or_else(
+        || "No incident action needed; rerun `pi doctor --only swarm --format json` before large swarms".to_string(),
+        |component| {
+            component.remediation.clone().unwrap_or_else(|| {
+                "Inspect the component evidence and rerun `pi doctor --only swarm --format json` after remediation".to_string()
+            })
+        },
+    );
+    let primary_domain = primary.map(|component| component.domain);
+    let primary_classification = primary.map(|component| component.classification.as_str());
+    let detail = format!(
+        "status={overall_status}, primary_domain={}, primary_classification={}, blocked_domains={blocked_count}, degraded_domains={degraded_count}",
+        primary_domain.unwrap_or("none"),
+        primary_classification.unwrap_or("none")
+    );
+    let data = serde_json::json!({
+        "schema": SWARM_DOCTOR_INCIDENT_DIAGNOSTICS_SCHEMA,
+        "mode": "audit_only",
+        "mutation_performed": false,
+        "status": overall_status,
+        "primary_failure_domain": primary_domain,
+        "primary_classification": primary_classification,
+        "blocked_domain_count": blocked_count,
+        "degraded_domain_count": degraded_count,
+        "components": serde_json::Value::Object(component_map),
+        "failure_domains": failure_domains,
+        "redaction": {
+            "probe_output_redaction": "enabled",
+            "sensitive_line_redaction": true,
+            "detail_truncation": true,
+        },
+        "guards": {
+            "read_only": true,
+            "does_not_repair_external_services": true,
+            "does_not_replace_individual_doctor_findings": true,
+            "beads_fallback_allowed_when_agent_mail_degraded": true,
+        },
+    });
+
+    match overall_status {
+        "blocked" => Finding::fail(CheckCategory::Swarm, "Swarm incident diagnostics blocked"),
+        "degraded" => Finding::warn(
+            CheckCategory::Swarm,
+            "Swarm incident diagnostics need attention",
+        ),
+        _ => Finding::pass(CheckCategory::Swarm, "Swarm incident diagnostics clear"),
+    }
+    .with_detail(detail)
+    .with_remediation(remediation)
+    .with_data(data)
+}
+
+fn incident_agent_mail_component(findings: &[Finding]) -> SwarmIncidentComponent {
+    let finding = finding_with_schema(findings, SWARM_DOCTOR_AGENT_MAIL_DEGRADED_SCHEMA);
+    let data = finding.and_then(|finding| finding.data.as_ref());
+    let reachable = data
+        .and_then(|value| value.pointer("/mail_health/reachable"))
+        .and_then(serde_json::Value::as_bool);
+    let missing_tables = data
+        .and_then(|value| value.pointer("/mail_health/missing_schema_tables"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let mode = data
+        .and_then(|value| value.get("mode"))
+        .and_then(serde_json::Value::as_str);
+    let classification = match (finding, reachable, missing_tables, mode) {
+        (None, _, _, _) => "agent_mail_not_checked",
+        (_, Some(false), _, _) => "agent_mail_unavailable",
+        (_, _, count, _) if count > 0 => "agent_mail_schema_missing",
+        (_, _, _, Some("beads_soft_lock_fallback")) => "agent_mail_degraded_beads_fallback",
+        _ => "agent_mail_ready",
+    };
+    let status = finding.map_or("unknown", |finding| {
+        incident_status_from_severity(finding.severity)
+    });
+    let evidence = serde_json::json!({
+        "reachable": reachable,
+        "missing_schema_table_count": missing_tables,
+        "mode": mode,
+        "fallback": data.and_then(|value| value.get("fallback")).cloned(),
+        "write_paths": data.and_then(|value| value.get("write_paths")).cloned(),
+        "mail_health": data.and_then(|value| value.get("mail_health")).cloned(),
+    });
+
+    component_from_finding(
+        "agent_mail",
+        status,
+        classification,
+        Some(SWARM_DOCTOR_AGENT_MAIL_DEGRADED_SCHEMA),
+        finding,
+        evidence,
+    )
+}
+
+fn incident_beads_component(findings: &[Finding]) -> SwarmIncidentComponent {
+    let dashboard = finding_with_schema(findings, SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA);
+    let dashboard_data = dashboard.and_then(|finding| finding.data.as_ref());
+    let br_sync = findings.iter().find(|finding| {
+        finding
+            .title
+            .to_ascii_lowercase()
+            .contains("beads db/jsonl sync")
+    });
+    let parse_errors = dashboard_data
+        .and_then(|value| value.pointer("/beads/parse_errors"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let ready_count = dashboard_data
+        .and_then(|value| value.pointer("/beads/ready_count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let open_count = dashboard_data
+        .and_then(|value| value.pointer("/beads/open_count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let in_progress_count = dashboard_data
+        .and_then(|value| value.pointer("/beads/in_progress_count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let stalled_count = dashboard_data
+        .and_then(|value| value.pointer("/beads/stalled_candidate_count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let source_errors = dashboard_data
+        .and_then(|value| value.get("source_errors"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let beads_probe_error = source_errors.iter().any(|error| {
+        error.as_str().is_some_and(|raw| {
+            let lower = raw.to_ascii_lowercase();
+            lower.contains("beads") || lower.contains("br ") || lower.contains("bv ")
+        })
+    });
+    let br_sync_drift = br_sync.is_some_and(|finding| finding.severity >= Severity::Warn);
+    let (status, classification) = if parse_errors > 0 {
+        ("blocked", "beads_ledger_parse_errors")
+    } else if beads_probe_error {
+        ("degraded", "beads_probe_degraded")
+    } else if br_sync_drift {
+        ("degraded", "beads_sync_drift")
+    } else if stalled_count > 0 {
+        ("degraded", "beads_stalled_in_progress")
+    } else if ready_count == 0 && open_count == 0 && in_progress_count == 0 {
+        ("info", "beads_no_open_work")
+    } else {
+        ("healthy", "beads_ready")
+    };
+    let source_finding = br_sync.or(dashboard);
+    let evidence = serde_json::json!({
+        "open_count": open_count,
+        "in_progress_count": in_progress_count,
+        "ready_count": ready_count,
+        "parse_errors": parse_errors,
+        "stalled_candidate_count": stalled_count,
+        "br_sync_drift": br_sync_drift,
+        "source_errors": source_errors,
+    });
+
+    component_from_finding(
+        "beads",
+        status,
+        classification,
+        Some(SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA),
+        source_finding,
+        evidence,
+    )
+}
+
+fn incident_rch_component(findings: &[Finding]) -> SwarmIncidentComponent {
+    let failure = finding_with_schema(findings, SWARM_DOCTOR_RCH_FAILURE_SCHEMA);
+    let dashboard = finding_with_schema(findings, SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA);
+    let dashboard_data = dashboard.and_then(|finding| finding.data.as_ref());
+    let pressure = dashboard_data
+        .and_then(|value| value.pointer("/rch/pressure"))
+        .and_then(serde_json::Value::as_str);
+    let classification = failure
+        .and_then(|finding| finding.data.as_ref())
+        .and_then(|data| data.get("classification"))
+        .and_then(serde_json::Value::as_str)
+        .map_or_else(
+            || match pressure {
+                Some("clear") => "rch_clear".to_string(),
+                Some("unavailable") | None => "rch_unavailable".to_string(),
+                Some(value) => format!("rch_pressure_{value}"),
+            },
+            ToString::to_string,
+        );
+    let status = failure.map_or_else(
+        || {
+            if pressure == Some("clear") {
+                "healthy"
+            } else {
+                "degraded"
+            }
+        },
+        |finding| incident_status_from_severity(finding.severity),
+    );
+    let source_finding = failure.or(dashboard);
+    let evidence = serde_json::json!({
+        "pressure": pressure,
+        "status_reachable": dashboard_data
+            .and_then(|value| value.pointer("/rch/status_reachable"))
+            .and_then(serde_json::Value::as_bool),
+        "queue_reachable": dashboard_data
+            .and_then(|value| value.pointer("/rch/queue_reachable"))
+            .and_then(serde_json::Value::as_bool),
+        "active_builds": dashboard_data
+            .and_then(|value| value.pointer("/rch/active_builds"))
+            .cloned(),
+        "slots_available": dashboard_data
+            .and_then(|value| value.pointer("/rch/slots_available"))
+            .cloned(),
+        "failure": failure.and_then(|finding| finding.data.clone()),
+    });
+
+    component_from_finding(
+        "rch",
+        status,
+        classification.as_str(),
+        Some(SWARM_DOCTOR_RCH_FAILURE_SCHEMA),
+        source_finding,
+        evidence,
+    )
+}
+
+fn incident_temp_dirs_component(findings: &[Finding]) -> SwarmIncidentComponent {
+    let temp_findings = findings_with_schema(findings, SWARM_DOCTOR_TEMP_DIR_SCHEMA);
+    let status = incident_status_from_findings(&temp_findings);
+    let mut missing_env = false;
+    let mut missing_path = false;
+    let mut outside_root = false;
+    let mut low_headroom = false;
+    let evidence_rows = temp_findings
+        .iter()
+        .filter_map(|finding| finding.data.as_ref())
+        .map(|data| {
+            missing_env |= data.get("path").is_some_and(serde_json::Value::is_null);
+            missing_path |= data.get("exists").and_then(serde_json::Value::as_bool) == Some(false)
+                && data.get("path").is_some_and(|value| !value.is_null());
+            outside_root |= data
+                .get("under_expected_root")
+                .and_then(serde_json::Value::as_bool)
+                == Some(false);
+            let warn_available = data
+                .get("warn_available_kb")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(SWARM_DISK_WARN_AVAILABLE_KB);
+            low_headroom |= data
+                .get("available_kb")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|available| available < warn_available);
+            serde_json::json!({
+                "env_name": data.get("env_name").cloned(),
+                "path": data.get("path").cloned(),
+                "exists": data.get("exists").cloned(),
+                "under_expected_root": data.get("under_expected_root").cloned(),
+                "available_kb": data.get("available_kb").cloned(),
+                "warn_available_kb": data.get("warn_available_kb").cloned(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let classification = if temp_findings.is_empty() {
+        "temp_dirs_not_checked"
+    } else if missing_env {
+        "temp_env_missing"
+    } else if missing_path {
+        "temp_path_missing"
+    } else if outside_root {
+        "temp_outside_swarm_scratch_root"
+    } else if low_headroom {
+        "temp_low_headroom"
+    } else {
+        "temp_ready"
+    };
+    let source_finding = temp_findings
+        .iter()
+        .copied()
+        .max_by_key(|finding| finding.severity);
+    let evidence = serde_json::json!({
+        "paths": evidence_rows,
+        "missing_env": missing_env,
+        "missing_path": missing_path,
+        "outside_expected_root": outside_root,
+        "low_headroom": low_headroom,
+    });
+
+    component_from_finding(
+        "temp_dirs",
+        status,
+        classification,
+        Some(SWARM_DOCTOR_TEMP_DIR_SCHEMA),
+        source_finding,
+        evidence,
+    )
+}
+
+fn incident_resource_governor_component(findings: &[Finding]) -> SwarmIncidentComponent {
+    let admission = finding_with_schema(findings, SWARM_DOCTOR_ADMISSION_SCHEMA);
+    let preflight = finding_with_schema(findings, SWARM_DOCTOR_RESOURCE_PREFLIGHT_SCHEMA);
+    let admission_data = admission.and_then(|finding| finding.data.as_ref());
+    let preflight_data = preflight.and_then(|finding| finding.data.as_ref());
+    let action = admission_data
+        .and_then(|data| data.get("action"))
+        .and_then(serde_json::Value::as_str);
+    let critical_failures = preflight_data
+        .and_then(|data| data.get("critical_failures"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let stale_warnings = admission_data
+        .and_then(|data| data.get("stale_data_warnings"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let source_errors = preflight_data
+        .and_then(|data| data.get("source_errors"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let classification = if critical_failures > 0 {
+        "resource_preflight_blocked".to_string()
+    } else if let Some(action @ ("deny" | "backpressure")) = action {
+        format!("resource_admission_{action}")
+    } else if stale_warnings > 0 || source_errors > 0 {
+        "resource_inputs_degraded".to_string()
+    } else {
+        "resource_governor_ready".to_string()
+    };
+    let status = incident_status_from_optional_findings([admission, preflight]);
+    let source_finding = [admission, preflight]
+        .into_iter()
+        .flatten()
+        .max_by_key(|finding| finding.severity);
+    let evidence = serde_json::json!({
+        "admission_action": action,
+        "pressure_dimension": admission_data
+            .and_then(|data| data.get("pressure_dimension"))
+            .cloned(),
+        "critical_failure_count": critical_failures,
+        "stale_data_warning_count": stale_warnings,
+        "source_error_count": source_errors,
+        "recommended_budgets": preflight_data
+            .and_then(|data| data.get("recommended_budgets"))
+            .cloned(),
+    });
+
+    component_from_finding(
+        "resource_governor",
+        status,
+        classification.as_str(),
+        Some(SWARM_DOCTOR_ADMISSION_SCHEMA),
+        source_finding,
+        evidence,
+    )
+}
+
+fn incident_session_queue_component(findings: &[Finding]) -> SwarmIncidentComponent {
+    let session_finding = findings
+        .iter()
+        .find(|finding| finding.category == CheckCategory::Sessions);
+    let (status, classification) =
+        session_finding.map_or(("info", "session_queue_telemetry_not_checked"), |finding| {
+            let status = incident_status_from_severity(finding.severity);
+            let classification = if finding.severity >= Severity::Warn {
+                "session_health_degraded"
+            } else {
+                "session_health_ready"
+            };
+            (status, classification)
+        });
+    let evidence = serde_json::json!({
+        "source": "doctor_sessions_category",
+        "checked": session_finding.is_some(),
+        "queue_depth": null,
+        "queue_depth_status": "not_available",
+        "next_probe": "pi doctor --only sessions --format json",
+    });
+
+    component_from_finding(
+        "session_queue",
+        status,
+        classification,
+        None,
+        session_finding,
+        evidence,
+    )
+}
+
+fn component_from_finding(
+    domain: &'static str,
+    status: &'static str,
+    classification: &str,
+    source_schema: Option<&'static str>,
+    finding: Option<&Finding>,
+    evidence: serde_json::Value,
+) -> SwarmIncidentComponent {
+    SwarmIncidentComponent {
+        domain,
+        status,
+        classification: classification.to_string(),
+        source_schema,
+        title: finding.map_or_else(
+            || format!("{domain} not checked"),
+            |finding| finding.title.clone(),
+        ),
+        detail: finding.and_then(|finding| finding.detail.clone()),
+        remediation: finding.and_then(|finding| finding.remediation.clone()),
+        evidence,
+    }
+}
+
+fn incident_overall_status(components: &[SwarmIncidentComponent]) -> &'static str {
+    if components
+        .iter()
+        .any(|component| component.status == "blocked")
+    {
+        "blocked"
+    } else if components
+        .iter()
+        .any(|component| component.status == "degraded")
+    {
+        "degraded"
+    } else {
+        "healthy"
+    }
+}
+
+fn incident_primary_component(
+    components: &[SwarmIncidentComponent],
+) -> Option<&SwarmIncidentComponent> {
+    components
+        .iter()
+        .find(|component| component.status == "blocked")
+        .or_else(|| {
+            components
+                .iter()
+                .find(|component| component.status == "degraded")
+        })
+}
+
+const fn incident_status_from_severity(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Pass => "healthy",
+        Severity::Info => "info",
+        Severity::Warn => "degraded",
+        Severity::Fail => "blocked",
+    }
+}
+
+fn incident_status_from_findings(findings: &[&Finding]) -> &'static str {
+    findings
+        .iter()
+        .map(|finding| finding.severity)
+        .max()
+        .map_or("unknown", incident_status_from_severity)
+}
+
+fn incident_status_from_optional_findings<const N: usize>(
+    findings: [Option<&Finding>; N],
+) -> &'static str {
+    findings
+        .into_iter()
+        .flatten()
+        .map(|finding| finding.severity)
+        .max()
+        .map_or("unknown", incident_status_from_severity)
+}
+
+fn finding_with_schema<'a>(findings: &'a [Finding], schema: &str) -> Option<&'a Finding> {
+    findings
+        .iter()
+        .find(|finding| finding_data_schema(finding) == Some(schema))
+}
+
+fn findings_with_schema<'a>(findings: &'a [Finding], schema: &str) -> Vec<&'a Finding> {
+    findings
+        .iter()
+        .filter(|finding| finding_data_schema(finding) == Some(schema))
+        .collect()
+}
+
+fn finding_data_schema(finding: &Finding) -> Option<&str> {
+    finding
+        .data
+        .as_ref()
+        .and_then(|data| data.get("schema"))
+        .and_then(serde_json::Value::as_str)
+}
+
 fn swarm_dashboard_agent_summary(
     value: &serde_json::Value,
     now: DateTime<Utc>,
@@ -10504,6 +11064,97 @@ not-json
         assert_eq!(data["rch"]["pressure"], serde_json::json!("clear"));
         assert_eq!(data["agents"]["active_count"], serde_json::json!(1));
         assert_eq!(data["reservations"]["active_count"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn swarm_incident_diagnostics_prioritizes_blocked_resource_component() {
+        let findings = vec![
+            Finding::warn(
+                CheckCategory::Swarm,
+                "Agent Mail degraded; Beads fallback required",
+            )
+            .with_remediation("Use Beads status/comments as the soft lock")
+            .with_data(serde_json::json!({
+                "schema": SWARM_DOCTOR_AGENT_MAIL_DEGRADED_SCHEMA,
+                "mode": "beads_soft_lock_fallback",
+                "mail_health": {
+                    "reachable": true,
+                    "missing_schema_tables": ["projects", "agents"],
+                    "status": "error"
+                },
+                "fallback": {"soft_lock": "beads", "non_blocking": true},
+                "write_paths": {"expected_failed": true}
+            })),
+            Finding::pass(CheckCategory::Swarm, "Swarm operations dashboard clear").with_data(
+                serde_json::json!({
+                    "schema": SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA,
+                    "beads": {
+                        "open_count": 1,
+                        "in_progress_count": 1,
+                        "ready_count": 1,
+                        "parse_errors": 0,
+                        "stalled_candidate_count": 0
+                    },
+                    "rch": {
+                        "pressure": "clear",
+                        "status_reachable": true,
+                        "queue_reachable": true,
+                        "active_builds": 0,
+                        "slots_available": 8
+                    },
+                    "source_errors": []
+                }),
+            ),
+            Finding::warn(CheckCategory::Swarm, "CARGO_TARGET_DIR is not set")
+                .with_data(swarm_temp_dir_data("CARGO_TARGET_DIR", None, false, None)),
+            Finding::fail(CheckCategory::Swarm, "Swarm resource preflight blocked").with_data(
+                serde_json::json!({
+                    "schema": SWARM_DOCTOR_RESOURCE_PREFLIGHT_SCHEMA,
+                    "critical_failures": ["TMPDIR:env_not_set"],
+                    "source_errors": [],
+                    "recommended_budgets": null
+                }),
+            ),
+            Finding::fail(CheckCategory::Swarm, "Live swarm admission decision: deny").with_data(
+                serde_json::json!({
+                    "schema": SWARM_DOCTOR_ADMISSION_SCHEMA,
+                    "action": "deny",
+                    "pressure_dimension": "active_tool_calls",
+                    "stale_data_warnings": []
+                }),
+            ),
+        ];
+
+        let finding = classify_swarm_incident_diagnostics(&findings);
+
+        assert_eq!(finding.severity, Severity::Fail);
+        let data = finding_data(&finding);
+        assert_eq!(data["schema"], SWARM_DOCTOR_INCIDENT_DIAGNOSTICS_SCHEMA);
+        assert_eq!(data["status"], serde_json::json!("blocked"));
+        assert_eq!(
+            data["primary_failure_domain"],
+            serde_json::json!("resource_governor")
+        );
+        assert_eq!(
+            data["components"]["agent_mail"]["classification"],
+            serde_json::json!("agent_mail_schema_missing")
+        );
+        assert_eq!(
+            data["components"]["temp_dirs"]["classification"],
+            serde_json::json!("temp_env_missing")
+        );
+        assert_eq!(
+            data["components"]["resource_governor"]["classification"],
+            serde_json::json!("resource_preflight_blocked")
+        );
+        assert_eq!(data["guards"]["read_only"], serde_json::json!(true));
+        assert!(
+            data["failure_domains"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|domain| domain["domain"] == "resource_governor")
+        );
     }
 
     fn test_progress_slo_source(source_id: &str, source_class: &str) -> ProgressSloSourceStatus {
