@@ -1647,6 +1647,14 @@ pub async fn create_agent_session(options: SessionOptions) -> Result<AgentSessio
         || process_cwd.clone(),
         |path| resolve_path_for_cwd(path, &process_cwd),
     );
+    let resolved_session_path = options
+        .session_path
+        .as_deref()
+        .map(|path| resolve_path_for_cwd(path, &cwd));
+    let resolved_session_dir = options
+        .session_dir
+        .as_deref()
+        .map(|path| resolve_path_for_cwd(path, &cwd));
 
     let mut cli = Cli::try_parse_from(["pi"])
         .map_err(|e| Error::validation(format!("CLI init failed: {e}")))?;
@@ -1658,12 +1666,10 @@ pub async fn create_agent_session(options: SessionOptions) -> Result<AgentSessio
     cli.append_system_prompt = options.append_system_prompt.clone();
     cli.hide_cwd_in_prompt = !options.include_cwd_in_prompt;
     cli.thinking = options.thinking.map(|t| t.to_string());
-    cli.session = options
-        .session_path
+    cli.session = resolved_session_path
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
-    cli.session_dir = options
-        .session_dir
+    cli.session_dir = resolved_session_dir
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
     if let Some(enabled_tools) = &options.enabled_tools {
@@ -1686,7 +1692,7 @@ pub async fn create_agent_session(options: SessionOptions) -> Result<AgentSessio
     let model_registry = ModelRegistry::load(&auth, Some(models_path));
 
     let mut session = Session::new(&cli, &config).await?;
-    if options.session_path.is_none() {
+    if resolved_session_path.is_none() {
         session.header.cwd = cwd.display().to_string();
     }
     let scoped_patterns = if let Some(models_arg) = &cli.models {
@@ -1988,6 +1994,89 @@ mod tests {
         assert_eq!(header_cwd, sdk_cwd.path().display().to_string());
         assert_eq!(path.parent(), Some(expected_dir.as_path()));
         assert_ne!(path.parent(), Some(process_dir.as_path()));
+    }
+
+    #[test]
+    fn create_agent_session_resolves_relative_session_dir_against_working_directory() {
+        let _lock = current_dir_lock();
+        let process_cwd = tempdir().expect("process cwd");
+        let sdk_cwd = tempdir().expect("sdk cwd");
+        let _guard = CurrentDirGuard::new(process_cwd.path());
+
+        let handle = run_async(create_agent_session(SessionOptions {
+            provider: Some("openai".to_string()),
+            model: Some("gpt-4o".to_string()),
+            api_key: Some("dummy-key".to_string()),
+            working_directory: Some(sdk_cwd.path().to_path_buf()),
+            no_session: false,
+            session_dir: Some(PathBuf::from("sessions")),
+            ..SessionOptions::default()
+        }))
+        .expect("create session");
+
+        let path = run_async(async {
+            let cx = crate::agent_cx::AgentCx::for_request();
+            let mut guard = handle
+                .session()
+                .session
+                .lock(cx.cx())
+                .await
+                .expect("lock session");
+            guard.save().await.expect("save sdk session");
+            guard.path.clone().expect("saved session path")
+        });
+
+        let expected_dir = sdk_cwd
+            .path()
+            .join("sessions")
+            .join(crate::session::encode_cwd(sdk_cwd.path()));
+        let process_dir = process_cwd
+            .path()
+            .join("sessions")
+            .join(crate::session::encode_cwd(sdk_cwd.path()));
+
+        assert_eq!(path.parent(), Some(expected_dir.as_path()));
+        assert_ne!(path.parent(), Some(process_dir.as_path()));
+    }
+
+    #[test]
+    fn create_agent_session_resolves_relative_session_path_against_working_directory() {
+        let _lock = current_dir_lock();
+        let process_cwd = tempdir().expect("process cwd");
+        let sdk_cwd = tempdir().expect("sdk cwd");
+        let _guard = CurrentDirGuard::new(process_cwd.path());
+
+        let session_path = sdk_cwd.path().join("relative").join("existing.jsonl");
+        std::fs::create_dir_all(session_path.parent().expect("session parent"))
+            .expect("create session parent");
+        let mut header = crate::session::SessionHeader::new();
+        header.cwd = sdk_cwd.path().display().to_string();
+        let header_json = serde_json::to_string(&header).expect("serialize session header");
+        std::fs::write(&session_path, format!("{header_json}\n")).expect("write session");
+
+        let handle = run_async(create_agent_session(SessionOptions {
+            provider: Some("openai".to_string()),
+            model: Some("gpt-4o".to_string()),
+            api_key: Some("dummy-key".to_string()),
+            working_directory: Some(sdk_cwd.path().to_path_buf()),
+            no_session: false,
+            session_path: Some(PathBuf::from("relative/existing.jsonl")),
+            ..SessionOptions::default()
+        }))
+        .expect("create session");
+
+        let opened_path = run_async(async {
+            let cx = crate::agent_cx::AgentCx::for_request();
+            let guard = handle
+                .session()
+                .session
+                .lock(cx.cx())
+                .await
+                .expect("lock session");
+            guard.path.clone().expect("opened session path")
+        });
+
+        assert_eq!(opened_path, session_path);
     }
 
     #[test]
