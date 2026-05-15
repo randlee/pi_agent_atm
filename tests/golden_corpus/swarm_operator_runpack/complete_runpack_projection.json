@@ -61,6 +61,15 @@
       }
     ],
     "doctor_finding_count": 1,
+    "fallback_action": "use_beads_soft_lock",
+    "no_mail_closeout_steps": [
+      "Attempt Agent Mail registration/inbox/reservation and capture the exact health error.",
+      "Use the Beads assignee/status as the soft lock; do not require Agent Mail reservations before coding while Mail is unavailable.",
+      "Close finished work with `br close <issue-id> --reason \"...\"` and `br sync --flush-only`.",
+      "Final handoff must say Agent Mail was unavailable and Beads ownership was used as the coordination record."
+    ],
+    "registration_required_before_coding": false,
+    "soft_lock": "beads",
     "status": "degraded"
   },
   "beads": {
@@ -699,6 +708,10 @@
     "Use activity-digest saturation evidence to narrow or redirect the swarm",
     "Account for dirty files before using the runpack as handoff evidence",
     "Treat Agent Mail read state as unavailable and fall back to Beads ownership evidence",
+    "Attempt Agent Mail registration/inbox/reservation and capture the exact health error.",
+    "Use the Beads assignee/status as the soft lock; do not require Agent Mail reservations before coding while Mail is unavailable.",
+    "Close finished work with `br close <issue-id> --reason \"...\"` and `br sync --flush-only`.",
+    "Final handoff must say Agent Mail was unavailable and Beads ownership was used as the coordination record.",
     "Inspect failed validation output before resuming or closing the active bead",
     "Review degraded swarm-scale safety scorecard dimensions before release runpack signoff"
   ],

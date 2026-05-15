@@ -209,9 +209,34 @@ Do not reopen an in-progress bead just because Agent Mail is degraded. A current
 ### Agent Mail Degraded
 
 1. Run `pi doctor --only swarm --format json` and save the finding.
-2. Try the MCP read path: `fetch_inbox` or `list_agents`.
-3. If writes fail, use Beads status/comments as the soft lock.
-4. Keep work on a narrow file set and mention the degraded Mail state in the final handoff.
+2. Try the MCP registration/read path: `macro_start_session` or
+   `register_agent`, then `fetch_inbox` or `list_agents`. Keep the exact
+   health error, for example `database schema missing required tables`.
+3. Try the narrow reservation write once with `file_reservation_paths`. If
+   writes fail because Mail is red, read-only, or schema-corrupt, do not require
+   Agent Mail reservations before coding.
+4. Use Beads as the coordination record:
+
+   ```bash
+   br show <issue-id> --json
+   br update <issue-id> --status in_progress --assignee "$AGENT_NAME"
+   ```
+
+5. Keep work on a narrow file set and mention the degraded Mail state in the
+   final handoff.
+6. Close out through Beads and git:
+
+   ```bash
+   br close <issue-id> --reason "Completed with Agent Mail unavailable; Beads used as soft lock"
+   br sync --flush-only
+   git add .beads/ <changed-files>
+   git commit -m "<summary>"
+   git push origin main
+   ```
+
+Final handoff wording should include: `Agent Mail unavailable: <exact error>;
+Beads assignee/status used as soft lock; reservations/messages were not trusted
+for this bead.`
 
 ### RCH Retrieval Or Disk Pressure
 

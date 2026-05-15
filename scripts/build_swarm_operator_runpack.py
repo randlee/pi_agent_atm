@@ -1620,7 +1620,7 @@ def summarize_agent_mail_read_state(
         status = "degraded"
     else:
         status = "not_available"
-    return {
+    summary = {
         "status": status,
         "capture_mode": capture_summary.get("mode"),
         "doctor_finding_count": len(doctor_summary.get("agent_mail_findings") or []),
@@ -1638,6 +1638,25 @@ def summarize_agent_mail_read_state(
             max_items,
         ),
     }
+    if status in {"degraded", "not_available"}:
+        summary.update(
+            {
+                "soft_lock": "beads",
+                "registration_required_before_coding": False,
+                "fallback_action": "use_beads_soft_lock",
+                "no_mail_closeout_steps": build_no_mail_closeout_steps(),
+            }
+        )
+    return summary
+
+
+def build_no_mail_closeout_steps() -> list[str]:
+    return [
+        "Attempt Agent Mail registration/inbox/reservation and capture the exact health error.",
+        "Use the Beads assignee/status as the soft lock; do not require Agent Mail reservations before coding while Mail is unavailable.",
+        "Close finished work with `br close <issue-id> --reason \"...\"` and `br sync --flush-only`.",
+        "Final handoff must say Agent Mail was unavailable and Beads ownership was used as the coordination record.",
+    ]
 
 
 def infer_validation_status(text: str) -> str:
@@ -3859,6 +3878,9 @@ def summarize_agent_mail_autopilot(
     active_reservations = [
         item for item in reservations if item.get("released_ts") in {None, ""}
     ]
+    no_mail_closeout_steps: list[str] = []
+    if status != "ok":
+        no_mail_closeout_steps = build_no_mail_closeout_steps()
     return {
         "status": status,
         "capture_mode": capture_summary.get("mode"),
@@ -3867,12 +3889,14 @@ def summarize_agent_mail_autopilot(
         "reservation_count": len(reservations),
         "active_reservation_count": len(active_reservations),
         "soft_lock": "beads" if status != "ok" else None,
+        "registration_required_before_coding": False if status != "ok" else None,
         "unavailable_operations": unavailable_operations,
         "active_reservations": bounded(
             [summarize_reservation(item) for item in active_reservations],
             max_items,
         ),
         "fallback_action": "use_beads_soft_lock" if status != "ok" else None,
+        "no_mail_closeout_steps": no_mail_closeout_steps,
         "commands": commands,
     }
 
@@ -5599,8 +5623,10 @@ def operator_next_actions(runpack: dict[str, Any]) -> list[str]:
         actions.append("Use activity-digest saturation evidence to narrow or redirect the swarm")
     if runpack["git_state"].get("dirty"):
         actions.append("Account for dirty files before using the runpack as handoff evidence")
-    if runpack.get("agent_mail_read_state", {}).get("status") in {"degraded", "not_available"}:
+    mail_state = runpack.get("agent_mail_read_state", {})
+    if mail_state.get("status") in {"degraded", "not_available"}:
         actions.append("Treat Agent Mail read state as unavailable and fall back to Beads ownership evidence")
+        actions.extend(proof_string(step) for step in mail_state.get("no_mail_closeout_steps", []))
     if runpack.get("validation_outputs", {}).get("status") == "failed":
         actions.append("Inspect failed validation output before resuming or closing the active bead")
     bottleneck = runpack.get("bottleneck_attribution")
@@ -9108,6 +9134,23 @@ def run_self_test() -> int:
         assert runpack["git_state"]["branch"] == "main"
         assert runpack["git_state"]["upstream"]["ahead"] == 1
         assert runpack["agent_mail_read_state"]["status"] == "degraded"
+        assert runpack["agent_mail_read_state"]["soft_lock"] == "beads"
+        assert runpack["agent_mail_read_state"]["fallback_action"] == "use_beads_soft_lock"
+        assert runpack["agent_mail_read_state"]["registration_required_before_coding"] is False
+        no_mail_steps = runpack["agent_mail_read_state"]["no_mail_closeout_steps"]
+        assert any("registration/inbox/reservation" in step for step in no_mail_steps)
+        assert any("do not require Agent Mail reservations before coding" in step for step in no_mail_steps)
+        assert any("br close" in step and "br sync --flush-only" in step for step in no_mail_steps)
+        assert any("Final handoff" in step and "Beads ownership" in step for step in no_mail_steps)
+        operator_actions = runpack["operator_next_actions"]
+        assert any("Treat Agent Mail read state as unavailable" in action for action in operator_actions)
+        assert any("do not require Agent Mail reservations before coding" in action for action in operator_actions)
+        assert any("br close" in action and "br sync --flush-only" in action for action in operator_actions)
+        assert not any(
+            "require Agent Mail reservations before coding" in action
+            and "do not require Agent Mail reservations before coding" not in action
+            for action in operator_actions
+        )
         assert runpack["validation_outputs"]["status"] == "failed"
         assert runpack["validation_outputs"]["outputs"][0]["inferred_status"] == "failed"
         proof_ledger = runpack["remote_validation_proof_ledger"]
