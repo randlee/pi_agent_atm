@@ -205,7 +205,12 @@ const BASH_CANCELLATION_SCHEMA_V1: &str = "pi.tool.bash.cancellation.v1";
 pub(crate) const BASH_FILE_LIMIT_BYTES: usize = 1024 * 1024 * 1024; // 1 GiB
 
 const TOOL_OUTPUT_ARTIFACT_SCHEMA_V1: &str = "pi.tool_output_artifact.v1";
+const TOOL_OUTPUT_ARTIFACT_REDACTION_POLICY_V1: &str = "pi.tool_output_artifact.redaction.v1";
+const TOOL_OUTPUT_ARTIFACT_RETENTION_CLASS: &str = "session_scoped_temp_evidence";
+const TOOL_OUTPUT_ARTIFACT_SPILLOVER_REASON: &str = "sourceBytesExceededPreviewThreshold";
 const TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES: usize = DEFAULT_MAX_BYTES;
+const TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES_USIZE: usize = 64 * 1024 * 1024;
+const TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const TOOL_OUTPUT_ARTIFACT_MAX_BYTES_USIZE: usize = 1024 * 1024 * 1024;
 const TOOL_OUTPUT_ARTIFACT_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -763,6 +768,27 @@ struct ToolOutputArtifactRef {
     line_count: usize,
     preview_bytes: usize,
     content_type: &'static str,
+    retention_class: &'static str,
+    spillover_reason: &'static str,
+    redaction_summary: ToolOutputArtifactRedactionSummary,
+    safe_delete_candidate: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolOutputArtifactRedactionSummary {
+    policy: &'static str,
+    status: &'static str,
+    redacted_count: usize,
+    fields: Vec<String>,
+    raw_secret_bytes_emitted: usize,
+    binary_suspect: bool,
+    max_redaction_bytes: u64,
+}
+
+struct RedactedToolOutputArtifact {
+    bytes: Vec<u8>,
+    summary: ToolOutputArtifactRedactionSummary,
 }
 
 fn tool_output_artifact_root() -> PathBuf {
@@ -878,6 +904,186 @@ fn artifact_details_object(
         .expect("details value forced to object")
 }
 
+fn normalize_redaction_field(field: &str) -> String {
+    let mut out = String::new();
+    let mut previous_underscore = false;
+    for ch in field.chars() {
+        let normalized = if ch.is_ascii_alphanumeric() {
+            previous_underscore = false;
+            ch.to_ascii_lowercase()
+        } else if previous_underscore {
+            continue;
+        } else {
+            previous_underscore = true;
+            '_'
+        };
+        out.push(normalized);
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn record_redacted_field(fields: &mut Vec<String>, field: &str) {
+    let field = normalize_redaction_field(field);
+    if !field.is_empty() && !fields.iter().any(|existing| existing == &field) {
+        fields.push(field);
+    }
+}
+
+fn artifact_sensitive_key_value_regex() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?i)\b([A-Za-z_][A-Za-z0-9_.-]*(?:api[_-]?key|token|secret|password|passwd|credential|authorization)[A-Za-z0-9_.-]*)(\s*[:=]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}]+)"#,
+        )
+        .expect("valid artifact key-value redaction regex")
+    })
+}
+
+fn artifact_bearer_token_regex() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\b(Bearer\s+)([A-Za-z0-9._~+/=-]{8,})")
+            .expect("valid artifact bearer redaction regex")
+    })
+}
+
+fn artifact_token_value_regex() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r"\b(sk-[A-Za-z0-9][A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9_]{10,}|AKIA[0-9A-Z]{12,})\b",
+        )
+        .expect("valid artifact token value redaction regex")
+    })
+}
+
+fn redacted_literal_for_value(value: &str) -> &'static str {
+    if value.starts_with('"') && value.ends_with('"') {
+        "\"[REDACTED]\""
+    } else if value.starts_with('\'') && value.ends_with('\'') {
+        "'[REDACTED]'"
+    } else {
+        "[REDACTED]"
+    }
+}
+
+fn redact_tool_output_artifact_text(
+    text: &str,
+    binary_suspect: bool,
+) -> RedactedToolOutputArtifact {
+    let mut fields = Vec::new();
+    let mut redacted_count = 0usize;
+
+    let redacted = artifact_sensitive_key_value_regex()
+        .replace_all(text, |caps: &regex::Captures<'_>| {
+            let key = caps.get(1).map_or("", |m| m.as_str());
+            let sep = caps.get(2).map_or("", |m| m.as_str());
+            let value = caps.get(3).map_or("", |m| m.as_str());
+            if value == "[REDACTED]" || value == "\"[REDACTED]\"" || value == "'[REDACTED]'" {
+                caps.get(0).map_or("", |m| m.as_str()).to_string()
+            } else {
+                redacted_count = redacted_count.saturating_add(1);
+                record_redacted_field(&mut fields, key);
+                format!("{key}{sep}{}", redacted_literal_for_value(value))
+            }
+        })
+        .to_string();
+
+    let redacted = artifact_bearer_token_regex()
+        .replace_all(&redacted, |caps: &regex::Captures<'_>| {
+            redacted_count = redacted_count.saturating_add(1);
+            record_redacted_field(&mut fields, "authorization");
+            let prefix = caps.get(1).map_or("", |m| m.as_str());
+            format!("{prefix}[REDACTED]")
+        })
+        .to_string();
+
+    let redacted = artifact_token_value_regex()
+        .replace_all(&redacted, |_caps: &regex::Captures<'_>| {
+            redacted_count = redacted_count.saturating_add(1);
+            record_redacted_field(&mut fields, "tokenValue");
+            "[REDACTED]".to_string()
+        })
+        .to_string();
+
+    fields.sort();
+    let raw_secret_bytes_emitted = estimate_raw_secret_bytes(&redacted);
+    let summary = ToolOutputArtifactRedactionSummary {
+        policy: TOOL_OUTPUT_ARTIFACT_REDACTION_POLICY_V1,
+        status: if raw_secret_bytes_emitted > 0 {
+            "unsafe"
+        } else if redacted_count > 0 {
+            "redacted"
+        } else {
+            "clean"
+        },
+        redacted_count,
+        fields,
+        raw_secret_bytes_emitted,
+        binary_suspect,
+        max_redaction_bytes: TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES,
+    };
+
+    RedactedToolOutputArtifact {
+        bytes: redacted.into_bytes(),
+        summary,
+    }
+}
+
+fn estimate_raw_secret_bytes(text: &str) -> usize {
+    let key_value_bytes = artifact_sensitive_key_value_regex()
+        .captures_iter(text)
+        .filter_map(|caps| {
+            let value = caps.get(3)?.as_str();
+            if value == "[REDACTED]" || value == "\"[REDACTED]\"" || value == "'[REDACTED]'" {
+                None
+            } else {
+                caps.get(0).map(|m| m.as_str().len())
+            }
+        })
+        .sum::<usize>();
+    let bearer_bytes = artifact_bearer_token_regex()
+        .find_iter(text)
+        .map(|m| m.as_str().len())
+        .sum::<usize>();
+    let token_bytes = artifact_token_value_regex()
+        .find_iter(text)
+        .map(|m| m.as_str().len())
+        .sum::<usize>();
+    key_value_bytes
+        .saturating_add(bearer_bytes)
+        .saturating_add(token_bytes)
+}
+
+fn redact_tool_output_artifact_bytes(bytes: &[u8]) -> std::io::Result<RedactedToolOutputArtifact> {
+    let binary_suspect =
+        memchr::memchr(b'\0', bytes).is_some() || std::str::from_utf8(bytes).is_err();
+    let text = String::from_utf8_lossy(bytes);
+    let redacted = redact_tool_output_artifact_text(text.as_ref(), binary_suspect);
+    if redacted.summary.raw_secret_bytes_emitted > 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "artifact redaction failed closed: raw secret-looking bytes remain",
+        ));
+    }
+    Ok(redacted)
+}
+
+fn ensure_artifact_path_under_root(root: &Path, path: &Path) -> std::io::Result<()> {
+    if path.starts_with(root) {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "artifact path {} is outside artifact root {}",
+                path.display(),
+                root.display()
+            ),
+        ))
+    }
+}
+
 fn write_artifact_file_if_absent(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     match std::fs::OpenOptions::new()
         .write(true)
@@ -912,6 +1118,17 @@ fn write_text_tool_output_artifact_at_root(
             ),
         ));
     }
+    if bytes.len() > TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES_USIZE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "artifact source exceeds {} redaction limit",
+                format_size(TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES_USIZE)
+            ),
+        ));
+    }
+    let redacted = redact_tool_output_artifact_bytes(bytes)?;
+    let bytes = redacted.bytes.as_slice();
     let sha256 = format!("{:x}", sha2::Sha256::digest(bytes));
     let (scope_dir, session_id) = tool_output_artifact_scope_dir(root, tool_call_id);
     std::fs::create_dir_all(&scope_dir)?;
@@ -919,6 +1136,8 @@ fn write_text_tool_output_artifact_at_root(
     let id = format!("tool-artifact-{}", &sha256[..16]);
     let content_path = scope_dir.join(format!("{sha256}.txt"));
     let metadata_path = scope_dir.join(format!("{sha256}.json"));
+    ensure_artifact_path_under_root(root, &content_path)?;
+    ensure_artifact_path_under_root(root, &metadata_path)?;
     write_artifact_file_if_absent(&content_path, bytes)?;
 
     let artifact = ToolOutputArtifactRef {
@@ -934,6 +1153,10 @@ fn write_text_tool_output_artifact_at_root(
         line_count: artifact_line_count(bytes),
         preview_bytes,
         content_type: "text/plain; charset=utf-8",
+        retention_class: TOOL_OUTPUT_ARTIFACT_RETENTION_CLASS,
+        spillover_reason: TOOL_OUTPUT_ARTIFACT_SPILLOVER_REASON,
+        redaction_summary: redacted.summary,
+        safe_delete_candidate: true,
     };
     let metadata = serde_json::to_vec_pretty(&artifact).map_err(std::io::Error::other)?;
     write_artifact_file_if_absent(&metadata_path, &metadata)?;
@@ -958,50 +1181,32 @@ fn copy_text_tool_output_artifact_from_path_at_root(
             ),
         ));
     }
-
-    let mut source = std::fs::File::open(source_path)?;
-    let mut hasher = sha2::Sha256::new();
-    let mut buf = vec![0_u8; 64 * 1024];
-    let mut byte_count = 0_u64;
-    let mut newline_count = 0usize;
-    let mut last_byte_was_newline = false;
-    loop {
-        let read = source.read(&mut buf)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buf[..read]);
-        byte_count = byte_count.saturating_add(read.try_into().unwrap_or(u64::MAX));
-        newline_count =
-            newline_count.saturating_add(memchr::memchr_iter(b'\n', &buf[..read]).count());
-        last_byte_was_newline = buf[read - 1] == b'\n';
+    if metadata.len() > TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "artifact source exceeds {} redaction limit",
+                format_size(TOOL_OUTPUT_ARTIFACT_REDACTION_MAX_BYTES_USIZE)
+            ),
+        ));
     }
 
-    let sha256 = format!("{:x}", hasher.finalize());
+    let mut source = std::fs::File::open(source_path)?;
+    let mut source_bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+    source.read_to_end(&mut source_bytes)?;
+    let redacted = redact_tool_output_artifact_bytes(&source_bytes)?;
+    let bytes = redacted.bytes.as_slice();
+
+    let sha256 = format!("{:x}", sha2::Sha256::digest(bytes));
     let (scope_dir, session_id) = tool_output_artifact_scope_dir(root, tool_call_id);
     std::fs::create_dir_all(&scope_dir)?;
     let id = format!("tool-artifact-{}", &sha256[..16]);
     let content_path = scope_dir.join(format!("{sha256}.txt"));
     let metadata_path = scope_dir.join(format!("{sha256}.json"));
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&content_path)
-    {
-        Ok(mut out) => {
-            let mut source = std::fs::File::open(source_path)?;
-            std::io::copy(&mut source, &mut out)?;
-            out.sync_all()?;
-        }
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(err) => return Err(err),
-    }
+    ensure_artifact_path_under_root(root, &content_path)?;
+    ensure_artifact_path_under_root(root, &metadata_path)?;
+    write_artifact_file_if_absent(&content_path, bytes)?;
 
-    let line_count = line_count_from_newline_count(
-        usize::try_from(byte_count).unwrap_or(usize::MAX),
-        newline_count,
-        last_byte_was_newline,
-    );
     let artifact = ToolOutputArtifactRef {
         schema: TOOL_OUTPUT_ARTIFACT_SCHEMA_V1,
         id,
@@ -1011,10 +1216,14 @@ fn copy_text_tool_output_artifact_from_path_at_root(
         path: content_path.display().to_string(),
         metadata_path: metadata_path.display().to_string(),
         sha256,
-        byte_count,
-        line_count,
+        byte_count: bytes.len().try_into().unwrap_or(u64::MAX),
+        line_count: artifact_line_count(bytes),
         preview_bytes,
         content_type: "text/plain; charset=utf-8",
+        retention_class: TOOL_OUTPUT_ARTIFACT_RETENTION_CLASS,
+        spillover_reason: TOOL_OUTPUT_ARTIFACT_SPILLOVER_REASON,
+        redaction_summary: redacted.summary,
+        safe_delete_candidate: true,
     };
     let metadata = serde_json::to_vec_pretty(&artifact).map_err(std::io::Error::other)?;
     write_artifact_file_if_absent(&metadata_path, &metadata)?;
@@ -4640,6 +4849,14 @@ impl GrepTool {
             artifact_root: None,
         }
     }
+
+    #[cfg(test)]
+    fn with_artifact_root(cwd: &Path, artifact_root: &Path) -> Self {
+        Self {
+            cwd: cwd.to_path_buf(),
+            artifact_root: Some(artifact_root.to_path_buf()),
+        }
+    }
 }
 
 /// Result of truncating a single grep output line.
@@ -7630,7 +7847,94 @@ mod tests {
         let metadata_bytes = std::fs::read(metadata_path)?;
         let metadata: serde_json::Value = serde_json::from_slice(&metadata_bytes)?;
         assert_eq!(metadata["sha256"], artifact["sha256"]);
+        assert_eq!(
+            metadata["retentionClass"],
+            TOOL_OUTPUT_ARTIFACT_RETENTION_CLASS
+        );
+        assert_eq!(
+            metadata["spilloverReason"],
+            TOOL_OUTPUT_ARTIFACT_SPILLOVER_REASON
+        );
+        assert_eq!(metadata["safeDeleteCandidate"], true);
+        assert_eq!(
+            metadata["redactionSummary"]["policy"],
+            TOOL_OUTPUT_ARTIFACT_REDACTION_POLICY_V1
+        );
+        assert_eq!(metadata["redactionSummary"]["status"], "clean");
+        assert_eq!(metadata["redactionSummary"]["rawSecretBytesEmitted"], 0);
         Ok(())
+    }
+
+    #[test]
+    fn tool_output_artifact_redacts_sensitive_text_before_persisting()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir().expect("artifact root");
+        let leaked_token = "sk-redactionfixture1234567890";
+        let leaked_bearer = "ghp_redactionfixture1234567890";
+        let full = format!(
+            "API_TOKEN={leaked_token}\nAuthorization: Bearer {leaked_bearer}\n{}",
+            "x".repeat(TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES + 1)
+        );
+        let mut output = "bounded preview".to_string();
+        let mut details = None;
+
+        let spilled = attach_text_artifact_if_needed_at_root(
+            tmp.path(),
+            &mut output,
+            &mut details,
+            "read",
+            "call-secret",
+            "selectedTextWindow",
+            &full,
+        );
+
+        assert!(spilled);
+        let artifact = artifact_json(details.as_ref());
+        let path = PathBuf::from(artifact_str_field(artifact, "path"));
+        let metadata_path = PathBuf::from(artifact_str_field(artifact, "metadataPath"));
+        let persisted = std::fs::read_to_string(path)?;
+        let metadata: serde_json::Value = serde_json::from_slice(&std::fs::read(metadata_path)?)?;
+
+        assert!(!persisted.contains(leaked_token));
+        assert!(!persisted.contains(leaked_bearer));
+        assert!(persisted.contains("API_TOKEN=[REDACTED]"));
+        assert_eq!(artifact["redactionSummary"]["status"], "redacted");
+        assert_eq!(artifact["redactionSummary"]["rawSecretBytesEmitted"], 0);
+        assert_eq!(metadata["redactionSummary"], artifact["redactionSummary"]);
+        let fields = artifact["redactionSummary"]["fields"]
+            .as_array()
+            .expect("redaction fields");
+        assert!(fields.iter().any(|field| field == "api_token"));
+        assert!(fields.iter().any(|field| field == "authorization"));
+        Ok(())
+    }
+
+    #[test]
+    fn tool_output_artifact_marks_binaryish_payloads_in_lifecycle_manifest() {
+        let tmp = tempfile::tempdir().expect("artifact root");
+        let full = format!(
+            "{}\0{}",
+            "z".repeat(TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES / 2),
+            "z".repeat(TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES / 2 + 2)
+        );
+        let mut output = "bounded preview".to_string();
+        let mut details = None;
+
+        let spilled = attach_text_artifact_if_needed_at_root(
+            tmp.path(),
+            &mut output,
+            &mut details,
+            "read",
+            "call-binaryish",
+            "selectedTextWindow",
+            &full,
+        );
+
+        assert!(spilled);
+        let artifact = artifact_json(details.as_ref());
+        assert_eq!(artifact["redactionSummary"]["binarySuspect"], true);
+        assert_eq!(artifact["redactionSummary"]["rawSecretBytesEmitted"], 0);
+        assert_eq!(artifact["safeDeleteCandidate"], true);
     }
 
     #[test]
@@ -7702,6 +8006,15 @@ mod tests {
             );
             assert!(spilled.starts_with(prefix));
             assert!(spilled[prefix.len()..].bytes().all(|byte| byte == b'r'));
+            assert_eq!(
+                artifact["retentionClass"],
+                TOOL_OUTPUT_ARTIFACT_RETENTION_CLASS
+            );
+            assert_eq!(
+                artifact["spilloverReason"],
+                TOOL_OUTPUT_ARTIFACT_SPILLOVER_REASON
+            );
+            assert_eq!(artifact["safeDeleteCandidate"], true);
         });
     }
 
@@ -7732,8 +8045,129 @@ mod tests {
             let artifact = artifact_json(output.details.as_ref());
             assert_eq!(artifact["toolName"], "bash");
             assert_eq!(artifact["sourceKind"], "fullCommandOutput");
-            let path = PathBuf::from(artifact["path"].as_str().unwrap());
+            let path = PathBuf::from(artifact_str_field(artifact, "path"));
             assert_eq!(std::fs::metadata(path).unwrap().len(), 1_001_000);
+            assert_eq!(artifact["redactionSummary"]["status"], "clean");
+            assert_eq!(artifact["safeDeleteCandidate"], true);
+        });
+    }
+
+    #[test]
+    fn bash_tool_redacts_secret_like_full_output_artifacts() {
+        asupersync::test_utils::run_test(|| async {
+            if !Path::new("/dev/zero").exists() {
+                return;
+            }
+
+            let tmp = tempfile::tempdir().expect("workspace");
+            let artifact_root = tempfile::tempdir().expect("artifact root");
+            let leaked_token = "sk-bashredactionfixture1234567890";
+
+            let bash_tool = BashTool::with_artifact_root(tmp.path(), artifact_root.path());
+            let output = bash_tool
+                .execute(
+                    "bash-secret-artifact-call",
+                    serde_json::json!({
+                        "command": format!("printf 'API_TOKEN={leaked_token}\\n'; head -c 1001000 /dev/zero | tr '\\0' x"),
+                        "timeout": 10
+                    }),
+                    None,
+                )
+                .await
+                .expect("bash large output");
+
+            assert!(first_text(&output).contains("Full tool output artifact:"));
+            let artifact = artifact_json(output.details.as_ref());
+            assert_eq!(artifact["toolName"], "bash");
+            assert_eq!(artifact["redactionSummary"]["status"], "redacted");
+            assert_eq!(artifact["redactionSummary"]["rawSecretBytesEmitted"], 0);
+            let path = PathBuf::from(artifact_str_field(artifact, "path"));
+            let persisted = std::fs::read_to_string(path).expect("read redacted bash artifact");
+            assert!(!persisted.contains(leaked_token));
+            assert!(persisted.contains("API_TOKEN=[REDACTED]"));
+        });
+    }
+
+    #[test]
+    fn grep_tool_spills_large_search_results_with_lifecycle_manifest() {
+        asupersync::test_utils::run_test(|| async {
+            if !rg_available() {
+                return;
+            }
+
+            let tmp = tempfile::tempdir().expect("workspace");
+            let artifact_root = tempfile::tempdir().expect("artifact root");
+            let mut body = String::new();
+            let suffix = "g".repeat(560);
+            for idx in 0..2200 {
+                let _ = writeln!(body, "target {idx:04} {suffix}");
+            }
+            std::fs::write(tmp.path().join("large-grep.txt"), body).expect("write grep fixture");
+
+            let grep_tool = GrepTool::with_artifact_root(tmp.path(), artifact_root.path());
+            let output = grep_tool
+                .execute(
+                    "grep-artifact-call",
+                    serde_json::json!({
+                        "pattern": "target",
+                        "path": "large-grep.txt",
+                        "literal": true,
+                        "limit": 2200
+                    }),
+                    None,
+                )
+                .await
+                .expect("grep large output");
+
+            assert!(first_text(&output).contains("Full tool output artifact:"));
+            let artifact = artifact_json(output.details.as_ref());
+            assert_eq!(artifact["toolName"], "grep");
+            assert_eq!(artifact["sourceKind"], "searchResults");
+            assert_eq!(
+                artifact["retentionClass"],
+                TOOL_OUTPUT_ARTIFACT_RETENTION_CLASS
+            );
+            assert_eq!(artifact["safeDeleteCandidate"], true);
+            assert_eq!(artifact["redactionSummary"]["status"], "clean");
+            let path = PathBuf::from(artifact_str_field(artifact, "path"));
+            let persisted = std::fs::read_to_string(path).expect("read grep artifact");
+            assert!(persisted.contains("large-grep.txt:1: target 0000"));
+            assert!(
+                artifact["byteCount"].as_u64().unwrap()
+                    > u64::try_from(TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES).unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn read_tool_denied_path_does_not_emit_lifecycle_artifact() {
+        asupersync::test_utils::run_test(|| async {
+            let cwd = tempfile::tempdir().expect("workspace");
+            let outside = tempfile::tempdir().expect("outside");
+            let artifact_root = tempfile::tempdir().expect("artifact root");
+            let outside_path = outside.path().join("secret.txt");
+            std::fs::write(&outside_path, "API_TOKEN=sk-deniedpathfixture1234567890")
+                .expect("outside secret");
+
+            let read_tool = ReadTool::with_artifact_root(cwd.path(), artifact_root.path());
+            let err = read_tool
+                .execute(
+                    "read-denied-artifact-call",
+                    serde_json::json!({ "path": outside_path }),
+                    None,
+                )
+                .await
+                .expect_err("outside read should be denied");
+
+            assert!(
+                err.to_string()
+                    .contains("Cannot read outside the working directory or agent dir")
+            );
+            let mut entries = std::fs::read_dir(artifact_root.path()).expect("artifact root");
+            assert!(
+                entries.next().is_none(),
+                "denied reads must not write artifacts"
+            );
         });
     }
 
@@ -7766,7 +8200,7 @@ mod tests {
                 artifact["byteCount"].as_u64().unwrap()
                     > u64::try_from(TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES).unwrap()
             );
-            let path = PathBuf::from(artifact["path"].as_str().unwrap());
+            let path = PathBuf::from(artifact_str_field(artifact, "path"));
             assert!(
                 std::fs::read_to_string(path)
                     .unwrap()
