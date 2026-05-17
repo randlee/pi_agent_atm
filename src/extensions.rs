@@ -16428,6 +16428,510 @@ impl ExtensionManifestSource {
     }
 }
 
+/// Operator trust marker for permission drift comparisons.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionPermissionTrust {
+    /// No explicit operator trust decision accompanies this snapshot.
+    #[default]
+    Untrusted,
+    /// The operator explicitly approved this permission change.
+    ExplicitlyTrusted,
+}
+
+/// Stable input snapshot for extension permission drift detection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExtensionPermissionSnapshot {
+    /// Extension identifier from manifest or catalog.
+    pub extension_id: String,
+    /// Flat manifest or runtime capability list.
+    pub capabilities: Vec<String>,
+    /// Structured v1/v2 capability manifest when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capability_manifest: Option<CapabilityManifest>,
+    /// Policy profile observed for this extension.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_profile: Option<PolicyProfile>,
+    /// Canonical checksum for the observed extension manifest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_checksum: Option<String>,
+    /// Canonical checksum for the observed provenance snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance_snapshot_checksum: Option<String>,
+    /// Catalog-declared capabilities expected for this extension.
+    pub catalog_capabilities: Vec<String>,
+    /// Catalog policy profile expected for this extension.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_policy_profile: Option<PolicyProfile>,
+    /// Catalog checksum expected for the manifest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_manifest_checksum: Option<String>,
+    /// Catalog checksum expected for the provenance snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_provenance_checksum: Option<String>,
+    /// Operator trust marker for this snapshot.
+    pub trust: ExtensionPermissionTrust,
+}
+
+impl Default for ExtensionPermissionSnapshot {
+    fn default() -> Self {
+        Self {
+            extension_id: String::new(),
+            capabilities: Vec::new(),
+            capability_manifest: None,
+            policy_profile: None,
+            manifest_checksum: None,
+            provenance_snapshot_checksum: None,
+            catalog_capabilities: Vec::new(),
+            catalog_policy_profile: None,
+            catalog_manifest_checksum: None,
+            catalog_provenance_checksum: None,
+            trust: ExtensionPermissionTrust::Untrusted,
+        }
+    }
+}
+
+/// Primary class assigned to a permission drift report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionPermissionDriftClass {
+    NoDrift,
+    AddedCapabilities,
+    AddedDangerousCapabilities,
+    RemovedCapabilities,
+    PolicyProfileMismatch,
+    ProvenanceMismatch,
+    MissingProvenance,
+    StaleManifest,
+    ExplicitlyTrustedChange,
+}
+
+/// Risk level for a permission drift report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionPermissionRiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// Provenance state observed during permission drift detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionPermissionProvenanceStatus {
+    Verified,
+    Missing,
+    Mismatch,
+    Stale,
+    Trusted,
+    NotRequired,
+}
+
+/// Launch verdict for a permission drift report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionPermissionDriftVerdict {
+    Allow,
+    AllowWithAudit,
+    ReviewRequired,
+    FailClosed,
+}
+
+/// Stable JSON-serializable evidence emitted by permission drift detection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionPermissionDriftReport {
+    pub extension_id: String,
+    pub previous_capabilities: BTreeSet<String>,
+    pub current_capabilities: BTreeSet<String>,
+    pub added_capabilities: BTreeSet<String>,
+    pub removed_capabilities: BTreeSet<String>,
+    pub drift_class: ExtensionPermissionDriftClass,
+    pub drift_classes: Vec<ExtensionPermissionDriftClass>,
+    pub risk_level: ExtensionPermissionRiskLevel,
+    pub provenance_status: ExtensionPermissionProvenanceStatus,
+    pub recommended_action: String,
+    pub verdict: ExtensionPermissionDriftVerdict,
+}
+
+#[must_use]
+fn normalize_capability_token(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_ascii_lowercase())
+    }
+}
+
+#[must_use]
+fn snapshot_capability_set(snapshot: &ExtensionPermissionSnapshot) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for capability in &snapshot.capabilities {
+        if let Some(capability) = normalize_capability_token(capability) {
+            out.insert(capability);
+        }
+    }
+    if let Some(manifest) = &snapshot.capability_manifest {
+        for requirement in &manifest.capabilities {
+            if let Some(capability) = normalize_capability_token(&requirement.capability) {
+                out.insert(capability);
+            }
+        }
+    }
+    out
+}
+
+#[must_use]
+fn snapshot_catalog_capability_set(snapshot: &ExtensionPermissionSnapshot) -> BTreeSet<String> {
+    snapshot
+        .catalog_capabilities
+        .iter()
+        .filter_map(|capability| normalize_capability_token(capability))
+        .collect()
+}
+
+#[must_use]
+fn snapshot_provenance_map(snapshot: &ExtensionPermissionSnapshot) -> BTreeMap<String, String> {
+    let Some(manifest) = &snapshot.capability_manifest else {
+        return BTreeMap::new();
+    };
+    let mut out = BTreeMap::new();
+    for requirement in &manifest.capabilities {
+        let Some(capability) = normalize_capability_token(&requirement.capability) else {
+            continue;
+        };
+        if let Some(provenance) = &requirement.provenance {
+            out.insert(
+                capability,
+                format!(
+                    "{}|{}|{}|{}|{}",
+                    provenance.source.trim(),
+                    provenance.integrity.algorithm.trim(),
+                    provenance.integrity.digest.trim().to_ascii_lowercase(),
+                    provenance.publisher.id.trim(),
+                    provenance.publisher.verification.trim()
+                ),
+            );
+        }
+    }
+    out
+}
+
+#[must_use]
+fn capability_set_has_dangerous(caps: &BTreeSet<String>) -> bool {
+    caps.iter()
+        .any(|capability| Capability::parse(capability).is_some_and(Capability::is_dangerous))
+}
+
+#[must_use]
+fn capability_expansion_missing_provenance(
+    added_capabilities: &BTreeSet<String>,
+    current_provenance: &BTreeMap<String, String>,
+) -> bool {
+    added_capabilities
+        .iter()
+        .any(|capability| !current_provenance.contains_key(capability))
+}
+
+#[must_use]
+fn policy_profile_mismatch(
+    previous: &ExtensionPermissionSnapshot,
+    current: &ExtensionPermissionSnapshot,
+    added_capabilities: &BTreeSet<String>,
+) -> bool {
+    let profile_changed = previous
+        .policy_profile
+        .zip(current.policy_profile)
+        .is_some_and(|(previous, current)| previous != current);
+    let catalog_profile_mismatch = current
+        .catalog_policy_profile
+        .zip(current.policy_profile)
+        .is_some_and(|(catalog, current)| catalog != current);
+    let missing_policy_for_expansion = !added_capabilities.is_empty()
+        && (current.policy_profile.is_none() || current.catalog_policy_profile.is_none());
+
+    profile_changed || catalog_profile_mismatch || missing_policy_for_expansion
+}
+
+#[must_use]
+fn checksum_mismatch(observed: Option<&String>, expected: Option<&String>) -> bool {
+    observed
+        .zip(expected)
+        .is_some_and(|(observed, expected)| observed.trim() != expected.trim())
+}
+
+#[must_use]
+const fn permission_drift_recommended_action(
+    verdict: ExtensionPermissionDriftVerdict,
+    primary_class: ExtensionPermissionDriftClass,
+) -> &'static str {
+    match verdict {
+        ExtensionPermissionDriftVerdict::Allow => "launch_extension",
+        ExtensionPermissionDriftVerdict::AllowWithAudit => "launch_extension_and_record_audit",
+        ExtensionPermissionDriftVerdict::ReviewRequired => match primary_class {
+            ExtensionPermissionDriftClass::AddedDangerousCapabilities => {
+                "require_explicit_operator_approval"
+            }
+            ExtensionPermissionDriftClass::AddedCapabilities => {
+                "review_capability_expansion_before_launch"
+            }
+            ExtensionPermissionDriftClass::PolicyProfileMismatch => {
+                "reconcile_policy_profile_before_launch"
+            }
+            _ => "review_permission_drift_before_launch",
+        },
+        ExtensionPermissionDriftVerdict::FailClosed => match primary_class {
+            ExtensionPermissionDriftClass::MissingProvenance => "block_launch_refresh_provenance",
+            ExtensionPermissionDriftClass::StaleManifest => "block_launch_refresh_manifest",
+            ExtensionPermissionDriftClass::ProvenanceMismatch => {
+                "block_launch_reconcile_provenance"
+            }
+            ExtensionPermissionDriftClass::PolicyProfileMismatch => {
+                "block_launch_reconcile_policy_profile"
+            }
+            _ => "block_launch_until_evidence_matches",
+        },
+    }
+}
+
+#[must_use]
+fn primary_permission_drift_class(
+    classes: &[ExtensionPermissionDriftClass],
+) -> ExtensionPermissionDriftClass {
+    for candidate in [
+        ExtensionPermissionDriftClass::MissingProvenance,
+        ExtensionPermissionDriftClass::ProvenanceMismatch,
+        ExtensionPermissionDriftClass::StaleManifest,
+        ExtensionPermissionDriftClass::PolicyProfileMismatch,
+        ExtensionPermissionDriftClass::AddedDangerousCapabilities,
+        ExtensionPermissionDriftClass::AddedCapabilities,
+        ExtensionPermissionDriftClass::RemovedCapabilities,
+        ExtensionPermissionDriftClass::ExplicitlyTrustedChange,
+    ] {
+        if classes.contains(&candidate) {
+            return candidate;
+        }
+    }
+    ExtensionPermissionDriftClass::NoDrift
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy)]
+struct PermissionDriftFlags {
+    has_added_dangerous: bool,
+    has_added: bool,
+    has_removed: bool,
+    missing_provenance: bool,
+    policy_mismatch: bool,
+    manifest_stale: bool,
+    provenance_mismatch: bool,
+    provenance_empty: bool,
+    trusted_change: bool,
+}
+
+#[must_use]
+fn permission_drift_classes(flags: PermissionDriftFlags) -> Vec<ExtensionPermissionDriftClass> {
+    let mut classes = Vec::new();
+    if flags.missing_provenance {
+        classes.push(ExtensionPermissionDriftClass::MissingProvenance);
+    }
+    if flags.provenance_mismatch {
+        classes.push(ExtensionPermissionDriftClass::ProvenanceMismatch);
+    }
+    if flags.manifest_stale {
+        classes.push(ExtensionPermissionDriftClass::StaleManifest);
+    }
+    if flags.policy_mismatch {
+        classes.push(ExtensionPermissionDriftClass::PolicyProfileMismatch);
+    }
+    if flags.has_added_dangerous {
+        classes.push(ExtensionPermissionDriftClass::AddedDangerousCapabilities);
+    } else if flags.has_added {
+        classes.push(ExtensionPermissionDriftClass::AddedCapabilities);
+    }
+    if flags.has_removed {
+        classes.push(ExtensionPermissionDriftClass::RemovedCapabilities);
+    }
+    if flags.trusted_change && !flags.missing_provenance {
+        classes.push(ExtensionPermissionDriftClass::ExplicitlyTrustedChange);
+    }
+    if classes.is_empty() {
+        classes.push(ExtensionPermissionDriftClass::NoDrift);
+    }
+    classes
+}
+
+#[must_use]
+const fn permission_drift_provenance_status(
+    flags: PermissionDriftFlags,
+) -> ExtensionPermissionProvenanceStatus {
+    if flags.missing_provenance {
+        ExtensionPermissionProvenanceStatus::Missing
+    } else if flags.provenance_mismatch {
+        ExtensionPermissionProvenanceStatus::Mismatch
+    } else if flags.manifest_stale {
+        ExtensionPermissionProvenanceStatus::Stale
+    } else if flags.trusted_change {
+        ExtensionPermissionProvenanceStatus::Trusted
+    } else if flags.provenance_empty && !flags.has_added {
+        ExtensionPermissionProvenanceStatus::NotRequired
+    } else {
+        ExtensionPermissionProvenanceStatus::Verified
+    }
+}
+
+#[must_use]
+const fn permission_drift_verdict(flags: PermissionDriftFlags) -> ExtensionPermissionDriftVerdict {
+    if flags.missing_provenance
+        || flags.provenance_mismatch
+        || flags.manifest_stale
+        || (flags.policy_mismatch && flags.has_added)
+    {
+        ExtensionPermissionDriftVerdict::FailClosed
+    } else if flags.trusted_change {
+        ExtensionPermissionDriftVerdict::AllowWithAudit
+    } else if flags.has_added_dangerous || flags.has_added || flags.policy_mismatch {
+        ExtensionPermissionDriftVerdict::ReviewRequired
+    } else if flags.has_removed {
+        ExtensionPermissionDriftVerdict::AllowWithAudit
+    } else {
+        ExtensionPermissionDriftVerdict::Allow
+    }
+}
+
+#[must_use]
+const fn permission_drift_risk_level(
+    verdict: ExtensionPermissionDriftVerdict,
+    flags: PermissionDriftFlags,
+) -> ExtensionPermissionRiskLevel {
+    match verdict {
+        ExtensionPermissionDriftVerdict::FailClosed => {
+            if flags.missing_provenance || (flags.policy_mismatch && flags.has_added) {
+                ExtensionPermissionRiskLevel::Critical
+            } else {
+                ExtensionPermissionRiskLevel::High
+            }
+        }
+        ExtensionPermissionDriftVerdict::ReviewRequired => {
+            if flags.has_added_dangerous || flags.policy_mismatch {
+                ExtensionPermissionRiskLevel::High
+            } else {
+                ExtensionPermissionRiskLevel::Medium
+            }
+        }
+        ExtensionPermissionDriftVerdict::AllowWithAudit => {
+            if flags.trusted_change && flags.has_added_dangerous {
+                ExtensionPermissionRiskLevel::Medium
+            } else {
+                ExtensionPermissionRiskLevel::Low
+            }
+        }
+        ExtensionPermissionDriftVerdict::Allow => ExtensionPermissionRiskLevel::Low,
+    }
+}
+
+/// Detect permission drift between extension launch snapshots.
+#[must_use]
+pub fn detect_extension_permission_drift(
+    previous: &ExtensionPermissionSnapshot,
+    current: &ExtensionPermissionSnapshot,
+) -> ExtensionPermissionDriftReport {
+    let previous_capabilities = snapshot_capability_set(previous);
+    let current_capabilities = snapshot_capability_set(current);
+    let catalog_capabilities = snapshot_catalog_capability_set(current);
+    let previous_provenance = snapshot_provenance_map(previous);
+    let current_provenance = snapshot_provenance_map(current);
+
+    let added_capabilities = current_capabilities
+        .difference(&previous_capabilities)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let removed_capabilities = previous_capabilities
+        .difference(&current_capabilities)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let catalog_missing_capabilities = catalog_capabilities
+        .difference(&current_capabilities)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let manifest_has_catalog_gap =
+        !catalog_capabilities.is_empty() && !catalog_missing_capabilities.is_empty();
+
+    let has_added_dangerous = capability_set_has_dangerous(&added_capabilities);
+    let has_added = !added_capabilities.is_empty();
+    let has_removed = !removed_capabilities.is_empty();
+    let missing_provenance = has_added
+        && capability_expansion_missing_provenance(&added_capabilities, &current_provenance);
+    let policy_mismatch = policy_profile_mismatch(previous, current, &added_capabilities);
+    let manifest_checksum_mismatch = checksum_mismatch(
+        current.manifest_checksum.as_ref(),
+        current.catalog_manifest_checksum.as_ref(),
+    );
+    let provenance_checksum_mismatch = checksum_mismatch(
+        current.provenance_snapshot_checksum.as_ref(),
+        current.catalog_provenance_checksum.as_ref(),
+    );
+    let shared_provenance_mismatch = current_provenance.iter().any(|(capability, current)| {
+        previous_provenance
+            .get(capability)
+            .is_some_and(|previous| previous != current)
+    });
+    let provenance_mismatch = provenance_checksum_mismatch || shared_provenance_mismatch;
+    let trusted_change = current.trust == ExtensionPermissionTrust::ExplicitlyTrusted
+        && (has_added
+            || has_removed
+            || policy_mismatch
+            || manifest_checksum_mismatch
+            || provenance_mismatch);
+
+    let flags = PermissionDriftFlags {
+        has_added_dangerous,
+        has_added,
+        has_removed,
+        missing_provenance,
+        policy_mismatch,
+        manifest_stale: manifest_checksum_mismatch || manifest_has_catalog_gap,
+        provenance_mismatch,
+        provenance_empty: current_provenance.is_empty(),
+        trusted_change,
+    };
+
+    let classes = permission_drift_classes(flags);
+    let primary_class = primary_permission_drift_class(&classes);
+    let provenance_status = permission_drift_provenance_status(flags);
+    let verdict = permission_drift_verdict(flags);
+    let risk_level = permission_drift_risk_level(verdict, flags);
+
+    ExtensionPermissionDriftReport {
+        extension_id: if current.extension_id.trim().is_empty() {
+            previous.extension_id.clone()
+        } else {
+            current.extension_id.clone()
+        },
+        previous_capabilities,
+        current_capabilities,
+        added_capabilities,
+        removed_capabilities,
+        drift_class: primary_class,
+        drift_classes: classes,
+        risk_level,
+        provenance_status,
+        recommended_action: permission_drift_recommended_action(verdict, primary_class).to_string(),
+        verdict,
+    }
+}
+
+/// Detect permission drift and return the stable `JSON` evidence value.
+pub fn detect_extension_permission_drift_json(
+    previous: &ExtensionPermissionSnapshot,
+    current: &ExtensionPermissionSnapshot,
+) -> Result<Value> {
+    serde_json::to_value(detect_extension_permission_drift(previous, current))
+        .map_err(|err| Error::validation(format!("Serialize permission drift report: {err}")))
+}
+
 #[derive(Debug, Clone)]
 pub enum ExtensionLoadSpec {
     Js(JsExtensionLoadSpec),
@@ -32412,6 +32916,253 @@ mod tests {
         };
 
         validate_extension_manifest(&manifest).expect("v2 manifest should validate");
+    }
+
+    #[must_use]
+    fn permission_drift_requirement(capability: &str, digest: &str) -> CapabilityRequirement {
+        let (intent, connector_class, hostcall_class, risk_tier) = match capability {
+            "exec" => ("process_exec", "exec", "exec", "critical"),
+            "env" => ("environment_access", "env", "env", "high"),
+            "http" => ("network_egress", "http", "http", "medium"),
+            "write" => ("file_write", "fs", "fs.write", "medium"),
+            "log" => ("telemetry_logging", "log", "log", "low"),
+            _ => ("file_read", "fs", "fs.read", "low"),
+        };
+        CapabilityRequirement {
+            capability: capability.to_string(),
+            methods: Vec::new(),
+            intents: vec![intent.to_string()],
+            connector_classes: vec![connector_class.to_string()],
+            hostcall_classes: vec![hostcall_class.to_string()],
+            risk_tier: Some(risk_tier.to_string()),
+            scope: None,
+            provenance: Some(CapabilityProvenance {
+                source: "registry".to_string(),
+                integrity: CapabilityIntegrityAttestation {
+                    algorithm: "sha256".to_string(),
+                    digest: digest.to_string(),
+                },
+                publisher: CapabilityPublisherAttestation {
+                    id: "publisher@example".to_string(),
+                    verification: "registry_attested".to_string(),
+                },
+            }),
+        }
+    }
+
+    #[must_use]
+    fn permission_drift_manifest(capabilities: &[(&str, &str)]) -> CapabilityManifest {
+        CapabilityManifest {
+            schema: CAPABILITY_MANIFEST_SCHEMA_V2.to_string(),
+            capabilities: capabilities
+                .iter()
+                .map(|(capability, digest)| permission_drift_requirement(capability, digest))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn permission_drift_fails_closed_for_expansion_without_provenance_or_policy() {
+        let previous = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capabilities: vec!["read".to_string()],
+            policy_profile: Some(PolicyProfile::Standard),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            ..Default::default()
+        };
+        let current = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capabilities: vec!["read".to_string(), "exec".to_string()],
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            ..Default::default()
+        };
+
+        let report = detect_extension_permission_drift(&previous, &current);
+        assert_eq!(
+            report.drift_class,
+            ExtensionPermissionDriftClass::MissingProvenance
+        );
+        assert!(
+            report
+                .drift_classes
+                .contains(&ExtensionPermissionDriftClass::AddedDangerousCapabilities)
+        );
+        assert!(
+            report
+                .drift_classes
+                .contains(&ExtensionPermissionDriftClass::PolicyProfileMismatch)
+        );
+        assert_eq!(report.verdict, ExtensionPermissionDriftVerdict::FailClosed);
+        assert_eq!(report.risk_level, ExtensionPermissionRiskLevel::Critical);
+        assert_eq!(
+            report.provenance_status,
+            ExtensionPermissionProvenanceStatus::Missing
+        );
+        assert_eq!(report.recommended_action, "block_launch_refresh_provenance");
+
+        let evidence =
+            detect_extension_permission_drift_json(&previous, &current).expect("evidence json");
+        assert_eq!(evidence["extension_id"], json!("ext.secure"));
+        assert_eq!(evidence["previous_capabilities"], json!(["read"]));
+        assert_eq!(evidence["current_capabilities"], json!(["exec", "read"]));
+    }
+
+    #[test]
+    fn permission_drift_records_explicitly_trusted_provenanced_expansion() {
+        let read_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let exec_digest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let previous = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capability_manifest: Some(permission_drift_manifest(&[("read", read_digest)])),
+            policy_profile: Some(PolicyProfile::Standard),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            ..Default::default()
+        };
+        let current = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capability_manifest: Some(permission_drift_manifest(&[
+                ("read", read_digest),
+                ("exec", exec_digest),
+            ])),
+            policy_profile: Some(PolicyProfile::Standard),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            trust: ExtensionPermissionTrust::ExplicitlyTrusted,
+            ..Default::default()
+        };
+
+        let report = detect_extension_permission_drift(&previous, &current);
+        assert_eq!(
+            report.drift_class,
+            ExtensionPermissionDriftClass::AddedDangerousCapabilities
+        );
+        assert!(
+            report
+                .drift_classes
+                .contains(&ExtensionPermissionDriftClass::ExplicitlyTrustedChange)
+        );
+        assert_eq!(
+            report.provenance_status,
+            ExtensionPermissionProvenanceStatus::Trusted
+        );
+        assert_eq!(
+            report.verdict,
+            ExtensionPermissionDriftVerdict::AllowWithAudit
+        );
+        assert_eq!(report.risk_level, ExtensionPermissionRiskLevel::Medium);
+        assert_eq!(
+            report.recommended_action,
+            "launch_extension_and_record_audit"
+        );
+    }
+
+    #[test]
+    fn permission_drift_flags_removed_capabilities_as_auditable() {
+        let previous = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capabilities: vec!["read".to_string(), "write".to_string()],
+            policy_profile: Some(PolicyProfile::Safe),
+            catalog_policy_profile: Some(PolicyProfile::Safe),
+            ..Default::default()
+        };
+        let current = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capabilities: vec!["read".to_string()],
+            policy_profile: Some(PolicyProfile::Safe),
+            catalog_policy_profile: Some(PolicyProfile::Safe),
+            ..Default::default()
+        };
+
+        let report = detect_extension_permission_drift(&previous, &current);
+        assert_eq!(
+            report.drift_class,
+            ExtensionPermissionDriftClass::RemovedCapabilities
+        );
+        assert_eq!(
+            report.verdict,
+            ExtensionPermissionDriftVerdict::AllowWithAudit
+        );
+        assert_eq!(report.risk_level, ExtensionPermissionRiskLevel::Low);
+        assert_eq!(
+            report.removed_capabilities,
+            BTreeSet::from(["write".to_string()])
+        );
+    }
+
+    #[test]
+    fn permission_drift_flags_stale_manifest_and_policy_profile_mismatch() {
+        let previous = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capabilities: vec!["read".to_string()],
+            policy_profile: Some(PolicyProfile::Safe),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            ..Default::default()
+        };
+        let current = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capabilities: vec!["read".to_string()],
+            catalog_capabilities: vec!["read".to_string(), "write".to_string()],
+            policy_profile: Some(PolicyProfile::Safe),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            manifest_checksum: Some("observed".to_string()),
+            catalog_manifest_checksum: Some("catalog".to_string()),
+            ..Default::default()
+        };
+
+        let report = detect_extension_permission_drift(&previous, &current);
+        assert_eq!(
+            report.drift_class,
+            ExtensionPermissionDriftClass::StaleManifest
+        );
+        assert!(
+            report
+                .drift_classes
+                .contains(&ExtensionPermissionDriftClass::PolicyProfileMismatch)
+        );
+        assert_eq!(
+            report.provenance_status,
+            ExtensionPermissionProvenanceStatus::Stale
+        );
+        assert_eq!(report.verdict, ExtensionPermissionDriftVerdict::FailClosed);
+        assert_eq!(report.recommended_action, "block_launch_refresh_manifest");
+    }
+
+    #[test]
+    fn permission_drift_flags_provenance_snapshot_mismatch() {
+        let previous_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let current_digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        let previous = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capability_manifest: Some(permission_drift_manifest(&[("read", previous_digest)])),
+            policy_profile: Some(PolicyProfile::Standard),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            provenance_snapshot_checksum: Some("previous-provenance".to_string()),
+            catalog_provenance_checksum: Some("previous-provenance".to_string()),
+            ..Default::default()
+        };
+        let current = ExtensionPermissionSnapshot {
+            extension_id: "ext.secure".to_string(),
+            capability_manifest: Some(permission_drift_manifest(&[("read", current_digest)])),
+            policy_profile: Some(PolicyProfile::Standard),
+            catalog_policy_profile: Some(PolicyProfile::Standard),
+            provenance_snapshot_checksum: Some("current-provenance".to_string()),
+            catalog_provenance_checksum: Some("catalog-provenance".to_string()),
+            ..Default::default()
+        };
+
+        let report = detect_extension_permission_drift(&previous, &current);
+        assert_eq!(
+            report.drift_class,
+            ExtensionPermissionDriftClass::ProvenanceMismatch
+        );
+        assert_eq!(
+            report.provenance_status,
+            ExtensionPermissionProvenanceStatus::Mismatch
+        );
+        assert_eq!(report.verdict, ExtensionPermissionDriftVerdict::FailClosed);
+        assert_eq!(
+            report.recommended_action,
+            "block_launch_reconcile_provenance"
+        );
     }
 
     #[test]
