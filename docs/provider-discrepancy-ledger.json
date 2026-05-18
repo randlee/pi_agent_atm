@@ -3,6 +3,9 @@
   "bead": "bd-3uqg.12.1.1",
   "generated_at": "2026-02-14T00:40:00Z",
   "generated_by": "CopperBrook (Claude Opus 4.6)",
+  "last_reviewed_at": "2026-05-18T08:55:00Z",
+  "reviewed_by": "SilentReef (Codex)",
+  "review_bead": "bd-ryg6j.1",
   "methodology": {
     "description": "Normalized discrepancy ledger synthesized from 4 upstream audit beads. Each finding is classified by root-cause and user-impact severity.",
     "source_beads": [
@@ -53,8 +56,8 @@
       "critical": 0,
       "high": 3,
       "medium": 6,
-      "low": 8,
-      "info": 2
+      "low": 9,
+      "info": 1
     },
     "by_root_cause": {
       "missing_implementation": 5,
@@ -64,8 +67,8 @@
       "logging_schema_drift": 4
     },
     "by_remediation_status": {
-      "fixed": 13,
-      "partially_fixed": 2,
+      "fixed": 14,
+      "partially_fixed": 1,
       "open": 4
     }
   },
@@ -80,7 +83,8 @@
       "user_impact": "Users typing 'fireworks-ai' (upstream convention) resolve correctly via alias. No functional breakage.",
       "evidence": "docs/provider-parity-reconciliation-report.json → naming_discrepancies[0]",
       "remediation_status": "open",
-      "remediation_note": "Consider migrating Pi canonical to 'fireworks-ai' per deprecation policy. Low priority since alias resolution works.",
+      "remediation_note": "Low-priority naming-policy decision remains intentionally deferred because 'fireworks-ai' resolves through the supported alias and canonical configs should keep using 'fireworks' until a direct migration bead proves the change. Owner path: bd-ryg6j roadmap plus bd-ryg6j.7 closeout must either keep this as an explicit permanent-alias decision or split out a migration bead once Beads create-lock health permits it.",
+      "remediation_beads": ["bd-ryg6j", "bd-ryg6j.7"],
       "affected_providers": ["fireworks"]
     },
     {
@@ -92,20 +96,21 @@
       "user_impact": "Users typing 'azure' resolve correctly via alias. No functional breakage.",
       "evidence": "docs/provider-parity-reconciliation-report.json → naming_discrepancies[1]",
       "remediation_status": "open",
-      "remediation_note": "Consider migrating Pi canonical to 'azure' per deprecation policy. Low priority since alias resolution works.",
+      "remediation_note": "Low-priority naming-policy decision remains intentionally deferred because 'azure' resolves through the supported alias and canonical configs should keep using 'azure-openai' until a direct migration bead proves the change. Owner path: bd-ryg6j roadmap plus bd-ryg6j.7 closeout must either keep this as an explicit permanent-alias decision or split out a migration bead once Beads create-lock health permits it.",
+      "remediation_beads": ["bd-ryg6j", "bd-ryg6j.7"],
       "affected_providers": ["azure-openai"]
     },
     {
       "id": "DISC-003",
-      "title": "78 of 88 providers had no aliases for common user names",
+      "title": "Common provider aliases remain partially complete",
       "source_bead": "bd-3uqg.14.3.4",
       "root_cause": "alias_mismatch",
       "severity": "high",
       "user_impact": "Users typing common provider names (together, grok, hf, nim, pplx, etc.) got 'provider not found' errors despite the provider being fully implemented.",
-      "evidence": "bd-3uqg.14.3.4 comments: Gap 1, src/provider_metadata.rs alias fields",
+      "evidence": "bd-3uqg.14.3.4 comments: Gap 1, src/provider_metadata.rs alias fields, docs/provider-auth-troubleshooting.md provider name crosswalk",
       "remediation_status": "partially_fixed",
-      "remediation_note": "14 new aliases added across 10 high-traffic providers in bd-tuh3g (CopperBrook). Additional aliases added by concurrent agent (nanogpt, novita, zhipu, glm). 64+ providers still have no aliases but most have self-explanatory IDs.",
-      "remediation_beads": ["bd-tuh3g"],
+      "remediation_note": "Provider docs now report 88 canonical providers and 41 aliases, and src/provider_metadata.rs covers the high-traffic UX aliases from bd-tuh3g plus later aliases such as nanogpt, novita, zhipu, glm, lm-studio, vercel-ai-gateway, copilot, gitlab-duo, and Azure variants. Remaining work is a targeted review of no-alias/under-aliased longtail providers, tracked by bd-ryg6j.3.",
+      "remediation_beads": ["bd-tuh3g", "bd-ryg6j.3"],
       "affected_providers": ["togetherai", "xai", "huggingface", "nvidia", "lmstudio", "deepseek", "perplexity", "deepinfra", "mistral", "siliconflow"]
     },
     {
@@ -180,7 +185,8 @@
       "user_impact": "No direct user impact. Error handling paths for Bedrock are untested by VCR replay, but are covered by unit-level assertion tests.",
       "evidence": "bd-3uqg.14.3.2 comments: Deviation 1. AWS uses different error signaling format.",
       "remediation_status": "open",
-      "remediation_note": "Record Bedrock error cassettes for auth_failure and rate_limit scenarios. Requires AWS test credentials.",
+      "remediation_note": "Owned by bd-ryg6j.6. Add credential-free deterministic Bedrock auth/rate-limit error coverage where possible; if true VCR cassettes require AWS credentials, keep that blocker explicit and link unit/request-shape proof.",
+      "remediation_beads": ["bd-ryg6j.6"],
       "affected_providers": ["amazon-bedrock"]
     },
     {
@@ -204,7 +210,8 @@
       "user_impact": "No direct user impact. Infrastructure issue in test harness, not a provider behavior gap.",
       "evidence": "bd-3uqg.14.3.2 comments: Deviation 3",
       "remediation_status": "open",
-      "remediation_note": "Create pi_runtime.json VCR cassette or mock the runtime config lookup in factory tests.",
+      "remediation_note": "Owned by bd-ryg6j.5. Reproduce current provider_factory behavior and either add deterministic fixture/config handling or close this as stale with focused command evidence.",
+      "remediation_beads": ["bd-ryg6j.5"],
       "affected_providers": ["multiple (test infra)"]
     },
     {
@@ -274,9 +281,10 @@
       "root_cause": "docs_mismatch",
       "severity": "medium",
       "user_impact": "Users have no reference table showing canonical IDs, aliases, common brand names, and auth env keys in one place.",
-      "evidence": "bd-3uqg.14.3.4 comments: M6 recommendation",
-      "remediation_status": "partially_fixed",
-      "remediation_note": "--list-providers (bd-3gsk0) provides runtime discovery. A static docs/providers.md or README table would complement it for offline reference.",
+      "evidence": "docs/providers.md canonical provider matrix and alias migration table; docs/provider-auth-troubleshooting.md provider name crosswalk with canonical IDs, aliases, auth env vars, and endpoints",
+      "remediation_status": "fixed",
+      "remediation_note": "--list-providers remains the runtime discovery surface, and static docs now provide the requested provider-name crosswalk. docs/providers.md records source-of-truth references and docs/provider-auth-troubleshooting.md reports 88 canonical providers, 41 aliases, and env-key/endpoint mappings.",
+      "remediation_beads": ["bd-3gsk0", "bd-8t27h.7", "bd-ryg6j.1"],
       "affected_providers": ["all"]
     },
     {
@@ -315,22 +323,24 @@
         "DISC-006",
         "DISC-007",
         "DISC-008",
+        "DISC-010",
         "DISC-012",
         "DISC-013",
         "DISC-014",
         "DISC-015",
         "DISC-016",
+        "DISC-017",
         "DISC-018",
         "DISC-019"
       ]
     },
     "p1_high_value": {
       "description": "High user impact, actionable code changes",
-      "items": ["DISC-003", "DISC-013"]
+      "items": ["DISC-003"]
     },
     "p2_medium_value": {
       "description": "Infrastructure/docs improvements",
-      "items": ["DISC-009", "DISC-010", "DISC-011", "DISC-017"]
+      "items": ["DISC-009", "DISC-011"]
     },
     "p3_low_value": {
       "description": "Nice-to-have or informational",
