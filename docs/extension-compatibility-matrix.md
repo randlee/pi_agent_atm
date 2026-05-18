@@ -58,7 +58,7 @@ routes `readFileSync` and `statSync` calls through the hostcall boundary
 | `chmodSync`/`chownSync` | Partial | Path-checking no-ops; missing paths fail with `ENOENT` |
 | `createReadStream` | Real | Returns Readable stream |
 | `createWriteStream` | Real | Returns Writable stream |
-| `watch`/`watchFile` | Stub | No real file watching; returns no-op watcher facade |
+| `watch`/`watchFile` | Stub | No real file watching; existing paths return no-op watcher facades and missing paths fail with `ENOENT` |
 | Callback variants (`readFile`, `writeFile`, etc.) | Real | 9 callback-style functions |
 
 ### `node:crypto` Detail

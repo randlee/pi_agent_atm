@@ -11588,8 +11588,14 @@ function __fakeWatcher() {
   const w = { close() {}, unref() { return w; }, ref() { return w; }, on() { return w; }, once() { return w; }, removeListener() { return w; }, removeAllListeners() { return w; } };
   return w;
 }
-export function watch(_path, _optsOrListener, _listener) { return __fakeWatcher(); }
-export function watchFile(_path, _optsOrListener, _listener) { return __fakeWatcher(); }
+export function watch(path, _optsOrListener, _listener) {
+  accessSync(path);
+  return __fakeWatcher();
+}
+export function watchFile(path, _optsOrListener, _listener) {
+  accessSync(path);
+  return __fakeWatcher();
+}
 export function unwatchFile(_path, _listener) { return; }
 function __queueMicrotaskPolyfill(fn) {
   if (typeof queueMicrotask === "function") {

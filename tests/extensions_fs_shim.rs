@@ -1096,12 +1096,27 @@ fn fs_watch_stubs() {
             .eval(
                 r#"
                 import('node:fs').then((fs) => {
+                    fs.writeFileSync('/test', 'data');
                     const w = fs.watch('/test');
                     globalThis.hasClose = typeof w.close === 'function';
                     globalThis.hasUnref = typeof w.unref === 'function';
 
                     const wf = fs.watchFile('/test', () => {});
                     globalThis.wfHasClose = typeof wf.close === 'function';
+
+                    try {
+                        fs.watch('/missing');
+                        globalThis.watchMissing = 'no_error';
+                    } catch (e) {
+                        globalThis.watchMissing = String(e.message).includes('ENOENT');
+                    }
+
+                    try {
+                        fs.watchFile('/missing', () => {});
+                        globalThis.watchFileMissing = 'no_error';
+                    } catch (e) {
+                        globalThis.watchFileMissing = String(e.message).includes('ENOENT');
+                    }
 
                     // unwatchFile should not throw
                     fs.unwatchFile('/test');
@@ -1118,6 +1133,14 @@ fn fs_watch_stubs() {
         assert_eq!(close, true);
         let unref: serde_json::Value = runtime.read_global_json("hasUnref").await.unwrap();
         assert_eq!(unref, true);
+        let wf_close: serde_json::Value = runtime.read_global_json("wfHasClose").await.unwrap();
+        assert_eq!(wf_close, true);
+        let watch_missing: serde_json::Value =
+            runtime.read_global_json("watchMissing").await.unwrap();
+        assert_eq!(watch_missing, true);
+        let watch_file_missing: serde_json::Value =
+            runtime.read_global_json("watchFileMissing").await.unwrap();
+        assert_eq!(watch_file_missing, true);
         let unwatch: serde_json::Value = runtime.read_global_json("unwatchOk").await.unwrap();
         assert_eq!(unwatch, true);
     });
