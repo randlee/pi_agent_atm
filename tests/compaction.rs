@@ -4,7 +4,14 @@
 mod common;
 
 use common::{TestHarness, run_async};
-use pi::compaction::{CompactionPreparation, CompactionResult, compact, prepare_compaction};
+use pi::compaction::{
+    CompactionPreparation, CompactionResult, SEMANTIC_COMPACTION_QUALITY_SCHEMA,
+    SemanticCompactionLossClass, SemanticCompactionMarker, SemanticCompactionMarkerKind,
+    SemanticCompactionMarkerObservation, SemanticCompactionMarkerSeverity,
+    SemanticCompactionQualityVerdict, SemanticCompactionQualityView, compact,
+    evaluate_semantic_compaction_quality, prepare_compaction,
+    semantic_compaction_quality_report_to_jsonl, semantic_compaction_quality_report_to_value,
+};
 use pi::model::{
     AssistantMessage, ContentBlock, ImageContent, Message, StopReason, TextContent,
     ThinkingContent, ToolCall, Usage, UserContent, UserMessage,
@@ -449,6 +456,371 @@ fn log_result(harness: &TestHarness, result: &CompactionResult) {
             result.details.modified_files.join(","),
         ));
     });
+}
+
+fn semantic_marker(
+    id: &str,
+    kind: SemanticCompactionMarkerKind,
+    severity: SemanticCompactionMarkerSeverity,
+    source_entry_id: &str,
+    marker: &str,
+    requires_truncation_receipt: bool,
+) -> SemanticCompactionMarker {
+    SemanticCompactionMarker {
+        id: id.to_string(),
+        kind,
+        severity,
+        source_entry_id: source_entry_id.to_string(),
+        expected_branch_leaf_id: "leaf-main".to_string(),
+        expected_turn_id: "turn-main".to_string(),
+        marker: marker.to_string(),
+        requires_truncation_receipt,
+    }
+}
+
+fn semantic_observation(
+    marker_id: &str,
+    branch_leaf_id: &str,
+    turn_id: &str,
+    has_truncation_receipt: bool,
+) -> SemanticCompactionMarkerObservation {
+    SemanticCompactionMarkerObservation {
+        marker_id: marker_id.to_string(),
+        branch_leaf_id: branch_leaf_id.to_string(),
+        turn_id: turn_id.to_string(),
+        has_truncation_receipt,
+    }
+}
+
+fn semantic_view(
+    name: &str,
+    branch_leaf_id: &str,
+    observations: Vec<SemanticCompactionMarkerObservation>,
+) -> SemanticCompactionQualityView {
+    SemanticCompactionQualityView {
+        name: name.to_string(),
+        branch_leaf_id: branch_leaf_id.to_string(),
+        observations,
+    }
+}
+
+fn semantic_quality_markers() -> Vec<SemanticCompactionMarker> {
+    vec![
+        semantic_marker(
+            "task:claimed-bead",
+            SemanticCompactionMarkerKind::Task,
+            SemanticCompactionMarkerSeverity::Critical,
+            "user-claim",
+            "bd-63x3v.11.3 semantic compaction quality harness",
+            false,
+        ),
+        semantic_marker(
+            "file:session-rs",
+            SemanticCompactionMarkerKind::FileReference,
+            SemanticCompactionMarkerSeverity::Critical,
+            "tool-read-session",
+            "src/session.rs",
+            false,
+        ),
+        semantic_marker(
+            "decision:beads-soft-lock",
+            SemanticCompactionMarkerKind::Decision,
+            SemanticCompactionMarkerSeverity::Critical,
+            "assistant-decision",
+            "Agent Mail is corrupt, use Beads status/comment as soft lock",
+            false,
+        ),
+        semantic_marker(
+            "tool-output:large-truncated",
+            SemanticCompactionMarkerKind::ToolOutput,
+            SemanticCompactionMarkerSeverity::Critical,
+            "tool-large-output",
+            "large tool output preserved by truncation receipt",
+            true,
+        ),
+        semantic_marker(
+            "constraint:no-morph-file-edit",
+            SemanticCompactionMarkerKind::Constraint,
+            SemanticCompactionMarkerSeverity::Critical,
+            "user-constraint",
+            "do not enable morph file_edit",
+            false,
+        ),
+        semantic_marker(
+            "handoff:stale-bead",
+            SemanticCompactionMarkerKind::HandoffFact,
+            SemanticCompactionMarkerSeverity::Critical,
+            "assistant-handoff",
+            "bd-63x3v.11.3 claimed by Codex while Agent Mail is degraded",
+            false,
+        ),
+        semantic_marker(
+            "agent-mail:degraded",
+            SemanticCompactionMarkerKind::AgentMailDegraded,
+            SemanticCompactionMarkerSeverity::Critical,
+            "agent-mail-health",
+            "Agent Mail health is red/corrupt, so reservations are unavailable",
+            false,
+        ),
+        semantic_marker(
+            "beads:claim",
+            SemanticCompactionMarkerKind::BeadsClaim,
+            SemanticCompactionMarkerSeverity::Critical,
+            "br-show",
+            "bd-63x3v.11.3 is in_progress and assigned to Codex",
+            false,
+        ),
+        semantic_marker(
+            "interruption:resume",
+            SemanticCompactionMarkerKind::Interruption,
+            SemanticCompactionMarkerSeverity::Important,
+            "turn-resume",
+            "resume after context compaction and honor the newest proceed request",
+            false,
+        ),
+        semantic_marker(
+            "truncation:tool-output-receipt",
+            SemanticCompactionMarkerKind::TruncationNotice,
+            SemanticCompactionMarkerSeverity::Critical,
+            "tool-large-output",
+            "large focused-test output was truncated but covered by a receipt",
+            true,
+        ),
+    ]
+}
+
+fn semantic_observations_for(
+    markers: &[SemanticCompactionMarker],
+) -> Vec<SemanticCompactionMarkerObservation> {
+    markers
+        .iter()
+        .map(|marker| {
+            semantic_observation(
+                &marker.id,
+                &marker.expected_branch_leaf_id,
+                &marker.expected_turn_id,
+                marker.requires_truncation_receipt,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn semantic_compaction_quality_happy_path_preserves_markers()
+-> Result<(), Box<dyn std::error::Error>> {
+    let markers = semantic_quality_markers();
+    let before = semantic_view(
+        "pre-compaction",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+    let after = semantic_view(
+        "post-replay",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+
+    let report = evaluate_semantic_compaction_quality(&markers, &before, &after);
+
+    assert_eq!(report.schema, SEMANTIC_COMPACTION_QUALITY_SCHEMA);
+    assert_eq!(report.verdict, SemanticCompactionQualityVerdict::Pass);
+    assert_eq!(report.coverage.expected, 10);
+    assert_eq!(report.coverage.preserved, 10);
+    assert_eq!(report.coverage.coverage_bps, 10_000);
+    assert!(report.losses.is_empty());
+    assert!(report.false_positive_controls.is_empty());
+    assert_eq!(
+        report
+            .coverage_by_kind
+            .get("tool_output")
+            .expect("tool output coverage")
+            .preserved,
+        1
+    );
+    for kind in [
+        "agent_mail_degraded",
+        "beads_claim",
+        "interruption",
+        "truncation_notice",
+    ] {
+        assert_eq!(
+            report
+                .coverage_by_kind
+                .get(kind)
+                .unwrap_or_else(|| panic!("{kind} coverage"))
+                .preserved,
+            1
+        );
+    }
+
+    let value = semantic_compaction_quality_report_to_value(&report)?;
+    assert_eq!(
+        value.get("schema").and_then(Value::as_str),
+        Some(SEMANTIC_COMPACTION_QUALITY_SCHEMA)
+    );
+
+    let jsonl = semantic_compaction_quality_report_to_jsonl(&report)?;
+    assert!(jsonl.ends_with('\n'));
+    let parsed: Value = serde_json::from_str(jsonl.trim_end())?;
+    assert_eq!(parsed.get("verdict").and_then(Value::as_str), Some("pass"));
+    assert!(!jsonl.contains("do not enable morph file_edit"));
+    assert!(!jsonl.contains("Agent Mail is corrupt"));
+    Ok(())
+}
+
+#[test]
+fn semantic_compaction_quality_missing_file_reference_fails_closed() {
+    let markers = semantic_quality_markers();
+    let before = semantic_view(
+        "pre-compaction",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+    let after_observations = semantic_observations_for(&markers)
+        .into_iter()
+        .filter(|observation| observation.marker_id != "file:session-rs")
+        .collect::<Vec<_>>();
+    let after = semantic_view("post-replay", "leaf-main", after_observations);
+
+    let report = evaluate_semantic_compaction_quality(&markers, &before, &after);
+
+    assert_eq!(report.verdict, SemanticCompactionQualityVerdict::Fail);
+    assert_eq!(report.coverage.missing, 1);
+    assert!(report.losses.iter().any(|loss| {
+        loss.marker_id == "file:session-rs"
+            && loss.class == SemanticCompactionLossClass::MissingMarker
+    }));
+}
+
+#[test]
+fn semantic_compaction_quality_wrong_branch_marker_fails_closed() {
+    let markers = semantic_quality_markers();
+    let before = semantic_view(
+        "pre-compaction",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+    let mut after_observations = semantic_observations_for(&markers);
+    let decision = after_observations
+        .iter_mut()
+        .find(|observation| observation.marker_id == "decision:beads-soft-lock")
+        .expect("decision observation");
+    decision.branch_leaf_id = "leaf-side".to_string();
+    let after = semantic_view("post-replay", "leaf-side", after_observations);
+
+    let report = evaluate_semantic_compaction_quality(&markers, &before, &after);
+
+    assert_eq!(report.verdict, SemanticCompactionQualityVerdict::Fail);
+    assert!(report.losses.iter().any(|loss| {
+        loss.marker_id == "decision:beads-soft-lock"
+            && loss.class == SemanticCompactionLossClass::WrongBranch
+            && loss.actual_branch_leaf_id.as_deref() == Some("leaf-side")
+    }));
+}
+
+#[test]
+fn semantic_compaction_quality_stale_beads_handoff_marker_fails_closed() {
+    let markers = semantic_quality_markers();
+    let before = semantic_view(
+        "pre-compaction",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+    let mut after_observations = semantic_observations_for(&markers)
+        .into_iter()
+        .filter(|observation| observation.marker_id != "handoff:stale-bead")
+        .collect::<Vec<_>>();
+    after_observations.push(semantic_observation(
+        "handoff:unrelated",
+        "leaf-main",
+        "turn-main",
+        false,
+    ));
+    let after = semantic_view("post-replay", "leaf-main", after_observations);
+
+    let report = evaluate_semantic_compaction_quality(&markers, &before, &after);
+
+    assert_eq!(report.verdict, SemanticCompactionQualityVerdict::Fail);
+    assert_eq!(
+        report.unexpected_marker_ids,
+        vec!["handoff:unrelated".to_string()]
+    );
+    assert_eq!(report.false_positive_controls.len(), 1);
+    assert!(report.losses.iter().any(|loss| {
+        loss.marker_id == "handoff:stale-bead"
+            && loss.class == SemanticCompactionLossClass::MissingMarker
+    }));
+}
+
+#[test]
+fn semantic_compaction_quality_large_tool_output_requires_truncation_receipt() {
+    let markers = semantic_quality_markers();
+    let before = semantic_view(
+        "pre-compaction",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+    let mut after_observations = semantic_observations_for(&markers);
+    let large_output = after_observations
+        .iter_mut()
+        .find(|observation| observation.marker_id == "tool-output:large-truncated")
+        .expect("large output observation");
+    large_output.has_truncation_receipt = false;
+    let after = semantic_view("post-replay", "leaf-main", after_observations);
+
+    let report = evaluate_semantic_compaction_quality(&markers, &before, &after);
+
+    assert_eq!(report.verdict, SemanticCompactionQualityVerdict::Fail);
+    assert_eq!(report.coverage.truncation_receipt_missing, 1);
+    assert!(report.losses.iter().any(|loss| {
+        loss.marker_id == "tool-output:large-truncated"
+            && loss.class == SemanticCompactionLossClass::TruncationReceiptMissing
+    }));
+}
+
+#[test]
+fn semantic_compaction_quality_false_positive_controls_do_not_satisfy_missing_marker() {
+    let markers = vec![semantic_marker(
+        "file:required",
+        SemanticCompactionMarkerKind::FileReference,
+        SemanticCompactionMarkerSeverity::Critical,
+        "tool-read-required",
+        "src/session.rs",
+        false,
+    )];
+    let before = semantic_view(
+        "pre-compaction",
+        "leaf-main",
+        semantic_observations_for(&markers),
+    );
+    let after = semantic_view(
+        "post-replay",
+        "leaf-main",
+        vec![semantic_observation(
+            "file:similar-but-wrong",
+            "leaf-main",
+            "turn-main",
+            false,
+        )],
+    );
+
+    let report = evaluate_semantic_compaction_quality(&markers, &before, &after);
+
+    assert_eq!(report.verdict, SemanticCompactionQualityVerdict::Fail);
+    assert_eq!(report.coverage.expected, 1);
+    assert_eq!(report.coverage.preserved, 0);
+    assert_eq!(
+        report.unexpected_marker_ids,
+        vec!["file:similar-but-wrong".to_string()]
+    );
+    assert_eq!(
+        report.false_positive_controls[0].disposition,
+        "ignored_unexpected_marker"
+    );
+    assert!(report.losses.iter().any(|loss| {
+        loss.marker_id == "file:required"
+            && loss.class == SemanticCompactionLossClass::MissingMarker
+    }));
 }
 
 const fn make_settings(keep_recent_tokens: u32) -> pi::compaction::ResolvedCompactionSettings {

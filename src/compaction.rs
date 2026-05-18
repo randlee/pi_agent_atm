@@ -15,9 +15,10 @@ use crate::model::{
 use crate::provider::{Context, Provider, StreamOptions};
 use crate::session::{SessionEntry, SessionMessage, session_message_to_model};
 use futures::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::{HashMap, HashSet};
+use sha2::{Digest as _, Sha256};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::sync::Arc;
 
@@ -117,6 +118,427 @@ pub struct CompactionPreparation {
     pub settings: ResolvedCompactionSettings,
 }
 
+pub const SEMANTIC_COMPACTION_QUALITY_SCHEMA: &str = "pi.session.semantic_compaction_quality.v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticCompactionMarkerKind {
+    Task,
+    FileReference,
+    Decision,
+    ToolOutput,
+    Constraint,
+    HandoffFact,
+    AgentMailDegraded,
+    BeadsClaim,
+    Interruption,
+    TruncationNotice,
+}
+
+impl SemanticCompactionMarkerKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::FileReference => "file_reference",
+            Self::Decision => "decision",
+            Self::ToolOutput => "tool_output",
+            Self::Constraint => "constraint",
+            Self::HandoffFact => "handoff_fact",
+            Self::AgentMailDegraded => "agent_mail_degraded",
+            Self::BeadsClaim => "beads_claim",
+            Self::Interruption => "interruption",
+            Self::TruncationNotice => "truncation_notice",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticCompactionMarkerSeverity {
+    Critical,
+    Important,
+    Informational,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticCompactionQualityVerdict {
+    Pass,
+    Degraded,
+    Fail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticCompactionLossClass {
+    PreCompactionMarkerAbsent,
+    MissingMarker,
+    WrongBranch,
+    WrongTurn,
+    TruncationReceiptMissing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticCompactionMarker {
+    pub id: String,
+    pub kind: SemanticCompactionMarkerKind,
+    pub severity: SemanticCompactionMarkerSeverity,
+    pub source_entry_id: String,
+    pub expected_branch_leaf_id: String,
+    pub expected_turn_id: String,
+    pub marker: String,
+    pub requires_truncation_receipt: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionMarkerObservation {
+    pub marker_id: String,
+    pub branch_leaf_id: String,
+    pub turn_id: String,
+    #[serde(default)]
+    pub has_truncation_receipt: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionQualityView {
+    pub name: String,
+    pub branch_leaf_id: String,
+    pub observations: Vec<SemanticCompactionMarkerObservation>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionCoverage {
+    pub expected: u32,
+    pub preserved: u32,
+    pub missing: u32,
+    pub wrong_branch: u32,
+    pub wrong_turn: u32,
+    pub truncation_receipt_missing: u32,
+    pub pre_compaction_absent: u32,
+    pub coverage_bps: u16,
+}
+
+impl SemanticCompactionCoverage {
+    const fn note_expected(&mut self) {
+        self.expected = self.expected.saturating_add(1);
+    }
+
+    const fn note_preserved(&mut self) {
+        self.preserved = self.preserved.saturating_add(1);
+    }
+
+    const fn note_loss(&mut self, class: SemanticCompactionLossClass) {
+        match class {
+            SemanticCompactionLossClass::PreCompactionMarkerAbsent => {
+                self.pre_compaction_absent = self.pre_compaction_absent.saturating_add(1);
+            }
+            SemanticCompactionLossClass::MissingMarker => {
+                self.missing = self.missing.saturating_add(1);
+            }
+            SemanticCompactionLossClass::WrongBranch => {
+                self.wrong_branch = self.wrong_branch.saturating_add(1);
+            }
+            SemanticCompactionLossClass::WrongTurn => {
+                self.wrong_turn = self.wrong_turn.saturating_add(1);
+            }
+            SemanticCompactionLossClass::TruncationReceiptMissing => {
+                self.truncation_receipt_missing = self.truncation_receipt_missing.saturating_add(1);
+            }
+        }
+    }
+
+    fn finalize(&mut self) {
+        if self.expected == 0 {
+            self.coverage_bps = 10_000;
+            return;
+        }
+        let bps = self.preserved.saturating_mul(10_000) / self.expected;
+        self.coverage_bps = u16::try_from(bps).unwrap_or(u16::MAX);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionMarkerSummary {
+    pub id: String,
+    pub kind: SemanticCompactionMarkerKind,
+    pub severity: SemanticCompactionMarkerSeverity,
+    pub source_entry_id: String,
+    pub expected_branch_leaf_id: String,
+    pub expected_turn_id: String,
+    pub marker_digest: String,
+    pub preserved: bool,
+    pub loss_classes: Vec<SemanticCompactionLossClass>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionMarkerLoss {
+    pub marker_id: String,
+    pub kind: SemanticCompactionMarkerKind,
+    pub severity: SemanticCompactionMarkerSeverity,
+    pub class: SemanticCompactionLossClass,
+    pub expected_branch_leaf_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_branch_leaf_id: Option<String>,
+    pub expected_turn_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_turn_id: Option<String>,
+}
+
+impl SemanticCompactionMarkerLoss {
+    fn for_marker(
+        marker: &SemanticCompactionMarker,
+        class: SemanticCompactionLossClass,
+        observation: Option<&SemanticCompactionMarkerObservation>,
+    ) -> Self {
+        Self {
+            marker_id: marker.id.clone(),
+            kind: marker.kind,
+            severity: marker.severity,
+            class,
+            expected_branch_leaf_id: marker.expected_branch_leaf_id.clone(),
+            actual_branch_leaf_id: observation.map(|obs| obs.branch_leaf_id.clone()),
+            expected_turn_id: marker.expected_turn_id.clone(),
+            actual_turn_id: observation.map(|obs| obs.turn_id.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionFalsePositiveControl {
+    pub marker_id: String,
+    pub observed_branch_leaf_id: String,
+    pub observed_turn_id: String,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticCompactionQualityReport {
+    pub schema: String,
+    pub before_view: String,
+    pub after_view: String,
+    pub before_branch_leaf_id: String,
+    pub after_branch_leaf_id: String,
+    pub marker_count: usize,
+    pub coverage: SemanticCompactionCoverage,
+    pub coverage_by_kind: BTreeMap<String, SemanticCompactionCoverage>,
+    pub verdict: SemanticCompactionQualityVerdict,
+    pub marker_summaries: Vec<SemanticCompactionMarkerSummary>,
+    pub losses: Vec<SemanticCompactionMarkerLoss>,
+    pub false_positive_controls: Vec<SemanticCompactionFalsePositiveControl>,
+    pub unexpected_marker_ids: Vec<String>,
+}
+
+fn observation_map(
+    view: &SemanticCompactionQualityView,
+) -> BTreeMap<String, SemanticCompactionMarkerObservation> {
+    let mut observations = BTreeMap::new();
+    for observation in &view.observations {
+        observations
+            .entry(String::from(observation.marker_id.as_str()))
+            .or_insert_with(|| SemanticCompactionMarkerObservation {
+                marker_id: String::from(observation.marker_id.as_str()),
+                branch_leaf_id: String::from(observation.branch_leaf_id.as_str()),
+                turn_id: String::from(observation.turn_id.as_str()),
+                has_truncation_receipt: observation.has_truncation_receipt,
+            });
+    }
+    observations
+}
+
+fn marker_digest(marker: &SemanticCompactionMarker) -> String {
+    let mut digest = Sha256::new();
+    digest.update(marker.id.as_bytes());
+    digest.update([0]);
+    digest.update(marker.marker.as_bytes());
+    format!("{:x}", digest.finalize())
+}
+
+fn record_loss(
+    coverage: &mut SemanticCompactionCoverage,
+    coverage_by_kind: &mut BTreeMap<String, SemanticCompactionCoverage>,
+    marker: &SemanticCompactionMarker,
+    class: SemanticCompactionLossClass,
+) {
+    coverage.note_loss(class);
+    coverage_by_kind
+        .entry(marker.kind.as_str().to_string())
+        .or_default()
+        .note_loss(class);
+}
+
+fn record_preserved(
+    coverage: &mut SemanticCompactionCoverage,
+    coverage_by_kind: &mut BTreeMap<String, SemanticCompactionCoverage>,
+    marker: &SemanticCompactionMarker,
+) {
+    coverage.note_preserved();
+    coverage_by_kind
+        .entry(marker.kind.as_str().to_string())
+        .or_default()
+        .note_preserved();
+}
+
+fn marker_summary_for(
+    marker: &SemanticCompactionMarker,
+    marker_loss_classes: Vec<SemanticCompactionLossClass>,
+) -> SemanticCompactionMarkerSummary {
+    SemanticCompactionMarkerSummary {
+        id: String::from(marker.id.as_str()),
+        kind: marker.kind,
+        severity: marker.severity,
+        source_entry_id: String::from(marker.source_entry_id.as_str()),
+        expected_branch_leaf_id: String::from(marker.expected_branch_leaf_id.as_str()),
+        expected_turn_id: String::from(marker.expected_turn_id.as_str()),
+        marker_digest: marker_digest(marker),
+        preserved: marker_loss_classes.is_empty(),
+        loss_classes: marker_loss_classes,
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+pub fn evaluate_semantic_compaction_quality(
+    markers: &[SemanticCompactionMarker],
+    before: &SemanticCompactionQualityView,
+    after: &SemanticCompactionQualityView,
+) -> SemanticCompactionQualityReport {
+    let before_observations = observation_map(before);
+    let after_observations = observation_map(after);
+
+    let mut sorted_markers = markers.iter().collect::<Vec<_>>();
+    sorted_markers.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let expected_marker_ids = sorted_markers
+        .iter()
+        .map(|marker| marker.id.clone())
+        .collect::<BTreeSet<_>>();
+
+    let unexpected_marker_ids = after_observations
+        .keys()
+        .filter(|id| !expected_marker_ids.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let false_positive_controls = unexpected_marker_ids
+        .iter()
+        .filter_map(|id| after_observations.get(id))
+        .map(|observation| SemanticCompactionFalsePositiveControl {
+            marker_id: observation.marker_id.clone(),
+            observed_branch_leaf_id: observation.branch_leaf_id.clone(),
+            observed_turn_id: observation.turn_id.clone(),
+            disposition: "ignored_unexpected_marker".to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    let mut coverage = SemanticCompactionCoverage::default();
+    let mut coverage_by_kind = BTreeMap::<String, SemanticCompactionCoverage>::new();
+    let mut marker_summaries = Vec::with_capacity(sorted_markers.len());
+    let mut losses = Vec::new();
+
+    for marker in sorted_markers {
+        coverage.note_expected();
+        coverage_by_kind
+            .entry(marker.kind.as_str().to_string())
+            .or_default()
+            .note_expected();
+
+        let before_observation = before_observations.get(&marker.id);
+        let after_observation = after_observations.get(&marker.id);
+        let mut marker_loss_classes = Vec::new();
+
+        if before_observation.is_none() {
+            marker_loss_classes.push(SemanticCompactionLossClass::PreCompactionMarkerAbsent);
+        }
+
+        if let Some(observation) = after_observation {
+            if observation.branch_leaf_id != marker.expected_branch_leaf_id
+                || after.branch_leaf_id != marker.expected_branch_leaf_id
+            {
+                marker_loss_classes.push(SemanticCompactionLossClass::WrongBranch);
+            }
+            if observation.turn_id != marker.expected_turn_id {
+                marker_loss_classes.push(SemanticCompactionLossClass::WrongTurn);
+            }
+            if marker.requires_truncation_receipt && !observation.has_truncation_receipt {
+                marker_loss_classes.push(SemanticCompactionLossClass::TruncationReceiptMissing);
+            }
+        } else {
+            marker_loss_classes.push(SemanticCompactionLossClass::MissingMarker);
+        }
+
+        if marker_loss_classes.is_empty() {
+            record_preserved(&mut coverage, &mut coverage_by_kind, marker);
+        } else {
+            for class in marker_loss_classes.iter().copied() {
+                record_loss(&mut coverage, &mut coverage_by_kind, marker, class);
+                losses.push(SemanticCompactionMarkerLoss::for_marker(
+                    marker,
+                    class,
+                    after_observation,
+                ));
+            }
+        }
+
+        marker_summaries.push(marker_summary_for(marker, marker_loss_classes));
+    }
+
+    coverage.finalize();
+    for value in coverage_by_kind.values_mut() {
+        value.finalize();
+    }
+
+    let has_unexpected_markers = !unexpected_marker_ids.is_empty();
+    let verdict = if has_unexpected_markers
+        || losses
+            .iter()
+            .any(|loss| loss.severity == SemanticCompactionMarkerSeverity::Critical)
+    {
+        SemanticCompactionQualityVerdict::Fail
+    } else if losses.is_empty() {
+        SemanticCompactionQualityVerdict::Pass
+    } else {
+        SemanticCompactionQualityVerdict::Degraded
+    };
+
+    SemanticCompactionQualityReport {
+        schema: SEMANTIC_COMPACTION_QUALITY_SCHEMA.to_string(),
+        before_view: before.name.clone(),
+        after_view: after.name.clone(),
+        before_branch_leaf_id: before.branch_leaf_id.clone(),
+        after_branch_leaf_id: after.branch_leaf_id.clone(),
+        marker_count: markers.len(),
+        coverage,
+        coverage_by_kind,
+        verdict,
+        marker_summaries,
+        losses,
+        false_positive_controls,
+        unexpected_marker_ids,
+    }
+}
+
+pub fn semantic_compaction_quality_report_to_value(
+    report: &SemanticCompactionQualityReport,
+) -> Result<Value> {
+    serde_json::to_value(report)
+        .map_err(|e| Error::session(format!("Semantic compaction quality report: {e}")))
+}
+
+pub fn semantic_compaction_quality_report_to_jsonl(
+    report: &SemanticCompactionQualityReport,
+) -> Result<String> {
+    let mut line = serde_json::to_string(report)
+        .map_err(|e| Error::session(format!("Semantic compaction quality report JSONL: {e}")))?;
+    line.push('\n');
+    Ok(line)
+}
+
 pub fn compaction_preparation_to_value(prep: &CompactionPreparation) -> Value {
     let messages_to_summarize =
         serde_json::to_value(&prep.messages_to_summarize).unwrap_or(Value::Array(Vec::new()));
@@ -198,7 +620,7 @@ impl FileOperations {
     }
 }
 
-fn build_tool_status_map(messages: &[SessionMessage]) -> HashMap<String, bool> {
+fn build_tool_status_map(messages: &[SessionMessage]) -> HashMap<&str, bool> {
     let mut status = HashMap::new();
     for msg in messages {
         if let SessionMessage::ToolResult {
@@ -207,7 +629,7 @@ fn build_tool_status_map(messages: &[SessionMessage]) -> HashMap<String, bool> {
             ..
         } = msg
         {
-            status.insert(tool_call_id.clone(), !*is_error);
+            status.insert(tool_call_id.as_str(), !*is_error);
         }
     }
     status
@@ -216,7 +638,7 @@ fn build_tool_status_map(messages: &[SessionMessage]) -> HashMap<String, bool> {
 fn extract_file_ops_from_message(
     message: &SessionMessage,
     file_ops: &mut FileOperations,
-    tool_status: &HashMap<String, bool>,
+    tool_status: &HashMap<&str, bool>,
 ) {
     let SessionMessage::Assistant { message } = message else {
         return;
@@ -234,7 +656,7 @@ fn extract_file_ops_from_message(
         };
 
         // Only track successful tool calls.
-        if !tool_status.get(id).copied().unwrap_or(false) {
+        if !tool_status.get(id.as_str()).copied().unwrap_or(false) {
             continue;
         }
 
@@ -1247,8 +1669,700 @@ pub fn compaction_details_to_value(details: &CompactionDetails) -> Result<Value>
     serde_json::to_value(details).map_err(|e| Error::session(format!("Compaction details: {e}")))
 }
 
+pub mod semantic_marker_scan_quality {
+    use super::*;
+    use serde_json::json;
+
+    // =============================================================================
+    // Semantic compaction quality differential harness
+    // =============================================================================
+
+    /// Schema emitted by the deterministic semantic compaction quality harness.
+    pub const SEMANTIC_COMPACTION_QUALITY_SCHEMA_V1: &str =
+        "pi.session.semantic_compaction_quality.v1";
+
+    const SEMANTIC_QUALITY_MARKER_PREFIX: &str = "[[SCQ:";
+    const SEMANTIC_QUALITY_MARKER_SUFFIX: &str = "]]";
+
+    /// One redacted turn or summary chunk to scan for structured semantic markers.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct SemanticCompactionQualityTurn {
+        pub branch_id: String,
+        pub turn_id: String,
+        pub role: String,
+        pub content: String,
+    }
+
+    impl SemanticCompactionQualityTurn {
+        #[must_use]
+        pub fn new(
+            branch_id: impl Into<String>,
+            turn_id: impl Into<String>,
+            role: impl Into<String>,
+            content: impl Into<String>,
+        ) -> Self {
+            Self {
+                branch_id: branch_id.into(),
+                turn_id: turn_id.into(),
+                role: role.into(),
+                content: content.into(),
+            }
+        }
+    }
+
+    /// Named baseline or candidate view used by the quality evaluator.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct SemanticCompactionQualityView {
+        pub name: String,
+        pub turns: Vec<SemanticCompactionQualityTurn>,
+    }
+
+    impl SemanticCompactionQualityView {
+        #[must_use]
+        pub fn new(name: impl Into<String>, turns: Vec<SemanticCompactionQualityTurn>) -> Self {
+            Self {
+                name: name.into(),
+                turns,
+            }
+        }
+    }
+
+    /// Redacted summary of an evaluated view.
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SemanticCompactionQualityViewSummary {
+        pub name: String,
+        pub turn_count: usize,
+        pub marker_count: usize,
+        pub content_fingerprint: String,
+    }
+
+    /// One structured marker occurrence found in a turn.
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SemanticMarkerOccurrence {
+        pub id: String,
+        pub kind: String,
+        pub critical: bool,
+        pub declared_branch_id: String,
+        pub declared_turn_id: String,
+        pub source_view: String,
+        pub location_branch_id: String,
+        pub location_turn_id: String,
+        pub location_role: String,
+        pub marker_index: usize,
+        pub content_fingerprint: String,
+    }
+
+    /// Per-marker differential outcome.
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SemanticCompactionQualityOutcome {
+        pub marker_id: String,
+        pub status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub loss_class: Option<String>,
+        pub critical: bool,
+        pub kind: String,
+        pub expected_branch_id: String,
+        pub expected_turn_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub observed_branch_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub observed_turn_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub baseline_location: Option<SemanticMarkerOccurrence>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub candidate_location: Option<SemanticMarkerOccurrence>,
+    }
+
+    /// False-positive control result for marker IDs that must not be invented.
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SemanticFalsePositiveControlResult {
+        pub marker_id: String,
+        pub tripped: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub candidate_location: Option<SemanticMarkerOccurrence>,
+    }
+
+    /// Aggregate quality counts.
+    #[derive(Debug, Clone, Serialize, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SemanticCompactionQualitySummary {
+        pub total_expected_markers: usize,
+        pub critical_expected_markers: usize,
+        pub preserved_markers: usize,
+        pub missing_markers: usize,
+        pub wrong_branch_markers: usize,
+        pub wrong_turn_markers: usize,
+        pub metadata_mismatch_markers: usize,
+        pub duplicate_markers: usize,
+        pub unexpected_markers: usize,
+        pub false_positive_controls_tripped: usize,
+        pub marker_coverage: f64,
+        pub critical_marker_coverage: f64,
+    }
+
+    /// Complete deterministic semantic quality report.
+    #[derive(Debug, Clone, Serialize, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SemanticCompactionQualityReport {
+        pub schema: &'static str,
+        pub baseline_view: SemanticCompactionQualityViewSummary,
+        pub candidate_view: SemanticCompactionQualityViewSummary,
+        pub verdict: String,
+        pub summary: SemanticCompactionQualitySummary,
+        pub outcomes: Vec<SemanticCompactionQualityOutcome>,
+        pub false_positive_controls: Vec<SemanticFalsePositiveControlResult>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct SemanticMarkerDescriptor {
+        id: String,
+        kind: String,
+        branch_id: String,
+        turn_id: String,
+        critical: bool,
+    }
+
+    /// Build a marker string accepted by the semantic compaction quality harness.
+    #[must_use]
+    pub fn semantic_compaction_quality_marker(
+        id: &str,
+        kind: &str,
+        branch_id: &str,
+        turn_id: &str,
+        critical: bool,
+    ) -> String {
+        format!(
+            "{SEMANTIC_QUALITY_MARKER_PREFIX}id={id};kind={kind};branch={branch_id};turn={turn_id};critical={critical}{SEMANTIC_QUALITY_MARKER_SUFFIX}"
+        )
+    }
+
+    fn normalize_marker_field(value: &str) -> String {
+        value.trim().to_ascii_lowercase().replace('-', "_")
+    }
+
+    fn parse_semantic_quality_marker(payload: &str) -> Option<SemanticMarkerDescriptor> {
+        let mut fields = HashMap::new();
+        for raw_part in payload.split(';') {
+            let (raw_key, raw_value) = raw_part.split_once('=')?;
+            let key = normalize_marker_field(raw_key);
+            let value = raw_value.trim();
+            if key.is_empty() || value.is_empty() {
+                return None;
+            }
+            fields.insert(key, value.to_string());
+        }
+
+        let id = fields.remove("id")?;
+        let kind = fields.remove("kind")?;
+        let branch_id = fields.remove("branch")?;
+        let turn_id = fields.remove("turn")?;
+        let critical = fields
+            .remove("critical")
+            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "critical"));
+
+        Some(SemanticMarkerDescriptor {
+            id,
+            kind,
+            branch_id,
+            turn_id,
+            critical,
+        })
+    }
+
+    fn short_content_fingerprint(content: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        let digest = format!("{:x}", hasher.finalize());
+        digest.chars().take(16).collect()
+    }
+
+    fn view_content_fingerprint(turns: &[SemanticCompactionQualityTurn]) -> String {
+        let mut hasher = Sha256::new();
+        for turn in turns {
+            hasher.update(turn.branch_id.as_bytes());
+            hasher.update(b"\0");
+            hasher.update(turn.turn_id.as_bytes());
+            hasher.update(b"\0");
+            hasher.update(turn.role.as_bytes());
+            hasher.update(b"\0");
+            hasher.update(short_content_fingerprint(&turn.content).as_bytes());
+            hasher.update(b"\0");
+        }
+        let digest = format!("{:x}", hasher.finalize());
+        digest.chars().take(16).collect()
+    }
+
+    fn semantic_owned(value: &str) -> String {
+        value.to_owned()
+    }
+
+    fn semantic_occurrence_owned(
+        occurrence: &SemanticMarkerOccurrence,
+    ) -> SemanticMarkerOccurrence {
+        occurrence.clone()
+    }
+
+    fn scan_semantic_quality_markers(
+        view: &SemanticCompactionQualityView,
+    ) -> Vec<SemanticMarkerOccurrence> {
+        let mut occurrences = Vec::new();
+        for turn in &view.turns {
+            let content_fingerprint = short_content_fingerprint(&turn.content);
+            let mut search_start = 0usize;
+            while let Some(start_rel) =
+                turn.content[search_start..].find(SEMANTIC_QUALITY_MARKER_PREFIX)
+            {
+                let payload_start = search_start + start_rel + SEMANTIC_QUALITY_MARKER_PREFIX.len();
+                let Some(end_rel) =
+                    turn.content[payload_start..].find(SEMANTIC_QUALITY_MARKER_SUFFIX)
+                else {
+                    break;
+                };
+                let payload_end = payload_start + end_rel;
+                let payload = &turn.content[payload_start..payload_end];
+                if let Some(marker) = parse_semantic_quality_marker(payload) {
+                    occurrences.push(SemanticMarkerOccurrence {
+                        id: marker.id,
+                        kind: marker.kind,
+                        critical: marker.critical,
+                        declared_branch_id: marker.branch_id,
+                        declared_turn_id: marker.turn_id,
+                        source_view: semantic_owned(&view.name),
+                        location_branch_id: semantic_owned(&turn.branch_id),
+                        location_turn_id: semantic_owned(&turn.turn_id),
+                        location_role: semantic_owned(&turn.role),
+                        marker_index: occurrences.len(),
+                        content_fingerprint: semantic_owned(&content_fingerprint),
+                    });
+                }
+                search_start = payload_end + SEMANTIC_QUALITY_MARKER_SUFFIX.len();
+            }
+        }
+        occurrences
+    }
+
+    fn occurrences_by_id(
+        occurrences: Vec<SemanticMarkerOccurrence>,
+    ) -> BTreeMap<String, Vec<SemanticMarkerOccurrence>> {
+        let mut by_id: BTreeMap<String, Vec<SemanticMarkerOccurrence>> = BTreeMap::new();
+        for occurrence in occurrences {
+            by_id
+                .entry(semantic_owned(&occurrence.id))
+                .or_default()
+                .push(occurrence);
+        }
+        by_id
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn coverage(preserved: usize, total: usize) -> f64 {
+        if total == 0 {
+            return 1.0;
+        }
+        preserved as f64 / total as f64
+    }
+
+    fn outcome_for_loss(
+        baseline: &SemanticMarkerOccurrence,
+        candidate: Option<&SemanticMarkerOccurrence>,
+        status: &str,
+        loss_class: &str,
+    ) -> SemanticCompactionQualityOutcome {
+        SemanticCompactionQualityOutcome {
+            marker_id: semantic_owned(&baseline.id),
+            status: status.to_string(),
+            loss_class: Some(loss_class.to_string()),
+            critical: baseline.critical,
+            kind: semantic_owned(&baseline.kind),
+            expected_branch_id: semantic_owned(&baseline.declared_branch_id),
+            expected_turn_id: semantic_owned(&baseline.declared_turn_id),
+            observed_branch_id: candidate
+                .map(|occurrence| semantic_owned(&occurrence.declared_branch_id)),
+            observed_turn_id: candidate
+                .map(|occurrence| semantic_owned(&occurrence.declared_turn_id)),
+            baseline_location: Some(semantic_occurrence_owned(baseline)),
+            candidate_location: candidate.map(semantic_occurrence_owned),
+        }
+    }
+
+    fn outcome_for_preserved(
+        baseline: &SemanticMarkerOccurrence,
+        candidate: &SemanticMarkerOccurrence,
+    ) -> SemanticCompactionQualityOutcome {
+        SemanticCompactionQualityOutcome {
+            marker_id: semantic_owned(&baseline.id),
+            status: "preserved".to_string(),
+            loss_class: None,
+            critical: baseline.critical,
+            kind: semantic_owned(&baseline.kind),
+            expected_branch_id: semantic_owned(&baseline.declared_branch_id),
+            expected_turn_id: semantic_owned(&baseline.declared_turn_id),
+            observed_branch_id: Some(semantic_owned(&candidate.declared_branch_id)),
+            observed_turn_id: Some(semantic_owned(&candidate.declared_turn_id)),
+            baseline_location: Some(semantic_occurrence_owned(baseline)),
+            candidate_location: Some(semantic_occurrence_owned(candidate)),
+        }
+    }
+
+    fn unexpected_outcome(
+        candidate: &SemanticMarkerOccurrence,
+        is_control: bool,
+    ) -> SemanticCompactionQualityOutcome {
+        let loss_class = if is_control {
+            "false_positive_control"
+        } else {
+            "unexpected_marker"
+        };
+        SemanticCompactionQualityOutcome {
+            marker_id: semantic_owned(&candidate.id),
+            status: "failed".to_string(),
+            loss_class: Some(loss_class.to_string()),
+            critical: candidate.critical,
+            kind: semantic_owned(&candidate.kind),
+            expected_branch_id: String::new(),
+            expected_turn_id: String::new(),
+            observed_branch_id: Some(semantic_owned(&candidate.declared_branch_id)),
+            observed_turn_id: Some(semantic_owned(&candidate.declared_turn_id)),
+            baseline_location: None,
+            candidate_location: Some(semantic_occurrence_owned(candidate)),
+        }
+    }
+
+    /// Evaluate whether a compacted/replayed view preserved structured semantic markers.
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn evaluate_semantic_compaction_quality(
+        baseline: &SemanticCompactionQualityView,
+        candidate: &SemanticCompactionQualityView,
+        false_positive_control_ids: &[String],
+    ) -> SemanticCompactionQualityReport {
+        let baseline_occurrences = scan_semantic_quality_markers(baseline);
+        let candidate_occurrences = scan_semantic_quality_markers(candidate);
+        let baseline_marker_count = baseline_occurrences.len();
+        let candidate_marker_count = candidate_occurrences.len();
+        let baseline_by_id = occurrences_by_id(baseline_occurrences);
+        let candidate_by_id = occurrences_by_id(candidate_occurrences);
+        let controls: BTreeSet<String> = false_positive_control_ids.iter().cloned().collect();
+
+        let mut outcomes = Vec::new();
+        let mut preserved_markers = 0usize;
+        let mut missing_markers = 0usize;
+        let mut wrong_branch_markers = 0usize;
+        let mut wrong_turn_markers = 0usize;
+        let mut metadata_mismatch_markers = 0usize;
+        let mut duplicate_markers = 0usize;
+        let mut unexpected_markers = 0usize;
+        let mut critical_expected_markers = 0usize;
+        let mut critical_preserved_markers = 0usize;
+
+        for (id, baseline_matches) in &baseline_by_id {
+            let baseline_marker = &baseline_matches[0];
+            critical_expected_markers += usize::from(baseline_marker.critical);
+
+            if baseline_matches.len() > 1 {
+                duplicate_markers += 1;
+                outcomes.push(outcome_for_loss(
+                    baseline_marker,
+                    None,
+                    "failed",
+                    "duplicate_baseline_marker",
+                ));
+                continue;
+            }
+
+            let Some(candidate_matches) = candidate_by_id.get(id) else {
+                missing_markers += 1;
+                outcomes.push(outcome_for_loss(
+                    baseline_marker,
+                    None,
+                    "failed",
+                    "missing_marker",
+                ));
+                continue;
+            };
+
+            if candidate_matches.len() > 1 {
+                duplicate_markers += 1;
+                outcomes.push(outcome_for_loss(
+                    baseline_marker,
+                    candidate_matches.first(),
+                    "failed",
+                    "duplicate_candidate_marker",
+                ));
+                continue;
+            }
+
+            let candidate_marker = &candidate_matches[0];
+            if baseline_marker.kind != candidate_marker.kind
+                || baseline_marker.critical != candidate_marker.critical
+            {
+                metadata_mismatch_markers += 1;
+                outcomes.push(outcome_for_loss(
+                    baseline_marker,
+                    Some(candidate_marker),
+                    "failed",
+                    "metadata_mismatch",
+                ));
+            } else if baseline_marker.declared_branch_id != candidate_marker.declared_branch_id {
+                wrong_branch_markers += 1;
+                outcomes.push(outcome_for_loss(
+                    baseline_marker,
+                    Some(candidate_marker),
+                    "failed",
+                    "wrong_branch",
+                ));
+            } else if baseline_marker.declared_turn_id != candidate_marker.declared_turn_id {
+                wrong_turn_markers += 1;
+                outcomes.push(outcome_for_loss(
+                    baseline_marker,
+                    Some(candidate_marker),
+                    "failed",
+                    "wrong_turn",
+                ));
+            } else {
+                preserved_markers += 1;
+                critical_preserved_markers += usize::from(baseline_marker.critical);
+                outcomes.push(outcome_for_preserved(baseline_marker, candidate_marker));
+            }
+        }
+
+        let mut false_positive_controls = Vec::new();
+        let mut false_positive_controls_tripped = 0usize;
+        for marker_id in &controls {
+            let candidate_location = candidate_by_id
+                .get(marker_id)
+                .and_then(|matches| matches.first())
+                .map(semantic_occurrence_owned);
+            let tripped = candidate_location.is_some();
+            false_positive_controls_tripped += usize::from(tripped);
+            false_positive_controls.push(SemanticFalsePositiveControlResult {
+                marker_id: semantic_owned(marker_id),
+                tripped,
+                candidate_location,
+            });
+        }
+
+        for (id, candidate_matches) in &candidate_by_id {
+            if baseline_by_id.contains_key(id) {
+                continue;
+            }
+            unexpected_markers += 1;
+            outcomes.push(unexpected_outcome(
+                &candidate_matches[0],
+                controls.contains(id),
+            ));
+        }
+
+        outcomes.sort_by(|a, b| a.marker_id.cmp(&b.marker_id));
+        false_positive_controls.sort_by(|a, b| a.marker_id.cmp(&b.marker_id));
+
+        let total_expected_markers = baseline_by_id.len();
+        let summary = SemanticCompactionQualitySummary {
+            total_expected_markers,
+            critical_expected_markers,
+            preserved_markers,
+            missing_markers,
+            wrong_branch_markers,
+            wrong_turn_markers,
+            metadata_mismatch_markers,
+            duplicate_markers,
+            unexpected_markers,
+            false_positive_controls_tripped,
+            marker_coverage: coverage(preserved_markers, total_expected_markers),
+            critical_marker_coverage: coverage(
+                critical_preserved_markers,
+                critical_expected_markers,
+            ),
+        };
+
+        let failed = summary.missing_markers > 0
+            || summary.wrong_branch_markers > 0
+            || summary.wrong_turn_markers > 0
+            || summary.metadata_mismatch_markers > 0
+            || summary.duplicate_markers > 0
+            || summary.unexpected_markers > 0
+            || summary.false_positive_controls_tripped > 0;
+
+        SemanticCompactionQualityReport {
+            schema: SEMANTIC_COMPACTION_QUALITY_SCHEMA_V1,
+            baseline_view: SemanticCompactionQualityViewSummary {
+                name: baseline.name.clone(),
+                turn_count: baseline.turns.len(),
+                marker_count: baseline_marker_count,
+                content_fingerprint: view_content_fingerprint(&baseline.turns),
+            },
+            candidate_view: SemanticCompactionQualityViewSummary {
+                name: candidate.name.clone(),
+                turn_count: candidate.turns.len(),
+                marker_count: candidate_marker_count,
+                content_fingerprint: view_content_fingerprint(&candidate.turns),
+            },
+            verdict: if failed { "fail" } else { "pass" }.to_string(),
+            summary,
+            outcomes,
+            false_positive_controls,
+        }
+    }
+
+    /// Serialize a report as JSONL: one summary row followed by one row per outcome/control.
+    pub fn semantic_compaction_quality_report_to_jsonl(
+        report: &SemanticCompactionQualityReport,
+    ) -> Result<String> {
+        let mut lines = Vec::with_capacity(
+            1usize
+                .saturating_add(report.outcomes.len())
+                .saturating_add(report.false_positive_controls.len()),
+        );
+        lines.push(
+            serde_json::to_string(&json!({
+                "schema": report.schema,
+                "recordType": "summary",
+                "verdict": report.verdict,
+                "baselineView": report.baseline_view,
+                "candidateView": report.candidate_view,
+                "summary": report.summary,
+            }))
+            .map_err(|e| Error::session(format!("Semantic quality summary JSONL: {e}")))?,
+        );
+        for outcome in &report.outcomes {
+            lines.push(
+                serde_json::to_string(&json!({
+                    "schema": report.schema,
+                    "recordType": "marker_outcome",
+                    "outcome": outcome,
+                }))
+                .map_err(|e| Error::session(format!("Semantic quality outcome JSONL: {e}")))?,
+            );
+        }
+        for control in &report.false_positive_controls {
+            lines.push(
+                serde_json::to_string(&json!({
+                    "schema": report.schema,
+                    "recordType": "false_positive_control",
+                    "control": control,
+                }))
+                .map_err(|e| Error::session(format!("Semantic quality control JSONL: {e}")))?,
+            );
+        }
+        Ok(lines.join("\n"))
+    }
+
+    fn push_content_block_text(out: &mut String, block: &ContentBlock) {
+        match block {
+            ContentBlock::Text(text) => out.push_str(&text.text),
+            ContentBlock::Thinking(thinking) => out.push_str(&thinking.thinking),
+            ContentBlock::ToolCall(call) => {
+                let _ = write!(out, "{} {}", call.name, call.arguments);
+            }
+            ContentBlock::Image(_) | ContentBlock::RedactedThinking(_) => {}
+        }
+    }
+
+    fn session_message_semantic_text(message: &SessionMessage) -> String {
+        let mut text = String::new();
+        match message {
+            SessionMessage::User { content, .. } => match content {
+                UserContent::Text(value) => text.push_str(value),
+                UserContent::Blocks(blocks) => {
+                    for block in blocks {
+                        push_content_block_text(&mut text, block);
+                        text.push('\n');
+                    }
+                }
+            },
+            SessionMessage::Assistant { message } => {
+                for block in &message.content {
+                    push_content_block_text(&mut text, block);
+                    text.push('\n');
+                }
+            }
+            SessionMessage::ToolResult { content, .. } => {
+                for block in content {
+                    push_content_block_text(&mut text, block);
+                    text.push('\n');
+                }
+            }
+            SessionMessage::Custom { content, .. } => text.push_str(content),
+            SessionMessage::BashExecution {
+                command, output, ..
+            } => {
+                let _ = write!(text, "{command}\n{output}");
+            }
+            SessionMessage::BranchSummary { summary, .. }
+            | SessionMessage::CompactionSummary { summary, .. } => text.push_str(summary),
+        }
+        text
+    }
+
+    const fn semantic_role_for_message(message: &SessionMessage) -> &'static str {
+        match message {
+            SessionMessage::User { .. } => "user",
+            SessionMessage::Assistant { .. } => "assistant",
+            SessionMessage::ToolResult { .. } => "tool_result",
+            SessionMessage::Custom { .. } => "custom",
+            SessionMessage::BashExecution { .. } => "bash_execution",
+            SessionMessage::BranchSummary { .. } => "branch_summary",
+            SessionMessage::CompactionSummary { .. } => "compaction_summary",
+        }
+    }
+
+    /// Build a semantic quality scan view from session messages.
+    #[must_use]
+    pub fn semantic_quality_view_from_messages(
+        name: &str,
+        branch_id: &str,
+        messages: &[SessionMessage],
+    ) -> SemanticCompactionQualityView {
+        let turns = messages
+            .iter()
+            .enumerate()
+            .map(|(idx, message)| {
+                SemanticCompactionQualityTurn::new(
+                    branch_id,
+                    format!("turn-{idx:04}"),
+                    semantic_role_for_message(message),
+                    session_message_semantic_text(message),
+                )
+            })
+            .collect();
+        SemanticCompactionQualityView::new(name, turns)
+    }
+
+    /// Build a semantic quality scan view from message-like session entries.
+    #[must_use]
+    pub fn semantic_quality_view_from_entries(
+        name: &str,
+        branch_id: &str,
+        entries: &[SessionEntry],
+    ) -> SemanticCompactionQualityView {
+        let turns = entries
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, entry)| {
+                let message = message_from_entry(entry)?;
+                let turn_id = entry
+                    .base_id()
+                    .cloned()
+                    .unwrap_or_else(|| format!("turn-{idx:04}"));
+                Some(SemanticCompactionQualityTurn::new(
+                    branch_id,
+                    turn_id,
+                    semantic_role_for_message(&message),
+                    session_message_semantic_text(&message),
+                ))
+            })
+            .collect();
+        SemanticCompactionQualityView::new(name, turns)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::semantic_marker_scan_quality as marker_scan;
     use super::*;
     use crate::model::{AssistantMessage, ContentBlock, TextContent, Usage};
     use serde_json::json;
@@ -1476,7 +2590,7 @@ mod tests {
         let msg = make_assistant_tool_call("read", json!({"path": "/foo/bar.rs"}));
         let mut ops = FileOperations::default();
         let mut status = HashMap::new();
-        status.insert("call_1".to_string(), true);
+        status.insert("call_1", true);
         extract_file_ops_from_message(&msg, &mut ops, &status);
         assert!(ops.read.contains("/foo/bar.rs"));
         assert!(ops.written.is_empty());
@@ -1488,7 +2602,7 @@ mod tests {
         let msg = make_assistant_tool_call("write", json!({"path": "/out.txt"}));
         let mut ops = FileOperations::default();
         let mut status = HashMap::new();
-        status.insert("call_1".to_string(), true);
+        status.insert("call_1", true);
         extract_file_ops_from_message(&msg, &mut ops, &status);
         assert!(ops.written.contains("/out.txt"));
         assert!(ops.read.is_empty());
@@ -1499,7 +2613,7 @@ mod tests {
         let msg = make_assistant_tool_call("edit", json!({"path": "/src/main.rs"}));
         let mut ops = FileOperations::default();
         let mut status = HashMap::new();
-        status.insert("call_1".to_string(), true);
+        status.insert("call_1", true);
         extract_file_ops_from_message(&msg, &mut ops, &status);
         assert!(ops.edited.contains("/src/main.rs"));
     }
@@ -1509,7 +2623,7 @@ mod tests {
         let msg = make_assistant_tool_call("read", json!({"path": "/secret.rs"}));
         let mut ops = FileOperations::default();
         let mut status = HashMap::new();
-        status.insert("call_1".to_string(), false); // Failed!
+        status.insert("call_1", false); // Failed!
         extract_file_ops_from_message(&msg, &mut ops, &status);
         assert!(ops.read.is_empty());
     }
@@ -1519,7 +2633,7 @@ mod tests {
         let msg = make_assistant_tool_call("bash", json!({"command": "ls"}));
         let mut ops = FileOperations::default();
         let mut status = HashMap::new();
-        status.insert("call_1".to_string(), true);
+        status.insert("call_1", true);
         extract_file_ops_from_message(&msg, &mut ops, &status);
         assert!(ops.read.is_empty());
         assert!(ops.written.is_empty());
@@ -1687,6 +2801,231 @@ mod tests {
                 extra: HashMap::new(),
             },
         })
+    }
+
+    fn scq_marker(id: &str, kind: &str, branch: &str, turn: &str, critical: bool) -> String {
+        marker_scan::semantic_compaction_quality_marker(id, kind, branch, turn, critical)
+    }
+
+    fn quality_view(name: &str, content: &str) -> marker_scan::SemanticCompactionQualityView {
+        marker_scan::SemanticCompactionQualityView::new(
+            name,
+            vec![marker_scan::SemanticCompactionQualityTurn::new(
+                "main",
+                "summary",
+                "compaction_summary",
+                content,
+            )],
+        )
+    }
+
+    #[test]
+    fn semantic_compaction_quality_preserves_structured_markers() {
+        let markers = [
+            scq_marker("task-plan", "task", "main", "turn-task", true),
+            scq_marker("file-src-lib", "file_reference", "main", "turn-file", true),
+            scq_marker("decision-rch", "decision", "main", "turn-decision", true),
+            scq_marker("tool-read", "tool_output", "main", "turn-tool", true),
+            scq_marker(
+                "constraint-no-live",
+                "constraint",
+                "main",
+                "turn-constraint",
+                true,
+            ),
+            scq_marker(
+                "mail-degraded",
+                "agent_mail_degraded",
+                "main",
+                "turn-mail",
+                true,
+            ),
+            scq_marker("bead-claim", "beads_claim", "main", "turn-beads", true),
+            scq_marker(
+                "interrupt-handled",
+                "interruption",
+                "main",
+                "turn-interrupt",
+                false,
+            ),
+            scq_marker(
+                "tool-truncated",
+                "truncation_notice",
+                "main",
+                "turn-tool",
+                true,
+            ),
+            scq_marker("handoff-fact", "handoff_fact", "main", "turn-handoff", true),
+        ];
+        let baseline_content = markers.join("\n");
+        let candidate_content = format!("Compacted semantic inventory:\n{}", markers.join("\n"));
+        let baseline = quality_view("pre-compaction", &baseline_content);
+        let candidate = quality_view("post-compaction", &candidate_content);
+
+        let report = marker_scan::evaluate_semantic_compaction_quality(
+            &baseline,
+            &candidate,
+            &[String::from("control-never-present")],
+        );
+
+        assert_eq!(
+            report.schema,
+            marker_scan::SEMANTIC_COMPACTION_QUALITY_SCHEMA_V1
+        );
+        assert_eq!(report.verdict, "pass");
+        assert_eq!(report.summary.total_expected_markers, markers.len());
+        assert_eq!(report.summary.preserved_markers, markers.len());
+        assert!((report.summary.marker_coverage - 1.0).abs() < f64::EPSILON);
+        assert_eq!(report.summary.false_positive_controls_tripped, 0);
+
+        let jsonl = marker_scan::semantic_compaction_quality_report_to_jsonl(&report)
+            .expect("jsonl report");
+        assert!(
+            jsonl
+                .lines()
+                .next()
+                .is_some_and(|line| line.contains("\"recordType\":\"summary\""))
+        );
+        assert!(jsonl.contains("\"recordType\":\"marker_outcome\""));
+        assert!(!jsonl.contains("Compacted semantic inventory"));
+    }
+
+    #[test]
+    fn semantic_compaction_quality_missing_file_reference_fails_closed() {
+        let task = scq_marker("task-plan", "task", "main", "turn-task", true);
+        let file = scq_marker("file-src-lib", "file_reference", "main", "turn-file", true);
+        let baseline = quality_view("pre-compaction", &format!("{task}\n{file}"));
+        let candidate = quality_view("post-compaction", &task);
+
+        let report = marker_scan::evaluate_semantic_compaction_quality(&baseline, &candidate, &[]);
+
+        assert_eq!(report.verdict, "fail");
+        assert_eq!(report.summary.missing_markers, 1);
+        assert!(report.outcomes.iter().any(|outcome| {
+            outcome.marker_id == "file-src-lib"
+                && outcome.loss_class.as_deref() == Some("missing_marker")
+        }));
+    }
+
+    #[test]
+    fn semantic_compaction_quality_wrong_branch_fails_closed() {
+        let baseline = quality_view(
+            "pre-compaction",
+            &scq_marker("branch-fact", "handoff_fact", "main", "turn-handoff", true),
+        );
+        let candidate = quality_view(
+            "post-compaction",
+            &scq_marker("branch-fact", "handoff_fact", "side", "turn-handoff", true),
+        );
+
+        let report = marker_scan::evaluate_semantic_compaction_quality(&baseline, &candidate, &[]);
+
+        assert_eq!(report.verdict, "fail");
+        assert_eq!(report.summary.wrong_branch_markers, 1);
+        assert!(report.outcomes.iter().any(|outcome| {
+            outcome.marker_id == "branch-fact"
+                && outcome.loss_class.as_deref() == Some("wrong_branch")
+                && outcome.observed_branch_id.as_deref() == Some("side")
+        }));
+    }
+
+    #[test]
+    fn semantic_compaction_quality_stale_beads_turn_fails_closed() {
+        let baseline = quality_view(
+            "pre-compaction",
+            &scq_marker("bead-handoff", "beads_claim", "main", "turn-fresh", true),
+        );
+        let candidate = quality_view(
+            "post-compaction",
+            &scq_marker("bead-handoff", "beads_claim", "main", "turn-stale", true),
+        );
+
+        let report = marker_scan::evaluate_semantic_compaction_quality(&baseline, &candidate, &[]);
+
+        assert_eq!(report.verdict, "fail");
+        assert_eq!(report.summary.wrong_turn_markers, 1);
+        assert!(report.outcomes.iter().any(|outcome| {
+            outcome.marker_id == "bead-handoff"
+                && outcome.loss_class.as_deref() == Some("wrong_turn")
+                && outcome.observed_turn_id.as_deref() == Some("turn-stale")
+        }));
+    }
+
+    #[test]
+    fn semantic_compaction_quality_large_tool_output_marker_must_survive() {
+        let task = scq_marker("task-plan", "task", "main", "turn-task", true);
+        let truncation = scq_marker(
+            "tool-output-truncated",
+            "truncation_notice",
+            "main",
+            "turn-tool-output",
+            true,
+        );
+        let baseline = quality_view(
+            "pre-compaction",
+            &format!("{task}\nlarge tool output omitted\n{truncation}"),
+        );
+        let candidate = quality_view("post-compaction", &task);
+
+        let report = marker_scan::evaluate_semantic_compaction_quality(&baseline, &candidate, &[]);
+
+        assert_eq!(report.verdict, "fail");
+        assert!(report.outcomes.iter().any(|outcome| {
+            outcome.marker_id == "tool-output-truncated"
+                && outcome.loss_class.as_deref() == Some("missing_marker")
+        }));
+    }
+
+    #[test]
+    fn semantic_compaction_quality_false_positive_control_detects_invented_marker() {
+        let baseline = quality_view(
+            "pre-compaction",
+            &scq_marker("task-plan", "task", "main", "turn-task", true),
+        );
+        let invented = scq_marker(
+            "control-never-present",
+            "decision",
+            "main",
+            "turn-invented",
+            true,
+        );
+        let candidate = quality_view(
+            "post-compaction",
+            &format!(
+                "{}\n{invented}\nsecret tool body should not appear in report",
+                scq_marker("task-plan", "task", "main", "turn-task", true)
+            ),
+        );
+
+        let report = marker_scan::evaluate_semantic_compaction_quality(
+            &baseline,
+            &candidate,
+            &[String::from("control-never-present")],
+        );
+        let serialized = serde_json::to_string(&report).expect("serialize report");
+
+        assert_eq!(report.verdict, "fail");
+        assert_eq!(report.summary.false_positive_controls_tripped, 1);
+        assert_eq!(report.summary.unexpected_markers, 1);
+        assert!(serialized.contains("false_positive_control"));
+        assert!(!serialized.contains("secret tool body"));
+    }
+
+    #[test]
+    fn semantic_quality_view_from_session_entries_scans_compaction_summaries() {
+        let marker = scq_marker("summary-task", "task", "main", "kept", true);
+        let entries = vec![
+            user_entry("root", "uncompacted user text"),
+            compact_entry("compact", &marker, 10),
+            user_entry("kept", "kept turn"),
+        ];
+        let view =
+            marker_scan::semantic_quality_view_from_entries("session-path", "main", &entries);
+        let report = marker_scan::evaluate_semantic_compaction_quality(&view, &view, &[]);
+
+        assert_eq!(view.turns.len(), 3);
+        assert_eq!(report.verdict, "pass");
+        assert_eq!(report.summary.preserved_markers, 1);
     }
 
     // ── get_assistant_usage ─────────────────────────────────────────
