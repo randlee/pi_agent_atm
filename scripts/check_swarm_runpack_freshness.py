@@ -702,6 +702,96 @@ def run_self_test() -> int:
         )
         assert_report_status(mismatch_report, "fail", "source_sha256_mismatch")
 
+        missing_fingerprint_artifact = write_json(
+            root / "artifacts/missing-fingerprint.json",
+            {
+                "schema": RUNPACK_SCHEMA,
+                "generated_at": generated_at.isoformat(),
+                "source_statuses": [
+                    {
+                        "id": "doctor_swarm",
+                        "path": str(source_path),
+                        "status": "ok",
+                    }
+                ],
+            },
+        )
+        set_mtime(missing_fingerprint_artifact, generated_at)
+        missing_fingerprint_report = build_report(
+            [missing_fingerprint_artifact],
+            source_root=root,
+            now=now,
+            max_age_hours=DEFAULT_MAX_AGE_HOURS,
+            generator_sources=DEFAULT_GENERATOR_SOURCES,
+        )
+        assert_report_status(missing_fingerprint_report, "fail", "source_size_missing")
+        assert_report_status(missing_fingerprint_report, "fail", "source_sha256_missing")
+
+        size_mismatch_artifact = fixture_runpack(
+            artifact_path=root / "artifacts/size-mismatch.json",
+            source_path=source_path,
+            generated_at=generated_at,
+            size_override=0,
+        )
+        set_mtime(size_mismatch_artifact, generated_at)
+        size_mismatch_report = build_report(
+            [size_mismatch_artifact],
+            source_root=root,
+            now=now,
+            max_age_hours=DEFAULT_MAX_AGE_HOURS,
+            generator_sources=DEFAULT_GENERATOR_SOURCES,
+        )
+        assert_report_status(size_mismatch_report, "fail", "source_size_mismatch")
+
+        malformed_artifact = root / "artifacts/malformed.json"
+        malformed_artifact.write_text("{", encoding="utf-8")
+        set_mtime(malformed_artifact, generated_at)
+        malformed_report = build_report(
+            [malformed_artifact],
+            source_root=root,
+            now=now,
+            max_age_hours=DEFAULT_MAX_AGE_HOURS,
+            generator_sources=DEFAULT_GENERATOR_SOURCES,
+        )
+        assert_report_status(malformed_report, "fail", "artifact_malformed_json")
+
+        not_object_artifact = write_json(root / "artifacts/not-object.json", ["not", "object"])
+        set_mtime(not_object_artifact, generated_at)
+        not_object_report = build_report(
+            [not_object_artifact],
+            source_root=root,
+            now=now,
+            max_age_hours=DEFAULT_MAX_AGE_HOURS,
+            generator_sources=DEFAULT_GENERATOR_SOURCES,
+        )
+        assert_report_status(not_object_report, "fail", "artifact_not_object")
+
+        no_sources_artifact = write_json(
+            root / "artifacts/no-sources.json",
+            {
+                "schema": RUNPACK_SCHEMA,
+                "generated_at": generated_at.isoformat(),
+            },
+        )
+        set_mtime(no_sources_artifact, generated_at)
+        no_sources_report = build_report(
+            [no_sources_artifact],
+            source_root=root,
+            now=now,
+            max_age_hours=DEFAULT_MAX_AGE_HOURS,
+            generator_sources=(),
+        )
+        assert_report_status(no_sources_report, "fail", "artifact_has_no_sources")
+
+        missing_generator_report = build_report(
+            [artifact],
+            source_root=root,
+            now=now,
+            max_age_hours=DEFAULT_MAX_AGE_HOURS,
+            generator_sources=("scripts/missing-generator.py",),
+        )
+        assert_report_status(missing_generator_report, "fail", "source_missing")
+
         stale_age_artifact = fixture_runpack(
             artifact_path=root / "artifacts/stale-age.json",
             source_path=source_path,

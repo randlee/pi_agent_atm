@@ -751,6 +751,30 @@ def initialize_fixture_repo(root: Path, now: datetime) -> str:
     return head
 
 
+def create_non_ancestor_commit(root: Path, now: datetime) -> str:
+    run_checked(["git", "switch", "-q", "-c", "stale-proof"], root)
+    stale_source = root / "stale-proof.txt"
+    stale_source.write_text("stale proof\n", encoding="utf-8")
+    run_checked(["git", "add", "stale-proof.txt"], root)
+    env = os.environ.copy()
+    env["GIT_AUTHOR_DATE"] = (now + timedelta(minutes=1)).isoformat()
+    env["GIT_COMMITTER_DATE"] = (now + timedelta(minutes=1)).isoformat()
+    result = subprocess.run(
+        ["git", "commit", "-q", "-m", "stale proof"],
+        cwd=root,
+        env=env,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"stale proof commit failed\nstdout={result.stdout}\nstderr={result.stderr}")
+    stale_commit = git(root, ["rev-parse", "HEAD"]).stdout.strip()
+    run_checked(["git", "switch", "-q", "main"], root)
+    return stale_commit
+
+
 def write_fixture(root: Path, now: datetime, commit: str, generated_at: datetime | None = None) -> None:
     generated_at = generated_at or now
     contract = {
@@ -809,6 +833,46 @@ def write_fixture(root: Path, now: datetime, commit: str, generated_at: datetime
     )
 
 
+def write_legacy_shape_fixture(root: Path, now: datetime) -> None:
+    contract = {
+        "schema": "pi.demo.legacy_closeout_gate_contract.v1",
+        "decision_gate_schema": "pi.demo.legacy_closeout_gate.v1",
+        "required_top_level_keys": [
+            "schema",
+            "generated_at",
+            "child_closeout",
+            "quality_gates",
+            "missing_checks",
+        ],
+        "required_child_bead_ids": ["bd-legacy.1"],
+        "required_quality_gate_ids": [],
+        "required_check_ids": [],
+    }
+    evidence = {
+        "schema": "pi.demo.legacy_closeout_gate.v1",
+        "generated_at": now.isoformat().replace("+00:00", "Z"),
+        "child_closeout": [
+            {
+                "bead": "bd-legacy.1",
+                "status": "closed",
+                "result": "pass",
+                "evidence": "docs/evidence/legacy-closeout-gate.json",
+            }
+        ],
+        "quality_gates": [
+            {
+                "command": "python3 scripts/check_closeout_gate_freshness.py --self-test",
+                "result": "pass",
+            }
+        ],
+        "missing_checks": [],
+    }
+    write_json(root / "docs/contracts/legacy-closeout-gate-contract.json", contract)
+    write_json(root / "docs/evidence/legacy-closeout-gate.json", evidence)
+    with (root / ".beads/issues.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"id": "bd-legacy.1", "status": "closed"}) + "\n")
+
+
 def run_self_test() -> int:
     now = datetime(2026, 5, 15, 12, 0, 0, tzinfo=timezone.utc)
     root = Path(tempfile.mkdtemp(prefix="pi-closeout-gate-freshness-"))
@@ -820,6 +884,13 @@ def run_self_test() -> int:
         if first_status != 0 or first["status"] != "pass":
             print(json.dumps(first, indent=2))
             print("SELF-TEST FAIL: valid fixture should pass")
+            return 2
+
+        write_legacy_shape_fixture(root, now)
+        legacy_status, legacy = build_summary(root, now, max_age_days=14)
+        if legacy_status != 0 or "legacy-closeout-gate.json" not in json.dumps(legacy):
+            print(json.dumps(legacy, indent=2))
+            print("SELF-TEST FAIL: legacy child_closeout/quality_gates shape should pass")
             return 2
 
         write_fixture(root, now, commit, generated_at=now - timedelta(days=30))
@@ -836,6 +907,14 @@ def run_self_test() -> int:
             print("SELF-TEST FAIL: missing commit should fail")
             return 2
 
+        stale_commit = create_non_ancestor_commit(root, now)
+        write_fixture(root, now, stale_commit)
+        stale_commit_status, stale_commit_report = build_summary(root, now, max_age_days=14)
+        if stale_commit_status != 1 or "stale_source_hash" not in json.dumps(stale_commit_report):
+            print(json.dumps(stale_commit_report, indent=2))
+            print("SELF-TEST FAIL: non-ancestor commit should fail")
+            return 2
+
         write_fixture(root, now, commit)
         write_json(
             root / "docs/evidence/uncontracted-closeout-gate.json",
@@ -849,6 +928,59 @@ def run_self_test() -> int:
         if missing_contract_status != 1 or "missing_contract" not in json.dumps(missing_contract):
             print(json.dumps(missing_contract, indent=2))
             print("SELF-TEST FAIL: uncontracted closeout evidence should fail")
+            return 2
+
+        write_fixture(root, now, commit)
+        write_json(
+            root / "docs/contracts/wrong-schema-closeout-gate-contract.json",
+            {
+                "schema": "pi.demo.wrong_schema_closeout_gate_contract.v1",
+                "decision_gate_schema": "pi.demo.some_other_closeout_gate.v1",
+                "required_top_level_keys": ["schema", "generated_at", "missing_checks"],
+            },
+        )
+        write_json(
+            root / "docs/evidence/wrong-schema-closeout-gate.json",
+            {
+                "schema": "pi.demo.wrong_schema_closeout_gate.v1",
+                "generated_at": now.isoformat().replace("+00:00", "Z"),
+                "missing_checks": [],
+            },
+        )
+        wrong_schema_status, wrong_schema = build_summary(root, now, max_age_days=14)
+        if wrong_schema_status != 1 or "missing_contract" not in json.dumps(wrong_schema):
+            print(json.dumps(wrong_schema, indent=2))
+            print("SELF-TEST FAIL: contract with wrong decision_gate_schema should fail")
+            return 2
+
+        write_fixture(root, now, commit)
+        hash_payload = load_json_object(root / "docs/evidence/demo-closeout-gate.json")
+        hash_payload["source_fingerprints"] = [
+            {"path": "tracked.txt", "sha256": "0" * 64}
+        ]
+        write_json(root / "docs/evidence/demo-closeout-gate.json", hash_payload)
+        hash_status, hash_report = build_summary(root, now, max_age_days=14)
+        if hash_status != 1 or "stale_source_hash" not in json.dumps(hash_report):
+            print(json.dumps(hash_report, indent=2))
+            print("SELF-TEST FAIL: stale sha256 source fingerprint should fail")
+            return 2
+
+        write_fixture(root, now, commit)
+        missing_child_payload = load_json_object(root / "docs/evidence/demo-closeout-gate.json")
+        missing_child_payload["child_artifact_map"] = []
+        write_json(root / "docs/evidence/demo-closeout-gate.json", missing_child_payload)
+        missing_child_status, missing_child = build_summary(root, now, max_age_days=14)
+        if missing_child_status != 1 or "required_child_bead" not in json.dumps(missing_child):
+            print(json.dumps(missing_child, indent=2))
+            print("SELF-TEST FAIL: missing contract-required child bead should fail")
+            return 2
+
+        write_fixture(root, now, commit)
+        (root / "docs/evidence/malformed-closeout-gate.json").write_text("{", encoding="utf-8")
+        malformed_status, malformed = build_summary(root, now, max_age_days=14)
+        if malformed_status != 1 or "json_parse" not in json.dumps(malformed):
+            print(json.dumps(malformed, indent=2))
+            print("SELF-TEST FAIL: malformed closeout JSON should produce json_parse finding")
             return 2
 
         write_fixture(root, now, commit)
