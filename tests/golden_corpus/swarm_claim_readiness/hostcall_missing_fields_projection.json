@@ -86,7 +86,7 @@
       "issue_kinds": [],
       "release_blocking": true,
       "schema": "pi.dropin.certification_contract.v1",
-      "status": "ready"
+      "status": "release_policy"
     },
     {
       "category": "dropin",
@@ -206,7 +206,8 @@
       "status": "ready",
       "statuses": {
         "historical_snapshot": 3,
-        "ready": 2
+        "ready": 1,
+        "release_policy": 1
       }
     },
     {

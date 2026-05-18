@@ -144,6 +144,8 @@ class EvidenceCheck:
                 return kind
         if self.spec.claim_surface == "historical_snapshot":
             return "historical_snapshot"
+        if self.spec.claim_surface == "release_policy":
+            return "release_policy"
         return "ready"
 
     def blocking_issue_count(self) -> int:
@@ -1923,7 +1925,7 @@ def check_spec(
     if generated_at is not None:
         age = now - generated_at
         age_days = age.total_seconds() / 86400
-        if age > max_age:
+        if age > max_age and spec.claim_surface != "release_policy":
             issues.append(issue_for(
                 spec,
                 "stale",
@@ -3213,6 +3215,30 @@ def run_self_test() -> int:
         assert_condition(
             "stale_evidence" in operator_categories(report),
             "stale artifact blockers should have operator explanations",
+        )
+
+        repo_root = fixture_root()
+        make_complete_fixture(repo_root, now)
+        policy_spec = next(spec for spec in EVIDENCE_SPECS if spec.id == "dropin_contract")
+        policy_payload = fixture_payload(policy_spec, now, "fixture-run")
+        assert policy_payload is not None
+        policy_payload["effective_date_utc"] = format_datetime(stale)
+        write_artifact(repo_root, policy_spec.path, policy_payload, mtime=stale)
+        report = build_report(repo_root, now=now)
+        policy_artifact = next(
+            artifact for artifact in report["artifacts"] if artifact["id"] == "dropin_contract"
+        )
+        assert_condition(
+            policy_artifact["status"] == "release_policy",
+            "old release-policy contract dates should stay classified as policy, not stale evidence",
+        )
+        assert_condition(
+            not policy_artifact["issues"],
+            "old release-policy contract dates should not create stale evidence issues",
+        )
+        assert_condition(
+            report["overall_status"] == "ready",
+            "old release-policy contract dates should not block claim readiness",
         )
 
         repo_root = fixture_root()
