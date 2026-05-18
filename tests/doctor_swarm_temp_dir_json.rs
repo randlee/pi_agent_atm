@@ -15,6 +15,7 @@ use std::process::{Command, Stdio};
 
 const SWARM_TEMP_DIR_SCHEMA: &str = "pi.doctor.swarm_temp_dir.v1";
 const SWARM_RESOURCE_PREFLIGHT_SCHEMA: &str = "pi.doctor.swarm_resource_preflight.v1";
+const SWARM_LANE_PLACEMENT_SCHEMA: &str = "pi.doctor.swarm_lane_placement.v1";
 const SWARM_MAIL_DEGRADED_SCHEMA: &str = "pi.doctor.agent_mail_degraded_mode.v1";
 const SWARM_CONTEXT_INTELLIGENCE_SCHEMA: &str = "pi.doctor.context_intelligence_posture.v1";
 const SWARM_VALIDATION_BROKER_SCHEMA: &str = "pi.doctor.validation_broker_posture.v1";
@@ -236,6 +237,48 @@ fn require_available_kb_shape(data: &Value) -> TestResult {
         value.is_null() || value.as_u64().is_some(),
         format!("available_kb should be null or an integer: {data}"),
     )
+}
+
+fn require_lane_placement_shape(data: &Value) -> TestResult<&Value> {
+    let lane_placement = field(data, "lane_placement")?;
+    require_eq(
+        field_str(lane_placement, "schema")?,
+        SWARM_LANE_PLACEMENT_SCHEMA,
+        "lane placement schema",
+    )?;
+    let status = field_str(lane_placement, "status")?;
+    require(
+        matches!(status, "ready" | "degraded" | "blocked"),
+        format!("unexpected lane placement status: {lane_placement}"),
+    )?;
+    let groups = field(lane_placement, "lane_groups")?
+        .as_array()
+        .ok_or_else(|| TestError(format!("lane_groups is not an array: {lane_placement}")))?;
+    require(
+        !groups.is_empty(),
+        format!("lane placement should include at least one group: {lane_placement}"),
+    )?;
+    for group in groups {
+        let _ = field_str(group, "lane_id")?;
+        let _ = field(group, "numa_node")?;
+        let _ = field_str(group, "cpu_affinity_hint")?;
+        let _ = field(group, "cpus")?;
+        require(
+            field_str(group, "target_dir")?.contains(SWARM_TEMP_EXPECTED_ROOT),
+            "lane target_dir should use expected root",
+        )?;
+        require(
+            field_str(group, "tmpdir")?.contains(SWARM_TEMP_EXPECTED_ROOT),
+            "lane tmpdir should use expected root",
+        )?;
+        let _ = field_u64(group, "max_agents")?;
+        let _ = field_u64(group, "max_tool_batches")?;
+        let _ = field_u64(group, "max_extension_hostcall_lanes")?;
+        let _ = field_u64(group, "max_rch_verification_fanout")?;
+    }
+    let _ = field(lane_placement, "caveats")?;
+    let _ = field(lane_placement, "recommendations")?;
+    Ok(lane_placement)
 }
 
 fn create_swarm_temp_test_dir(root: &Path, name: &str) -> TestResult<PathBuf> {
@@ -956,6 +999,7 @@ fn doctor_swarm_resource_preflight_json_reports_constrained_profile() -> TestRes
         ("PI_DOCTOR_NUMA_ONLINE_PATH", Some(numa.as_str())),
         ("PI_DOCTOR_CGROUP_MEMORY_MAX_PATH", Some(memory.as_str())),
         ("PI_DOCTOR_MEMINFO_PATH", Some(meminfo.as_str())),
+        ("PI_DOCTOR_LOCAL_BUILD_PROCESS_COUNT", Some("0")),
     ])?;
     let finding = finding_by_schema(&report, SWARM_RESOURCE_PREFLIGHT_SCHEMA)?;
     let data = field(finding, "data")?;
@@ -1006,6 +1050,24 @@ fn doctor_swarm_resource_preflight_json_reports_constrained_profile() -> TestRes
             .and_then(Value::as_array)
             .is_some_and(|paths| paths.len() == 2),
         format!("tmpfs_headroom should report target and tmp paths: {data}"),
+    )?;
+    let lane_placement = require_lane_placement_shape(data)?;
+    if target_exists && tmp_exists {
+        require_eq(
+            field_str(lane_placement, "status")?,
+            "degraded",
+            "constrained lane status",
+        )?;
+    }
+    require(
+        field(lane_placement, "caveats")?
+            .as_array()
+            .is_some_and(|caveats| {
+                caveats
+                    .iter()
+                    .any(|caveat| caveat == "tight_memory_limit:2048MiB")
+            }),
+        format!("constrained lane placement should report tight memory: {lane_placement}"),
     )
 }
 
@@ -1040,6 +1102,7 @@ fn doctor_swarm_resource_preflight_json_reports_high_capacity_profile() -> TestR
         ("PI_DOCTOR_NUMA_ONLINE_PATH", Some(numa.as_str())),
         ("PI_DOCTOR_CGROUP_MEMORY_MAX_PATH", Some(memory.as_str())),
         ("PI_DOCTOR_MEMINFO_PATH", Some(meminfo.as_str())),
+        ("PI_DOCTOR_LOCAL_BUILD_PROCESS_COUNT", Some("0")),
     ])?;
     let finding = finding_by_schema(&report, SWARM_RESOURCE_PREFLIGHT_SCHEMA)?;
     let data = field(finding, "data")?;
@@ -1073,5 +1136,93 @@ fn doctor_swarm_resource_preflight_json_reports_high_capacity_profile() -> TestR
         &field_u64(field(data, "memory")?, "effective_limit_bytes")?,
         &(256_u64 * 1024 * 1024 * 1024),
         "effective memory limit",
+    )?;
+    let lane_placement = require_lane_placement_shape(data)?;
+    if target_exists && tmp_exists {
+        require_eq(
+            field_str(lane_placement, "status")?,
+            "ready",
+            "high capacity lane status",
+        )?;
+    }
+    require_eq(
+        &field(lane_placement, "lane_groups")?
+            .as_array()
+            .ok_or_else(|| TestError(format!("lane_groups should be array: {lane_placement}")))?
+            .len(),
+        &4,
+        "high capacity lane group count",
+    )
+}
+
+#[test]
+fn doctor_swarm_resource_preflight_json_reports_unknown_topology_lane_plan() -> TestResult {
+    let root = create_swarm_temp_test_dir(Path::new("/tmp"), "unknown-topology-resource-fixture")?;
+    let (target_dir, target_exists) = create_expected_root_test_dir("unknown-topology-target")?;
+    let (tmp_dir, tmp_exists) = create_expected_root_test_dir("unknown-topology-tmp")?;
+    let cpu_max = write_resource_fixture_file(&root, ResourceFixtureFile::CpuMax, "max 100000\n")?;
+    let memory = write_resource_fixture_file(&root, ResourceFixtureFile::MemoryMax, "max\n")?;
+    let meminfo = write_resource_fixture_file(
+        &root,
+        ResourceFixtureFile::Meminfo,
+        "MemTotal: 16777216 kB\n",
+    )?;
+    let missing_cpuset = root.join("missing-cpuset").display().to_string();
+    let missing_numa = root.join("missing-numa").display().to_string();
+    let target_dir = target_dir.display().to_string();
+    let tmp_dir = tmp_dir.display().to_string();
+    let cpu_max = cpu_max.display().to_string();
+    let memory = memory.display().to_string();
+    let meminfo = meminfo.display().to_string();
+
+    let report = run_doctor_json(&[
+        ("CARGO_TARGET_DIR", Some(target_dir.as_str())),
+        ("TMPDIR", Some(tmp_dir.as_str())),
+        ("PI_DOCTOR_CGROUP_CPU_MAX_PATH", Some(cpu_max.as_str())),
+        ("PI_DOCTOR_CPUSET_CPUS_PATH", Some(missing_cpuset.as_str())),
+        ("PI_DOCTOR_NUMA_ONLINE_PATH", Some(missing_numa.as_str())),
+        ("PI_DOCTOR_CGROUP_MEMORY_MAX_PATH", Some(memory.as_str())),
+        ("PI_DOCTOR_MEMINFO_PATH", Some(meminfo.as_str())),
+        ("PI_DOCTOR_LOCAL_BUILD_PROCESS_COUNT", Some("0")),
+    ])?;
+    let finding = finding_by_schema(&report, SWARM_RESOURCE_PREFLIGHT_SCHEMA)?;
+    let data = field(finding, "data")?;
+    let lane_placement = require_lane_placement_shape(data)?;
+
+    if target_exists && tmp_exists {
+        require_eq(
+            field_str(lane_placement, "status")?,
+            "degraded",
+            "unknown topology lane status",
+        )?;
+    }
+    let groups = field(lane_placement, "lane_groups")?
+        .as_array()
+        .ok_or_else(|| TestError(format!("lane_groups should be array: {lane_placement}")))?;
+    require_eq(&groups.len(), &1, "unknown topology lane group count")?;
+    let group = groups
+        .first()
+        .ok_or_else(|| TestError(format!("missing first lane group: {lane_placement}")))?;
+    require_eq(field_str(group, "lane_id")?, "shared", "lane id")?;
+    require_eq(
+        field_str(group, "cpu_affinity_hint")?,
+        "cpuset-unavailable",
+        "cpu affinity hint",
+    )?;
+    require(
+        field(lane_placement, "caveats")?
+            .as_array()
+            .is_some_and(|caveats| {
+                caveats
+                    .iter()
+                    .any(|caveat| caveat == "numa_topology_unavailable")
+            }),
+        format!("unknown topology should report missing NUMA: {lane_placement}"),
+    )?;
+    require(
+        field(lane_placement, "caveats")?
+            .as_array()
+            .is_some_and(|caveats| caveats.iter().any(|caveat| caveat == "cpuset_unavailable")),
+        format!("unknown topology should report missing cpuset: {lane_placement}"),
     )
 }

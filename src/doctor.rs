@@ -53,6 +53,7 @@ const SWARM_DOCTOR_VALIDATION_BROKER_SCHEMA: &str = "pi.doctor.validation_broker
 const SWARM_DOCTOR_PROGRESS_SLO_SCHEMA: &str = "pi.doctor.swarm_progress_slo_posture.v1";
 const SWARM_DOCTOR_RCH_AFFINITY_SCHEMA: &str = "pi.doctor.rch_warm_target_affinity.v1";
 const SWARM_DOCTOR_INCIDENT_DIAGNOSTICS_SCHEMA: &str = "pi.doctor.swarm_incident_diagnostics.v1";
+const SWARM_DOCTOR_LANE_PLACEMENT_SCHEMA: &str = "pi.doctor.swarm_lane_placement.v1";
 const SWARM_RCH_AFFINITY_PLAN_ARTIFACT_SCHEMA: &str = "pi.swarm.rch_affinity_plan.v1";
 const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
     "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
@@ -76,6 +77,7 @@ const SWARM_RESERVATION_EXPIRING_SOON_MINUTES: i64 = 30;
 const MIB_BYTES: u64 = 1024 * 1024;
 const CGROUP_UNLIMITED_MEMORY_THRESHOLD_BYTES: u64 = 1 << 60;
 const MAX_NUMERIC_RANGE_SPAN: u64 = 16_384;
+const SWARM_LANE_TIGHT_MEMORY_BYTES: u64 = 4 * 1024 * MIB_BYTES;
 
 // ── Core Types ──────────────────────────────────────────────────────
 
@@ -1728,6 +1730,7 @@ struct CgroupCpuQuota {
 struct CpuSetSnapshot {
     source: Option<String>,
     raw: Option<String>,
+    cpus: Vec<u64>,
     cpu_count: Option<u64>,
 }
 
@@ -1809,6 +1812,28 @@ struct SwarmResourceBudgetRecommendation {
     memory_pressure_threshold_ratio_label: String,
     plan_confidence: String,
     explanations: Vec<SwarmBudgetExplanation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SwarmLanePlacementPlan {
+    status: String,
+    lane_groups: Vec<SwarmLaneGroup>,
+    caveats: Vec<String>,
+    recommendations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SwarmLaneGroup {
+    lane_id: String,
+    numa_node: Option<u64>,
+    cpu_affinity_hint: String,
+    cpus: Vec<u64>,
+    target_dir: String,
+    tmpdir: String,
+    max_agents: u64,
+    max_tool_batches: u64,
+    max_extension_hostcall_lanes: u64,
+    max_rch_verification_fanout: u64,
 }
 
 fn build_swarm_resource_preflight_snapshot(
@@ -1959,6 +1984,7 @@ fn swarm_resource_preflight_data(
             "cpuset": {
                 "source": snapshot.cpuset.source,
                 "raw": snapshot.cpuset.raw,
+                "cpus": snapshot.cpuset.cpus,
                 "cpu_count": snapshot.cpuset.cpu_count,
             },
         },
@@ -1983,6 +2009,7 @@ fn swarm_resource_preflight_data(
             "paths": snapshot.headroom_paths.iter().map(swarm_headroom_path_json).collect::<Vec<_>>(),
         },
         "recommended_budgets": snapshot.recommended_budgets.as_ref().map(resource_budget_recommendation_json),
+        "lane_placement": swarm_lane_placement_plan_json(&swarm_lane_placement_plan(snapshot, critical_failures)),
         "plan_error": snapshot.plan_error,
         "critical_failures": critical_failures,
         "source_errors": snapshot.source_errors,
@@ -2046,12 +2073,239 @@ fn resource_budget_recommendation_json(
     })
 }
 
+fn swarm_lane_placement_plan_json(plan: &SwarmLanePlacementPlan) -> serde_json::Value {
+    serde_json::json!({
+        "schema": SWARM_DOCTOR_LANE_PLACEMENT_SCHEMA,
+        "status": plan.status,
+        "lane_groups": plan.lane_groups.iter().map(swarm_lane_group_json).collect::<Vec<_>>(),
+        "caveats": plan.caveats,
+        "recommendations": plan.recommendations,
+    })
+}
+
+fn swarm_lane_group_json(group: &SwarmLaneGroup) -> serde_json::Value {
+    serde_json::json!({
+        "lane_id": group.lane_id,
+        "numa_node": group.numa_node,
+        "cpu_affinity_hint": group.cpu_affinity_hint,
+        "cpus": group.cpus,
+        "target_dir": group.target_dir,
+        "tmpdir": group.tmpdir,
+        "max_agents": group.max_agents,
+        "max_tool_batches": group.max_tool_batches,
+        "max_extension_hostcall_lanes": group.max_extension_hostcall_lanes,
+        "max_rch_verification_fanout": group.max_rch_verification_fanout,
+    })
+}
+
 fn budget_explanation_json(explanation: &SwarmBudgetExplanation) -> serde_json::Value {
     serde_json::json!({
         "budget": explanation.budget,
         "value": explanation.value,
         "rationale": explanation.rationale,
     })
+}
+
+fn swarm_lane_placement_plan(
+    snapshot: &SwarmResourcePreflightSnapshot,
+    critical_failures: &[String],
+) -> SwarmLanePlacementPlan {
+    let mut caveats = swarm_lane_placement_caveats(snapshot);
+    if let Some(plan_error) = &snapshot.plan_error {
+        caveats.push(format!("capacity_plan_unavailable:{plan_error}"));
+    }
+    if !critical_failures.is_empty() {
+        caveats.push("critical_preflight_failures".to_string());
+    }
+    caveats.sort();
+    caveats.dedup();
+
+    let lane_nodes = if snapshot.numa.nodes.is_empty() {
+        vec![None]
+    } else {
+        snapshot
+            .numa
+            .nodes
+            .iter()
+            .copied()
+            .map(Some)
+            .collect::<Vec<_>>()
+    };
+    let cpu_groups = distribute_cpus_across_lanes(&snapshot.cpuset.cpus, lane_nodes.len());
+    let lane_groups = lane_nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            let lane_id =
+                node.map_or_else(|| "shared".to_string(), |node| format!("numa-node-{node}"));
+            let cpus = cpu_groups.get(index).cloned().unwrap_or_default();
+            let cpu_affinity_hint = if cpus.is_empty() {
+                "cpuset-unavailable".to_string()
+            } else {
+                format_numeric_ranges(&cpus)
+            };
+            let recommended_budgets = snapshot.recommended_budgets.as_ref();
+            SwarmLaneGroup {
+                target_dir: format!("{SWARM_CARGO_SCRATCH_ROOT}/<agent>/{lane_id}/target"),
+                tmpdir: format!("{SWARM_CARGO_SCRATCH_ROOT}/<agent>/{lane_id}/tmp"),
+                max_agents: recommended_budgets.map_or(1, |budget| {
+                    split_nonzero_budget(budget.agent_concurrency, lane_nodes.len())
+                }),
+                max_tool_batches: recommended_budgets.map_or(1, |budget| {
+                    split_nonzero_budget(budget.tool_concurrency, lane_nodes.len())
+                }),
+                max_extension_hostcall_lanes: recommended_budgets.map_or(1, |budget| {
+                    split_nonzero_budget(budget.extension_hostcall_lanes, lane_nodes.len())
+                }),
+                max_rch_verification_fanout: recommended_budgets.map_or(0, |budget| {
+                    split_optional_budget(budget.rch_verification_fanout, lane_nodes.len())
+                }),
+                lane_id,
+                numa_node: *node,
+                cpu_affinity_hint,
+                cpus,
+            }
+        })
+        .collect();
+
+    let status = if !critical_failures.is_empty() {
+        "blocked"
+    } else if caveats.is_empty() {
+        "ready"
+    } else {
+        "degraded"
+    }
+    .to_string();
+
+    let recommendations = swarm_lane_placement_recommendations(&status);
+    SwarmLanePlacementPlan {
+        status,
+        lane_groups,
+        caveats,
+        recommendations,
+    }
+}
+
+fn swarm_lane_placement_caveats(snapshot: &SwarmResourcePreflightSnapshot) -> Vec<String> {
+    let mut caveats = Vec::new();
+    if snapshot.numa.source.is_none() || snapshot.numa.nodes.is_empty() {
+        caveats.push("numa_topology_unavailable".to_string());
+    }
+    if snapshot.cpuset.source.is_none() || snapshot.cpuset.cpus.is_empty() {
+        caveats.push("cpuset_unavailable".to_string());
+    } else if snapshot
+        .cpuset
+        .cpu_count
+        .is_some_and(|count| count < snapshot.logical_cpu_cores)
+    {
+        caveats.push(format!(
+            "cpuset_partial:{}/{}",
+            snapshot.cpuset.cpu_count.unwrap_or(0),
+            snapshot.logical_cpu_cores
+        ));
+    }
+    if let Some(bytes) = snapshot
+        .memory
+        .effective_limit_bytes
+        .filter(|bytes| *bytes <= SWARM_LANE_TIGHT_MEMORY_BYTES)
+    {
+        caveats.push(format!(
+            "tight_memory_limit:{}MiB",
+            bytes_to_mib_ceil(bytes)
+        ));
+    }
+    if !matches!(
+        snapshot.rch_queue_posture.recommended_action.as_str(),
+        "proceed"
+    ) {
+        caveats.push(format!(
+            "rch_queue_pressure:{}",
+            snapshot.rch_queue_posture.recommended_action
+        ));
+    }
+    if snapshot.local_build_pressure.status != "clear" {
+        caveats.push(format!(
+            "local_build_pressure:{}",
+            snapshot.local_build_pressure.status
+        ));
+    }
+    if snapshot.headroom_paths.iter().any(|path| !path.ready) {
+        caveats.push("scratch_headroom_incomplete".to_string());
+    }
+    if !snapshot.source_errors.is_empty() {
+        caveats.push("source_inputs_degraded".to_string());
+    }
+    caveats
+}
+
+fn swarm_lane_placement_recommendations(status: &str) -> Vec<String> {
+    let mut recommendations = vec![
+        "Use the listed target_dir and tmpdir roots as per-agent scratch directories; do not share repo-local target directories.".to_string(),
+        "Treat CPU affinity hints as operator guidance only; Doctor does not pin processes or mutate OS/RCH state.".to_string(),
+        "Increase per-lane agent, tool, extension-hostcall, and RCH fanout only after rerunning the swarm preflight.".to_string(),
+    ];
+    if status == "blocked" {
+        recommendations.push(
+            "Resolve critical_failures before launching heavyweight swarm or cargo work."
+                .to_string(),
+        );
+    }
+    recommendations
+}
+
+fn distribute_cpus_across_lanes(cpus: &[u64], lane_count: usize) -> Vec<Vec<u64>> {
+    let lane_count = lane_count.max(1);
+    if cpus.is_empty() {
+        return vec![Vec::new(); lane_count];
+    }
+    let chunk_size = cpus.len().div_ceil(lane_count).max(1);
+    let mut lanes = cpus
+        .chunks(chunk_size)
+        .map(<[u64]>::to_vec)
+        .collect::<Vec<_>>();
+    lanes.resize_with(lane_count, Vec::new);
+    lanes
+}
+
+fn split_nonzero_budget(total: u64, lane_count: usize) -> u64 {
+    split_optional_budget(total, lane_count).max(1)
+}
+
+fn split_optional_budget(total: u64, lane_count: usize) -> u64 {
+    if total == 0 {
+        0
+    } else {
+        total
+            .checked_div(usize_to_u64(lane_count.max(1)))
+            .unwrap_or(0)
+            .max(1)
+    }
+}
+
+fn format_numeric_ranges(values: &[u64]) -> String {
+    let Some((&first, rest)) = values.split_first() else {
+        return "unknown".to_string();
+    };
+    let mut ranges = Vec::new();
+    let mut start = first;
+    let mut previous = first;
+    for value in rest {
+        if *value != previous.saturating_add(1) {
+            ranges.push(format_numeric_range(start, previous));
+            start = *value;
+        }
+        previous = *value;
+    }
+    ranges.push(format_numeric_range(start, previous));
+    ranges.join(",")
+}
+
+fn format_numeric_range(start: u64, end: u64) -> String {
+    if start == end {
+        start.to_string()
+    } else {
+        format!("{start}-{end}")
+    }
 }
 
 fn format_swarm_resource_preflight_detail(
@@ -2170,17 +2424,22 @@ fn read_cpuset_snapshot(source_errors: &mut Vec<String>) -> CpuSetSnapshot {
         return CpuSetSnapshot {
             source: None,
             raw: None,
+            cpus: Vec::new(),
             cpu_count: None,
         };
     };
 
-    let cpu_count = parse_numeric_range_list(&raw).and_then(|cpus| u64::try_from(cpus.len()).ok());
+    let cpus = parse_numeric_range_list(&raw);
+    let cpu_count = cpus
+        .as_ref()
+        .and_then(|cpus| u64::try_from(cpus.len()).ok());
     if cpu_count.is_none() {
         source_errors.push(format!("invalid cpuset CPU list at {source}: {raw}"));
     }
     CpuSetSnapshot {
         source: Some(source),
         raw: Some(raw),
+        cpus: cpus.unwrap_or_default(),
         cpu_count,
     }
 }
@@ -12940,7 +13199,58 @@ fn doctor_swarm_context_intelligence_json_reports_posture() {
         }
     }
 
+    fn ready_headroom_paths_fixture() -> Vec<SwarmHeadroomPath> {
+        vec![
+            SwarmHeadroomPath {
+                env_name: "CARGO_TARGET_DIR".to_string(),
+                path: Some(format!("{SWARM_CARGO_SCRATCH_ROOT}/codex/target")),
+                exists: true,
+                under_expected_root: Some(true),
+                available_kb: Some(SWARM_DISK_WARN_AVAILABLE_KB),
+                ready: true,
+                problem: None,
+            },
+            SwarmHeadroomPath {
+                env_name: "TMPDIR".to_string(),
+                path: Some(format!("{SWARM_CARGO_SCRATCH_ROOT}/codex/tmp")),
+                exists: true,
+                under_expected_root: Some(true),
+                available_kb: Some(SWARM_DISK_WARN_AVAILABLE_KB),
+                ready: true,
+                problem: None,
+            },
+        ]
+    }
+
+    fn resource_budget_recommendation_fixture(
+        agent_concurrency: u64,
+        tool_concurrency: u64,
+        extension_hostcall_lanes: u64,
+        rch_verification_fanout: u64,
+        numa_node_count: usize,
+    ) -> SwarmResourceBudgetRecommendation {
+        SwarmResourceBudgetRecommendation {
+            agent_concurrency,
+            tool_concurrency,
+            extension_hostcall_lanes,
+            rch_verification_fanout,
+            max_queue_depth: 1024,
+            max_rss_bytes: 1024 * MIB_BYTES,
+            local_build_process_budget: 8,
+            rch_queue_depth_budget: 1024,
+            numa_node_count,
+            memory_pressure_threshold_ratio_label: "0.70".to_string(),
+            plan_confidence: "high".to_string(),
+            explanations: vec![budget_explanation(
+                "agent_concurrency",
+                &agent_concurrency,
+                "fixture budget explanation",
+            )],
+        }
+    }
+
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn swarm_resource_preflight_fails_closed_without_headroom() {
         let snapshot = SwarmResourcePreflightSnapshot {
             logical_cpu_cores: 8,
@@ -12954,6 +13264,7 @@ fn doctor_swarm_context_intelligence_json_reports_posture() {
             cpuset: CpuSetSnapshot {
                 source: Some("/sys/fs/cgroup/cpuset.cpus.effective".to_string()),
                 raw: Some("0-3".to_string()),
+                cpus: vec![0, 1, 2, 3],
                 cpu_count: Some(4),
             },
             numa: NumaTopologySnapshot {
@@ -13030,6 +13341,21 @@ fn doctor_swarm_context_intelligence_json_reports_posture() {
                 .as_array()
                 .is_some_and(|items| !items.is_empty())
         );
+        assert_eq!(
+            data["lane_placement"]["schema"],
+            SWARM_DOCTOR_LANE_PLACEMENT_SCHEMA
+        );
+        assert_eq!(
+            data["lane_placement"]["status"],
+            serde_json::json!("blocked")
+        );
+        assert!(
+            data["lane_placement"]["caveats"]
+                .as_array()
+                .is_some_and(|items| items
+                    .iter()
+                    .any(|item| item == "scratch_headroom_incomplete"))
+        );
     }
 
     #[test]
@@ -13037,6 +13363,266 @@ fn doctor_swarm_context_intelligence_json_reports_posture() {
         assert_eq!(effective_swarm_cpu_cores(16, Some(3.8), Some(8)), 3);
         assert_eq!(effective_swarm_cpu_cores(16, Some(0.5), Some(8)), 1);
         assert_eq!(effective_swarm_cpu_cores(16, None, Some(4)), 4);
+    }
+
+    #[test]
+    fn swarm_resource_preflight_lane_placement_covers_large_host_fixture() {
+        let snapshot = SwarmResourcePreflightSnapshot {
+            logical_cpu_cores: 64,
+            cpu_quota: CgroupCpuQuota {
+                source: Some("fixture/cpu.max".to_string()),
+                quota_us: None,
+                period_us: Some(100_000),
+                quota_cores: None,
+                unlimited: true,
+            },
+            cpuset: CpuSetSnapshot {
+                source: Some("fixture/cpuset".to_string()),
+                raw: Some("0-63".to_string()),
+                cpus: (0..64).collect(),
+                cpu_count: Some(64),
+            },
+            numa: NumaTopologySnapshot {
+                source: Some("fixture/numa".to_string()),
+                raw_online: Some("0-3".to_string()),
+                nodes: vec![0, 1, 2, 3],
+            },
+            memory: MemoryLimitSnapshot {
+                mem_total_bytes: Some(256 * 1024 * MIB_BYTES),
+                cgroup_limit_bytes: None,
+                effective_limit_bytes: Some(256 * 1024 * MIB_BYTES),
+                unlimited: true,
+                source: Some("fixture/memory.max".to_string()),
+            },
+            effective_cpu_cores: 64,
+            local_build_pressure: clear_local_build_pressure_fixture(),
+            rch_queue_posture: clear_rch_queue_posture_fixture(),
+            headroom_paths: ready_headroom_paths_fixture(),
+            recommended_budgets: Some(resource_budget_recommendation_fixture(32, 64, 16, 8, 4)),
+            plan_error: None,
+            source_errors: Vec::new(),
+        };
+
+        let plan = swarm_lane_placement_plan(&snapshot, &[]);
+
+        assert_eq!(plan.status, "ready");
+        assert!(plan.caveats.is_empty());
+        assert_eq!(plan.lane_groups.len(), 4);
+        assert_eq!(plan.lane_groups[0].lane_id, "numa-node-0");
+        assert_eq!(plan.lane_groups[0].cpu_affinity_hint, "0-15");
+        assert_eq!(plan.lane_groups[0].max_agents, 8);
+        assert_eq!(plan.lane_groups[0].max_tool_batches, 16);
+        assert_eq!(plan.lane_groups[0].max_extension_hostcall_lanes, 4);
+        assert_eq!(plan.lane_groups[0].max_rch_verification_fanout, 2);
+        assert!(
+            plan.lane_groups[0]
+                .target_dir
+                .contains("/data/tmp/pi_agent_rust_cargo/<agent>/numa-node-0/target")
+        );
+    }
+
+    #[test]
+    fn swarm_resource_preflight_lane_placement_degrades_constrained_single_node_fixture() {
+        let snapshot = SwarmResourcePreflightSnapshot {
+            logical_cpu_cores: 64,
+            cpu_quota: CgroupCpuQuota {
+                source: Some("fixture/cpu.max".to_string()),
+                quota_us: Some(200_000),
+                period_us: Some(100_000),
+                quota_cores: Some(2.0),
+                unlimited: false,
+            },
+            cpuset: CpuSetSnapshot {
+                source: Some("fixture/cpuset".to_string()),
+                raw: Some("0-3".to_string()),
+                cpus: vec![0, 1, 2, 3],
+                cpu_count: Some(4),
+            },
+            numa: NumaTopologySnapshot {
+                source: Some("fixture/numa".to_string()),
+                raw_online: Some("0".to_string()),
+                nodes: vec![0],
+            },
+            memory: MemoryLimitSnapshot {
+                mem_total_bytes: Some(256 * 1024 * MIB_BYTES),
+                cgroup_limit_bytes: Some(2 * 1024 * MIB_BYTES),
+                effective_limit_bytes: Some(2 * 1024 * MIB_BYTES),
+                unlimited: false,
+                source: Some("fixture/memory.max".to_string()),
+            },
+            effective_cpu_cores: 2,
+            local_build_pressure: LocalBuildPressureSnapshot {
+                source: "fixture".to_string(),
+                active_processes: Some(2),
+                process_budget: 1,
+                status: "saturated".to_string(),
+                patterns: local_build_process_patterns(),
+            },
+            rch_queue_posture: clear_rch_queue_posture_fixture(),
+            headroom_paths: ready_headroom_paths_fixture(),
+            recommended_budgets: Some(resource_budget_recommendation_fixture(1, 2, 1, 1, 1)),
+            plan_error: None,
+            source_errors: Vec::new(),
+        };
+
+        let plan = swarm_lane_placement_plan(&snapshot, &[]);
+
+        assert_eq!(plan.status, "degraded");
+        assert_eq!(plan.lane_groups.len(), 1);
+        assert_eq!(plan.lane_groups[0].lane_id, "numa-node-0");
+        assert_eq!(plan.lane_groups[0].cpu_affinity_hint, "0-3");
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "cpuset_partial:4/64")
+        );
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "tight_memory_limit:2048MiB")
+        );
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "local_build_pressure:saturated")
+        );
+    }
+
+    #[test]
+    fn swarm_resource_preflight_lane_placement_degrades_unknown_topology_fixture() {
+        let snapshot = SwarmResourcePreflightSnapshot {
+            logical_cpu_cores: 8,
+            cpu_quota: CgroupCpuQuota {
+                source: Some("fixture/cpu.max".to_string()),
+                quota_us: None,
+                period_us: Some(100_000),
+                quota_cores: None,
+                unlimited: true,
+            },
+            cpuset: CpuSetSnapshot {
+                source: None,
+                raw: None,
+                cpus: Vec::new(),
+                cpu_count: None,
+            },
+            numa: NumaTopologySnapshot {
+                source: None,
+                raw_online: None,
+                nodes: Vec::new(),
+            },
+            memory: MemoryLimitSnapshot {
+                mem_total_bytes: Some(16 * 1024 * MIB_BYTES),
+                cgroup_limit_bytes: None,
+                effective_limit_bytes: Some(16 * 1024 * MIB_BYTES),
+                unlimited: true,
+                source: Some("fixture/memory.max".to_string()),
+            },
+            effective_cpu_cores: 8,
+            local_build_pressure: clear_local_build_pressure_fixture(),
+            rch_queue_posture: clear_rch_queue_posture_fixture(),
+            headroom_paths: ready_headroom_paths_fixture(),
+            recommended_budgets: Some(resource_budget_recommendation_fixture(4, 8, 2, 2, 0)),
+            plan_error: None,
+            source_errors: vec![
+                "cpuset CPU list unavailable".to_string(),
+                "NUMA topology unavailable".to_string(),
+            ],
+        };
+
+        let plan = swarm_lane_placement_plan(&snapshot, &[]);
+
+        assert_eq!(plan.status, "degraded");
+        assert_eq!(plan.lane_groups.len(), 1);
+        assert_eq!(plan.lane_groups[0].lane_id, "shared");
+        assert_eq!(plan.lane_groups[0].cpu_affinity_hint, "cpuset-unavailable");
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "numa_topology_unavailable")
+        );
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "cpuset_unavailable")
+        );
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "source_inputs_degraded")
+        );
+    }
+
+    #[test]
+    fn swarm_resource_preflight_lane_placement_blocks_rch_fanout_under_queue_pressure() {
+        let rch_posture = rch_queue_posture_from_value(
+            &serde_json::json!({
+                "status": "saturated",
+                "recommended_action": "backoff",
+                "reason": "queue_saturated",
+                "queue_depth": 512,
+                "active_builds": 78,
+                "queued_builds": 32,
+                "slots_available": 0,
+                "slots_total": 78,
+                "workers_healthy": 8,
+                "workers_total": 8
+            }),
+            "fixture".to_string(),
+        );
+        let snapshot = SwarmResourcePreflightSnapshot {
+            logical_cpu_cores: 64,
+            cpu_quota: CgroupCpuQuota {
+                source: Some("fixture/cpu.max".to_string()),
+                quota_us: None,
+                period_us: Some(100_000),
+                quota_cores: None,
+                unlimited: true,
+            },
+            cpuset: CpuSetSnapshot {
+                source: Some("fixture/cpuset".to_string()),
+                raw: Some("0-63".to_string()),
+                cpus: (0..64).collect(),
+                cpu_count: Some(64),
+            },
+            numa: NumaTopologySnapshot {
+                source: Some("fixture/numa".to_string()),
+                raw_online: Some("0-3".to_string()),
+                nodes: vec![0, 1, 2, 3],
+            },
+            memory: MemoryLimitSnapshot {
+                mem_total_bytes: Some(256 * 1024 * MIB_BYTES),
+                cgroup_limit_bytes: None,
+                effective_limit_bytes: Some(256 * 1024 * MIB_BYTES),
+                unlimited: true,
+                source: Some("fixture/memory.max".to_string()),
+            },
+            effective_cpu_cores: 64,
+            local_build_pressure: clear_local_build_pressure_fixture(),
+            rch_queue_posture: rch_posture,
+            headroom_paths: ready_headroom_paths_fixture(),
+            recommended_budgets: Some(resource_budget_recommendation_fixture(32, 64, 16, 0, 4)),
+            plan_error: None,
+            source_errors: Vec::new(),
+        };
+
+        let plan = swarm_lane_placement_plan(&snapshot, &["rch_queue:queue_saturated".to_string()]);
+
+        assert_eq!(plan.status, "blocked");
+        assert!(
+            plan.lane_groups
+                .iter()
+                .all(|lane| lane.max_rch_verification_fanout == 0)
+        );
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "rch_queue_pressure:backoff")
+        );
+        assert!(
+            plan.caveats
+                .iter()
+                .any(|caveat| caveat == "critical_preflight_failures")
+        );
     }
 
     #[test]

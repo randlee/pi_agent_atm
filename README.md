@@ -2436,7 +2436,14 @@ cpuset, NUMA, and memory limits. The same object includes budget explanations,
 local cargo/rustc pressure, and replayable RCH queue posture. For deterministic
 replays, provide `PI_DOCTOR_LOCAL_BUILD_PROCESS_COUNT`,
 `PI_DOCTOR_RCH_QUEUE_JSON`, or `PI_DOCTOR_RCH_QUEUE_JSON_PATH`; these inputs are
-advisory budget controls, not release-facing performance claims.
+advisory budget controls, not release-facing performance claims. The same
+finding also includes `lane_placement` (`pi.doctor.swarm_lane_placement.v1`),
+which groups the current cpuset/NUMA topology into read-only operator lanes with
+CPU affinity hints, per-lane `CARGO_TARGET_DIR`/`TMPDIR` roots under
+`/data/tmp/pi_agent_rust_cargo/<agent>/`, and max agent/tool/hostcall/RCH fanout
+recommendations. Doctor reports caveats such as unknown NUMA data, partial
+cpusets, tight memory limits, or RCH queue pressure, but it never pins processes
+or mutates OS/RCH state.
 
 When `PI_VALIDATION_BROKER_STORE` points at a validation-broker slot JSONL
 store, Doctor also emits `pi.doctor.validation_broker_posture.v1` with advisory
