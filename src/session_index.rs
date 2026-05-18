@@ -821,6 +821,17 @@ pub(crate) fn is_session_file_path(path: &Path) -> bool {
     }
 }
 
+fn is_v2_sidecar_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("v2"))
+                || name.contains(".v2.")
+        })
+}
+
 fn session_path_is_missing(path: &Path) -> bool {
     match path.try_exists() {
         Ok(exists) => !exists,
@@ -848,6 +859,9 @@ pub(crate) fn walk_sessions(root: &Path) -> Vec<std::io::Result<PathBuf>> {
                 };
 
                 if file_type.is_dir() {
+                    if is_v2_sidecar_dir(&path) {
+                        continue;
+                    }
                     stack.push(path);
                 } else if file_type.is_symlink() {
                     // Allow symlinks to files, but skip symlinked directories to avoid cycles
@@ -1712,6 +1726,31 @@ mod tests {
         assert_eq!(ok_paths.len(), 2);
         assert!(ok_paths.iter().any(|p| p.ends_with("a.jsonl")));
         assert!(ok_paths.iter().any(|p| p.ends_with("b.jsonl")));
+    }
+
+    #[test]
+    fn walk_sessions_skips_v2_sidecar_jsonl_files() {
+        let harness = TestHarness::new("walk_sessions_skips_v2_sidecar_jsonl_files");
+        let root = harness.temp_path("sessions");
+        fs::create_dir_all(root.join("project/session.v2/index")).expect("create sidecar index");
+        fs::create_dir_all(root.join("project/session.v2.staging.abc/migrations"))
+            .expect("create staging sidecar ledger");
+
+        fs::write(root.join("project/session.jsonl"), "").expect("write session");
+        fs::write(root.join("project/session.v2/index/offsets.jsonl"), "")
+            .expect("write sidecar index");
+        fs::write(
+            root.join("project/session.v2.staging.abc/migrations/ledger.jsonl"),
+            "",
+        )
+        .expect("write staging sidecar ledger");
+
+        let paths = walk_sessions(&root);
+        let ok_paths: Vec<_> = paths
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+            .collect();
+        assert_eq!(ok_paths, vec![root.join("project/session.jsonl")]);
     }
 
     #[test]

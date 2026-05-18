@@ -5757,6 +5757,67 @@ mod tests {
         }
     }
 
+    fn make_test_tool_call_message(tool_call_id: &str) -> SessionMessage {
+        SessionMessage::Assistant {
+            message: AssistantMessage {
+                content: vec![ContentBlock::ToolCall(crate::model::ToolCall {
+                    id: tool_call_id.to_string(),
+                    name: "read".to_string(),
+                    arguments: serde_json::json!({ "path": "src/session.rs" }),
+                    thought_signature: None,
+                })],
+                api: "test-api".to_string(),
+                provider: "test-provider".to_string(),
+                model: "test-model".to_string(),
+                usage: Usage {
+                    input: 24,
+                    output: 16,
+                    total_tokens: 40,
+                    ..Usage::default()
+                },
+                stop_reason: StopReason::ToolUse,
+                error_message: None,
+                timestamp: 0,
+            },
+        }
+    }
+
+    fn make_test_tool_result_message(tool_call_id: &str) -> SessionMessage {
+        SessionMessage::ToolResult {
+            tool_call_id: tool_call_id.to_string(),
+            tool_name: "read".to_string(),
+            content: vec![ContentBlock::Text(TextContent::new(
+                "read output for replay harness".to_string(),
+            ))],
+            details: Some(serde_json::json!({
+                "bytes": 31,
+                "truncated": false,
+            })),
+            is_error: false,
+            timestamp: Some(0),
+        }
+    }
+
+    fn make_test_aborted_assistant_message(text: &str) -> SessionMessage {
+        SessionMessage::Assistant {
+            message: AssistantMessage {
+                content: vec![ContentBlock::Text(TextContent::new(text.to_string()))],
+                api: "test-api".to_string(),
+                provider: "test-provider".to_string(),
+                model: "test-model".to_string(),
+                usage: Usage {
+                    input: 10,
+                    output: 6,
+                    total_tokens: 16,
+                    ..Usage::default()
+                },
+                stop_reason: StopReason::Aborted,
+                error_message: Some("interrupted by local abort".to_string()),
+                timestamp: 0,
+            },
+        }
+    }
+
     fn run_async<T>(future: impl Future<Output = T>) -> T {
         let runtime = RuntimeBuilder::current_thread()
             .build()
@@ -6866,26 +6927,153 @@ mod tests {
         (session, selected_tip)
     }
 
+    const LARGE_REPLAY_CORRECTNESS_EVIDENCE_SCHEMA: &str = "pi.session.large_replay_correctness.v1";
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct LargeReplayCorrectnessEvidence {
+        schema: String,
+        fixture: String,
+        entry_count: usize,
+        selected_depth: usize,
+        replayed_entries: usize,
+        skipped_sibling_entries: usize,
+        index_initial_miss_files: usize,
+        index_cached_hit_files: usize,
+        index_cached_reused_files: usize,
+        index_failed_files: usize,
+        elapsed_budget_class: String,
+        fallback_reason: Option<String>,
+        baseline_message_count: usize,
+        accelerated_message_count: usize,
+        baseline_leaf: String,
+        accelerated_leaf: String,
+        verdict: String,
+    }
+
+    fn cold_start_elapsed_budget_class(elapsed_us: u64) -> &'static str {
+        match elapsed_us {
+            0..=250_000 => "target",
+            250_001..=1_000_000 => "bounded",
+            _ => "observed_slow",
+        }
+    }
+
+    fn current_path_message_json(session: &Session) -> serde_json::Value {
+        let mut value = serde_json::to_value(session.to_messages_for_current_path())
+            .expect("serialize current-path messages");
+        redact_json_timestamps(&mut value);
+        value
+    }
+
+    fn redact_json_timestamps(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.contains_key("timestamp") {
+                    object.insert("timestamp".to_string(), serde_json::json!(0));
+                }
+                for child in object.values_mut() {
+                    redact_json_timestamps(child);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    redact_json_timestamps(item);
+                }
+            }
+            serde_json::Value::Null
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => {}
+        }
+    }
+
+    fn append_large_replay_mixed_turns(session: &mut Session, selected_tip: &str) -> String {
+        assert!(
+            session.navigate_to(selected_tip),
+            "return to active branch before mixed replay fixture"
+        );
+        let first_kept_id = selected_tip.to_string();
+        session.append_model_change(
+            "openai-responses".to_string(),
+            "gpt-5.2-replay-harness".to_string(),
+        );
+        let tool_call_id = "call_large_replay";
+        session.append_message(make_test_tool_call_message(tool_call_id));
+        session.append_message(make_test_tool_result_message(tool_call_id));
+        let aborted_id =
+            session.append_message(make_test_aborted_assistant_message("interrupted assistant"));
+        session.append_bash_execution(
+            "cargo test session replay index".to_string(),
+            "cancelled by operator".to_string(),
+            130,
+            true,
+            false,
+            None,
+        );
+        session.append_compaction(
+            "large replay harness compaction".to_string(),
+            first_kept_id,
+            42_000,
+            Some(serde_json::json!({
+                "reason": "large_replay_correctness_harness",
+            })),
+            Some(false),
+        );
+        session.append_branch_summary(
+            aborted_id,
+            "interrupted turn branch summary".to_string(),
+            Some(serde_json::json!({
+                "turn_state": "interrupted",
+            })),
+            Some(false),
+        );
+        session.append_message(make_test_message("active-after-interrupted-turn"))
+    }
+
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn cold_start_replay_minimization_bounds_branch_heavy_v2_resume() {
         const FORKS: usize = 700;
         const SIDE_BRANCH_LEN: usize = 15;
+        const MIXED_ACTIVE_ENTRIES: usize = 8;
+        const MIXED_ACTIVE_REPLAYED_ENTRIES: usize = 7;
+        const MIXED_ACTIVE_PROJECTED_MESSAGES: usize = 5;
 
         let temp = tempdir_under_tmpdir("branch-heavy-v2-resume");
         let path = temp.path().join("branch-heavy.jsonl");
-        let (mut session, selected_tip) = build_branch_heavy_session(&path, FORKS, SIDE_BRANCH_LEN);
+        let (mut session, mut selected_tip) =
+            build_branch_heavy_session(&path, FORKS, SIDE_BRANCH_LEN);
+        selected_tip = append_large_replay_mixed_turns(&mut session, &selected_tip);
         session.header.current_leaf = Some("stale-missing-leaf".to_string());
         run_async(async { session.save().await }).expect("save branch-heavy session");
+
+        let baseline_loaded =
+            run_async(async { Session::open(path.to_string_lossy().as_ref()).await })
+                .expect("open JSONL baseline session");
+        let baseline_messages = current_path_message_json(&baseline_loaded);
+
         create_v2_sidecar_from_jsonl(&path).expect("create v2 sidecar");
 
+        let first_trace = run_async(async {
+            Session::cold_start_trace_bundle(&path, temp.path())
+                .await
+                .expect("initial cold-start trace")
+        });
         let trace = run_async(async {
             Session::cold_start_trace_bundle(&path, temp.path())
                 .await
-                .expect("cold-start trace")
+                .expect("cached cold-start trace")
         });
 
-        let expected_entries = 1 + (FORKS * (SIDE_BRANCH_LEN + 1));
-        let expected_depth = 1 + FORKS;
+        let accelerated_loaded =
+            run_async(async { Session::open(path.to_string_lossy().as_ref()).await })
+                .expect("open accelerated session");
+        let accelerated_messages = current_path_message_json(&accelerated_loaded);
+
+        let expected_entries = 1 + (FORKS * (SIDE_BRANCH_LEN + 1)) + MIXED_ACTIVE_ENTRIES;
+        let expected_depth = 1 + FORKS + MIXED_ACTIVE_ENTRIES;
+        let expected_replayed_entries = 1 + FORKS + MIXED_ACTIVE_REPLAYED_ENTRIES;
+        let expected_projected_messages = 1 + FORKS + MIXED_ACTIVE_PROJECTED_MESSAGES;
         assert_eq!(trace.schema, SESSION_COLD_START_TRACE_SCHEMA);
         assert_eq!(
             trace.replay_minimization.schema,
@@ -6897,7 +7085,10 @@ mod tests {
         assert_eq!(trace.replay_minimization.entry_count, expected_entries);
         assert_eq!(trace.replay_minimization.branch_count, FORKS);
         assert_eq!(trace.replay_minimization.selected_depth, expected_depth);
-        assert_eq!(trace.replay_minimization.replayed_entries, expected_depth);
+        assert_eq!(
+            trace.replay_minimization.replayed_entries,
+            expected_replayed_entries
+        );
         assert_eq!(
             trace.replay_minimization.skipped_sibling_entries,
             expected_entries - expected_depth
@@ -6906,17 +7097,77 @@ mod tests {
         assert_eq!(trace.replay_minimization.fallback_behavior, None);
         assert_eq!(trace.replay_minimization.verdict, "bounded_selected_branch");
         assert_eq!(trace.compaction_scan.scanned_entries, expected_depth);
+        assert_eq!(trace.compaction_scan.compaction_entries, 1);
+        assert!(trace.compaction_scan.latest_compaction_present);
+        assert_eq!(trace.compaction_scan.first_kept_entry_found, Some(true));
         assert_eq!(trace.first_render.current_path_entries, expected_depth);
-        assert_eq!(trace.first_render.projected_messages, expected_depth);
-
-        let loaded = run_async(async { Session::open(path.to_string_lossy().as_ref()).await })
-            .expect("open branch-heavy session");
-        assert_eq!(loaded.leaf_id(), Some(selected_tip.as_str()));
         assert_eq!(
-            loaded.to_messages_for_current_path().len(),
-            expected_depth,
-            "active replay must not include sibling branch messages"
+            trace.first_render.projected_messages,
+            expected_projected_messages
         );
+        assert_eq!(trace.first_render.tool_messages, 2);
+        assert_eq!(trace.first_render.assistant_messages, 2);
+        assert_eq!(trace.first_render.user_messages, 1 + FORKS + 1);
+        assert_eq!(trace.first_render.system_messages, 0);
+        assert!(first_trace.index_refresh.refreshed_files >= 1);
+        assert_eq!(first_trace.index_refresh.failed_files, 0);
+        assert!(trace.index_refresh.cache_hit_files >= 1);
+        assert_eq!(
+            trace.index_refresh.cache_hit_files,
+            trace.index_refresh.reused_files
+        );
+        assert_eq!(trace.index_refresh.failed_files, 0);
+
+        assert_eq!(baseline_loaded.leaf_id(), Some(selected_tip.as_str()));
+        assert_eq!(accelerated_loaded.leaf_id(), Some(selected_tip.as_str()));
+        assert!(accelerated_loaded.v2_partial_hydration);
+        assert_eq!(
+            accelerated_loaded.v2_resume_mode,
+            Some(V2OpenMode::ActivePath)
+        );
+        assert_eq!(
+            accelerated_loaded.entries_for_current_path().len(),
+            baseline_loaded.entries_for_current_path().len()
+        );
+        assert_eq!(
+            accelerated_messages, baseline_messages,
+            "accelerated V2 replay must match full JSONL replay"
+        );
+
+        let evidence = LargeReplayCorrectnessEvidence {
+            schema: LARGE_REPLAY_CORRECTNESS_EVIDENCE_SCHEMA.to_string(),
+            fixture: "branch-heavy-v2-resume".to_string(),
+            entry_count: trace.replay_minimization.entry_count,
+            selected_depth: trace.replay_minimization.selected_depth,
+            replayed_entries: trace.replay_minimization.replayed_entries,
+            skipped_sibling_entries: trace.replay_minimization.skipped_sibling_entries,
+            index_initial_miss_files: first_trace.index_refresh.refreshed_files,
+            index_cached_hit_files: trace.index_refresh.cache_hit_files,
+            index_cached_reused_files: trace.index_refresh.reused_files,
+            index_failed_files: trace.index_refresh.failed_files,
+            elapsed_budget_class: cold_start_elapsed_budget_class(trace.total_elapsed_us)
+                .to_string(),
+            fallback_reason: trace.replay_minimization.fallback_behavior.clone(),
+            baseline_message_count: baseline_loaded.to_messages_for_current_path().len(),
+            accelerated_message_count: accelerated_loaded.to_messages_for_current_path().len(),
+            baseline_leaf: baseline_loaded.leaf_id().unwrap_or_default().to_string(),
+            accelerated_leaf: accelerated_loaded.leaf_id().unwrap_or_default().to_string(),
+            verdict: trace.replay_minimization.verdict,
+        };
+        assert_eq!(evidence.fallback_reason, None);
+        assert_eq!(
+            evidence.baseline_message_count,
+            evidence.accelerated_message_count
+        );
+        assert!(matches!(
+            evidence.elapsed_budget_class.as_str(),
+            "target" | "bounded" | "observed_slow"
+        ));
+        let serialized = serde_json::to_string(&evidence).expect("serialize evidence");
+        assert!(!serialized.contains("side-0-0"));
+        let parsed: LargeReplayCorrectnessEvidence =
+            serde_json::from_str(&serialized).expect("parse evidence");
+        assert_eq!(parsed, evidence);
     }
 
     #[test]
