@@ -367,6 +367,42 @@ fn test_api_usage_matrix_jsonwebtoken_shim_contract() {
 }
 
 #[test]
+fn test_api_usage_matrix_readline_shim_contract() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let matrix_path = repo_root.join("tests/ext_conformance/api_usage_matrix.json");
+    let bytes = fs::read(&matrix_path).expect("read api_usage_matrix.json");
+    let matrix: ApiUsageMatrix =
+        serde_json::from_slice(&bytes).expect("parse api_usage_matrix.json");
+
+    let readline = matrix
+        .node_modules
+        .iter()
+        .find(|entry| entry.module == "node:readline")
+        .expect("node:readline entry missing from api_usage_matrix.json");
+
+    assert_eq!(
+        readline.shim_status, "partial",
+        "node:readline should stay partial: prompts use pi.ui when available and empty strings otherwise"
+    );
+    assert_eq!(
+        matrix_api_status(readline, "createInterface"),
+        Some("partial")
+    );
+    assert_eq!(matrix_api_status(readline, "promises"), Some("partial"));
+
+    let readline_promises = matrix
+        .node_modules
+        .iter()
+        .find(|entry| entry.module == "node:readline/promises")
+        .expect("node:readline/promises entry missing from api_usage_matrix.json");
+
+    assert_eq!(
+        readline_promises.shim_status, "partial",
+        "node:readline/promises should not be reported as missing while the facade is registered"
+    );
+}
+
+#[test]
 fn test_ext_conformance_pinned_sample_compat_ledger_snapshot() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest_path = repo_root.join("docs/extension-sample.json");

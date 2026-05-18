@@ -27,7 +27,7 @@ capability-gated hostcall interface.
 | `node:url` | Partial | `URL` (globalThis), `URLSearchParams`, `parse`, `format`, `resolve`, `fileURLToPath`, `pathToFileURL` |
 | `node:stream` | Partial | `Readable`, `Writable`, `Transform`, `PassThrough`, `Duplex`, `pipeline`, `finished` |
 | `node:net` | Stub | `createConnection` (stub), `Socket` (stub); `createServer` throws -- network APIs outside sandbox |
-| `node:readline` | Stub | `createInterface` (returns no-op), `promises.createInterface` -- interactive prompts unavailable |
+| `node:readline` | Partial | `createInterface`, `promises.createInterface` -- questions use `pi.ui('input')` when available and resolve to empty strings otherwise |
 
 ### `node:fs` Detail
 

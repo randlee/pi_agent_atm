@@ -198,11 +198,11 @@
       "module": "node:readline",
       "extensions_using": 9,
       "tier_breakdown": { "T2": 1, "T3_npm": 7, "T3_gh": 1 },
-      "shim_status": "stub",
+      "shim_status": "partial",
       "criticality": "P2",
       "apis": [
-        { "name": "createInterface", "call_count": 7, "shim_status": "stub" },
-        { "name": "promises", "call_count": 2, "shim_status": "stub" }
+        { "name": "createInterface", "call_count": 7, "shim_status": "partial" },
+        { "name": "promises", "call_count": 2, "shim_status": "partial" }
       ]
     },
     {
@@ -416,9 +416,9 @@
       "module": "node:readline/promises",
       "extensions_using": 1,
       "tier_breakdown": { "T3_npm": 1 },
-      "shim_status": "missing",
+      "shim_status": "partial",
       "criticality": "P3",
-      "notes": "node:readline exists but promises sub-module is missing"
+      "notes": "Partial createInterface/question support via node:readline promises facade"
     }
   ],
   "npm_packages": [
@@ -613,11 +613,11 @@
     "total_virtual_modules": 62,
     "shim_completeness": {
       "real": 17,
-      "partial": 14,
-      "stub": 19,
+      "partial": 16,
+      "stub": 18,
       "external": 5,
       "error_throw": 2,
-      "missing_from_corpus": 8
+      "missing_from_corpus": 7
     },
     "missing_modules_used_by_corpus": [
       "node:assert/strict (7 ext)",
@@ -626,15 +626,14 @@
       "node:v8 (1 ext)",
       "node:perf_hooks (1 ext)",
       "node:vm (1 ext)",
-      "node:stream/web (1 ext)",
-      "node:readline/promises (1 ext)"
+      "node:stream/web (1 ext)"
     ],
     "top_gaps_by_impact": [
       "child_process.fork (72 calls, error throw)",
       "process.getuid/getgid (16 calls, stubbed identity)",
       "fs.watch (9 calls, stub - path-checking no-op, no real file watching)",
-      "node:readline.createInterface (7 calls, stub)",
       "node:net (7 ext, stubbed sockets)",
+      "node:stream Readable/Writable (5 calls, stub)",
       "ws npm package (4 ext, missing)",
       "glob npm package (3 ext, stub only)"
     ]

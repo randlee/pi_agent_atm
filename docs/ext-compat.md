@@ -66,7 +66,7 @@ with a clear error message identifying the unsupported call.
 | Module | Supported | Unsupported | Notes |
 |--------|-----------|-------------|-------|
 | `node:net` | `createConnection` (stub), `Socket` (stub) | `createServer` | Stubbed sockets (no network I/O); use `pi.http()` |
-| `node:readline` | `createInterface` (stub) | Interactive mode | Non-interactive only |
+| `node:readline` | `createInterface`, `promises.createInterface` | Full interactive readline | Uses `pi.ui('input')` when available; non-interactive prompts resolve to empty strings |
 
 ### Blocked
 

@@ -28,7 +28,7 @@ Generated: 2026-02-07 | Corpus: 1,167 files across 230 extensions
 | `node:crypto` | 27 | 2 | 7 | 18 | External | P1 |
 | `node:util` | 15 | 1 | 4 | 10 | Partial | P2 |
 | `node:module` | 10 | 1 | 3 | 6 | Real | P2 |
-| `node:readline` | 9 | - | 1 | 8 | Stub | P2 |
+| `node:readline` | 9 | - | 1 | 8 | Partial | P2 |
 | `node:net` | 7 | - | 1 | 6 | Stub | P3 |
 | `node:test` | 7 | - | - | 7 | Partial | P3 |
 | `node:assert/strict` | 7 | - | - | 7 | **Missing** | P3 |
@@ -47,7 +47,7 @@ Generated: 2026-02-07 | Corpus: 1,167 files across 230 extensions
 | `node:perf_hooks` | 1 | - | - | 1 | **Missing** | P3 |
 | `node:vm` | 1 | - | - | 1 | **Missing** | P3 |
 | `node:stream/web` | 1 | - | - | 1 | **Missing** | P3 |
-| `node:readline/promises` | 1 | - | - | 1 | **Missing** | P3 |
+| `node:readline/promises` | 1 | - | - | 1 | Partial | P3 |
 
 ## Top 20 Most-Called APIs
 
