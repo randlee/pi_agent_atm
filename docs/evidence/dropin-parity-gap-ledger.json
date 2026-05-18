@@ -164,24 +164,27 @@
       "severity": "high",
       "status": "open",
       "reopened_date": "2026-05-18T10:07:45Z",
-      "blocking_reason": "Slash-command differential parity is not certified because the current harness returns DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED instead of driving both Rust Pi and pi-mono over RPC.",
+      "blocking_reason": "Slash-command differential parity is not certified because the runner cannot complete mirrored Rust Pi/pi-mono RPC execution while the pinned legacy tsx runtime is absent and UI-only slash commands lack an RPC-observable adapter.",
       "sources": [
         "docs/dropin-112-feature-inventory-matrix.md#section:5-slash-commands"
       ],
-      "current_state": "tests/dropin_slash_differential.rs is a fail-closed guard, not pass evidence. tests/dropin_slash_differential/mod.rs returns success=false with DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED for every slash-command scenario.",
+      "current_state": "tests/dropin_slash_differential.rs is a fail-closed guard, not pass evidence. tests/dropin_slash_differential/mod.rs now preflights CARGO_BIN_EXE_pi plus the pinned pi-mono RPC entrypoint and maps RPC-observable slash commands, but returns blocked DIFFERENTIAL_RUNNER_UNAVAILABLE while legacy_pi_mono_code/pi-mono/node_modules/tsx/dist/cli.mjs is missing.",
       "release_claim_impact": "Blocks strict drop-in replacement claims and forces docs/evidence/dropin-certification-verdict.json overall_verdict away from CERTIFIED until real mirrored slash-command execution exists.",
       "closure_path": [
-        "Implement the real Rust Pi/pi-mono RPC slash-command differential runner, or keep this gap active.",
-        "Require tests/dropin_slash_differential.rs to report real mirrored execution before G04 or G10 can pass.",
+        "Provision the pinned legacy pi-mono runtime so legacy_pi_mono_code/pi-mono/node_modules/tsx/dist/cli.mjs exists without violating repository package-manager policy.",
+        "Add or expose an RPC-observable adapter for UI-only slash commands, or keep those scenarios fail-closed and out of pass evidence.",
+        "Require tests/dropin_slash_differential.rs to report real mirrored execution for every scenario before G04 or G10 can pass.",
         "Regenerate docs/evidence/dropin-differential-evidence-suite.json and docs/evidence/dropin-certification-verdict.json only after the runner produces non-synthetic pass evidence."
       ],
       "verification_evidence": [
-        "tests/dropin_slash_differential.rs: test_slash_command_differential_harness_fails_closed",
-        "tests/dropin_slash_differential/mod.rs: DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED",
+        "tests/dropin_slash_differential.rs: test_slash_command_differential_harness_fails_closed_without_mirrored_success",
+        "tests/dropin_slash_differential/mod.rs: DIFFERENTIAL_RUNNER_UNAVAILABLE",
+        "tests/dropin_slash_differential/mod.rs: RPC-observable slash command mapping",
         "docs/evidence/dropin-differential-evidence-suite.json: slash_command_differential status fail_closed"
       ],
       "blocked_by": [
-        "DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED"
+        "legacy_pi_mono_code/pi-mono/node_modules/tsx/dist/cli.mjs missing",
+        "UI-only slash commands are not yet RPC-observable"
       ],
       "owner_issue_primary": "bd-7derw",
       "owner_issue_supporting": [

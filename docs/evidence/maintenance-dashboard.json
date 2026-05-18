@@ -32,14 +32,14 @@
       "blocking_not_pass": [
         {
           "artifact_path": "docs/evidence/dropin-differential-evidence-suite.json",
-          "bead": "bd-jgnx0",
-          "detail": "gap-cli-slash-command-surface reopened: tests/dropin_slash_differential.rs is fail-closed and the runner returns DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED.",
+          "bead": "bd-7derw",
+          "detail": "gap-cli-slash-command-surface remains open: tests/dropin_slash_differential.rs is fail-closed because the legacy tsx runtime is absent and UI-only slash commands are not yet fully RPC-observable.",
           "gate_id": "G04-cli-parity",
           "status": "fail"
         },
         {
           "artifact_path": "docs/evidence/dropin-differential-evidence-suite.json",
-          "bead": "bd-jgnx0",
+          "bead": "bd-7derw",
           "detail": "dropin-differential-evidence-suite cannot pass while slash_command_differential is fail_closed.",
           "gate_id": "G10-differential-evidence-suite",
           "status": "fail"

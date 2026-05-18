@@ -1,14 +1,25 @@
 //! Differential test harness for slash command parity between pi-mono and Rust Pi.
 //!
-//! This module guards slash-command parity coverage until the real pi-mono and
-//! Rust Pi RPC runner is wired.
+//! This module drives slash-command-equivalent behavior through the shared RPC
+//! protocol and fails closed when the legacy runtime is not provisioned.
 
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
-const DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED: &str =
-    "RPC slash-command differential runner is not implemented";
+const DIFFERENTIAL_RUNNER_UNAVAILABLE: &str =
+    "RPC slash-command differential runner is unavailable";
+const RPC_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
+const PI_MONO_ROOT_RELATIVE: &str = "legacy_pi_mono_code/pi-mono";
+const PI_MONO_TSX_RELATIVE: &str = "node_modules/tsx/dist/cli.mjs";
+const PI_MONO_CLI_RELATIVE: &str = "packages/coding-agent/src/cli.ts";
+const RPC_TEST_PROVIDER: &str = "ollama";
+const RPC_TEST_MODEL: &str = "qwen2.5:0.5b";
 
 /// A slash command test scenario.
 #[derive(Debug, Clone)]
@@ -236,7 +247,7 @@ impl DifferentialTester {
 
         for scenario in &self.scenarios {
             println!("Running scenario: {}", scenario.name);
-            let result = Self::run_scenario(scenario);
+            let result = self.run_scenario_in_temp_dir(scenario);
             results.insert(scenario.name.clone(), result);
         }
 
@@ -245,20 +256,369 @@ impl DifferentialTester {
 
     /// Run a single scenario.
     pub fn run_scenario(scenario: &SlashCommandScenario) -> TestResult {
-        TestResult {
-            scenario_name: scenario.name.clone(),
-            success: false,
-            rust_response: json!({
-                "status": "not_run",
-                "command": scenario.command,
-                "reason": DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED,
-            }),
-            pi_mono_response: json!({
-                "status": "not_run",
-                "command": scenario.command,
-                "reason": DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED,
-            }),
-            differences: vec![DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED.to_string()],
+        Self::run_scenario_with_workspace(scenario, None)
+    }
+
+    fn run_scenario_in_temp_dir(&self, scenario: &SlashCommandScenario) -> TestResult {
+        Self::run_scenario_with_workspace(scenario, Some(self.temp_dir.path()))
+    }
+
+    fn run_scenario_with_workspace(
+        scenario: &SlashCommandScenario,
+        workspace_root: Option<&Path>,
+    ) -> TestResult {
+        match run_real_differential_scenario(scenario, workspace_root) {
+            Ok(result) => result,
+            Err(err) => fail_closed_result(scenario, &err.to_string()),
+        }
+    }
+}
+
+fn fail_closed_result(scenario: &SlashCommandScenario, reason: &str) -> TestResult {
+    let detail = format!("{DIFFERENTIAL_RUNNER_UNAVAILABLE}: {reason}");
+    TestResult {
+        scenario_name: scenario.name.clone(),
+        success: false,
+        rust_response: json!({
+            "status": "blocked",
+            "command": scenario.command,
+            "reason": detail,
+        }),
+        pi_mono_response: json!({
+            "status": "blocked",
+            "command": scenario.command,
+            "reason": detail,
+        }),
+        differences: vec![detail],
+    }
+}
+
+fn run_real_differential_scenario(
+    scenario: &SlashCommandScenario,
+    workspace_root: Option<&Path>,
+) -> anyhow::Result<TestResult> {
+    let paths = RunnerPaths::discover()?;
+    let commands = scenario_rpc_commands(scenario)?;
+    let workspace = workspace_root
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+
+    let rust_response = run_rust_rpc_sequence(&paths, scenario, &commands, &workspace)?;
+    let pi_mono_response = run_pi_mono_rpc_sequence(&paths, scenario, &commands, &workspace)?;
+
+    let rust_canonical = canonicalize_response(rust_response);
+    let pi_mono_canonical = canonicalize_response(pi_mono_response);
+    let success = rust_canonical == pi_mono_canonical;
+    let differences = if success {
+        Vec::new()
+    } else {
+        vec!["canonical Rust Pi and pi-mono RPC responses differ".to_string()]
+    };
+
+    Ok(TestResult {
+        scenario_name: scenario.name.clone(),
+        success,
+        rust_response: rust_canonical,
+        pi_mono_response: pi_mono_canonical,
+        differences,
+    })
+}
+
+#[derive(Debug)]
+struct RunnerPaths {
+    rust_pi: PathBuf,
+    pi_mono_root: PathBuf,
+    pi_mono_tsx: PathBuf,
+    pi_mono_cli: PathBuf,
+}
+
+impl RunnerPaths {
+    fn discover() -> anyhow::Result<Self> {
+        let rust_pi = option_env!("CARGO_BIN_EXE_pi")
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow::anyhow!("CARGO_BIN_EXE_pi is not set for the test process"))?;
+        if !rust_pi.is_file() {
+            anyhow::bail!("missing Rust Pi test binary: {}", rust_pi.display());
+        }
+
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pi_mono_root = repo.join(PI_MONO_ROOT_RELATIVE);
+        if !pi_mono_root.is_dir() {
+            anyhow::bail!("missing pinned pi-mono root: {}", pi_mono_root.display());
+        }
+
+        let pi_mono_tsx = pi_mono_root.join(PI_MONO_TSX_RELATIVE);
+        if !pi_mono_tsx.is_file() {
+            anyhow::bail!(
+                "missing legacy tsx runner: {}; provision pi-mono dependencies before counting slash-command parity",
+                pi_mono_tsx.display()
+            );
+        }
+
+        let pi_mono_cli = pi_mono_root.join(PI_MONO_CLI_RELATIVE);
+        if !pi_mono_cli.is_file() {
+            anyhow::bail!("missing legacy coding-agent CLI: {}", pi_mono_cli.display());
+        }
+
+        Ok(Self {
+            rust_pi,
+            pi_mono_root,
+            pi_mono_tsx,
+            pi_mono_cli,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RpcStep {
+    label: String,
+    command: Value,
+}
+
+fn scenario_rpc_commands(scenario: &SlashCommandScenario) -> anyhow::Result<Vec<RpcStep>> {
+    let mut commands = Vec::new();
+    for setup in &scenario.setup {
+        commands.extend(slash_input_to_rpc_steps(setup)?);
+    }
+    commands.extend(slash_input_to_rpc_steps(&scenario.command)?);
+    Ok(commands)
+}
+
+fn slash_input_to_rpc_steps(input: &str) -> anyhow::Result<Vec<RpcStep>> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with('/') {
+        anyhow::bail!(
+            "scenario setup requires model prompt execution, which is not credential-free: {trimmed}"
+        );
+    }
+
+    let (command, args) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    let command = command.to_ascii_lowercase();
+    let args = args.trim();
+
+    let steps = match command.as_str() {
+        "/help" | "/h" | "/?" => vec![
+            rpc_step("get_state", json!({"type": "get_state"})),
+            rpc_step("get_commands", json!({"type": "get_commands"})),
+        ],
+        "/model" | "/m" if args.is_empty() => {
+            vec![rpc_step(
+                "get_available_models",
+                json!({"type": "get_available_models"}),
+            )]
+        }
+        "/thinking" | "/think" | "/t" if args.is_empty() => {
+            vec![rpc_step("get_state", json!({"type": "get_state"}))]
+        }
+        "/thinking" | "/think" | "/t" => vec![
+            rpc_step(
+                "set_thinking_level",
+                json!({"type": "set_thinking_level", "level": args}),
+            ),
+            rpc_step("get_state", json!({"type": "get_state"})),
+        ],
+        "/session" | "/info" => vec![
+            rpc_step("get_state", json!({"type": "get_state"})),
+            rpc_step("get_session_stats", json!({"type": "get_session_stats"})),
+        ],
+        "/tree" => vec![rpc_step(
+            "get_fork_messages",
+            json!({"type": "get_fork_messages"}),
+        )],
+        "/compact" => vec![rpc_step(
+            "compact",
+            json!({"type": "compact", "customInstructions": args}),
+        )],
+        "/clear" | "/cls" => vec![rpc_step("new_session", json!({"type": "new_session"}))],
+        other => {
+            anyhow::bail!(
+                "slash command is not observable through the shared RPC protocol: {other}"
+            );
+        }
+    };
+
+    Ok(steps)
+}
+
+fn rpc_step(label: &str, command: Value) -> RpcStep {
+    RpcStep {
+        label: label.to_string(),
+        command,
+    }
+}
+
+fn run_rust_rpc_sequence(
+    paths: &RunnerPaths,
+    scenario: &SlashCommandScenario,
+    commands: &[RpcStep],
+    workspace_root: &Path,
+) -> anyhow::Result<Value> {
+    let workspace = workspace_root.join("rust").join(&scenario.name);
+    std::fs::create_dir_all(&workspace)
+        .map_err(|err| anyhow::anyhow!("create {}: {err}", workspace.display()))?;
+
+    let agent_dir = workspace.join("agent");
+    let sessions_dir = workspace.join("sessions");
+    let package_dir = workspace.join("packages");
+    let config_path = workspace.join("settings.json");
+
+    let mut child = Command::new(&paths.rust_pi)
+        .args([
+            "--mode",
+            "rpc",
+            "--provider",
+            RPC_TEST_PROVIDER,
+            "--model",
+            RPC_TEST_MODEL,
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+        ])
+        .env("PI_CODING_AGENT_DIR", &agent_dir)
+        .env("PI_CONFIG_PATH", &config_path)
+        .env("PI_SESSIONS_DIR", &sessions_dir)
+        .env("PI_PACKAGE_DIR", &package_dir)
+        .current_dir(&workspace)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| anyhow::anyhow!("spawn Rust Pi RPC: {err}"))?;
+
+    run_rpc_sequence("rust", &mut child, commands)
+}
+
+fn run_pi_mono_rpc_sequence(
+    paths: &RunnerPaths,
+    scenario: &SlashCommandScenario,
+    commands: &[RpcStep],
+    workspace_root: &Path,
+) -> anyhow::Result<Value> {
+    let workspace = workspace_root.join("pi-mono").join(&scenario.name);
+    std::fs::create_dir_all(&workspace)
+        .map_err(|err| anyhow::anyhow!("create {}: {err}", workspace.display()))?;
+
+    let agent_dir = workspace.join("agent");
+    std::fs::create_dir_all(&agent_dir)
+        .map_err(|err| anyhow::anyhow!("create {}: {err}", agent_dir.display()))?;
+
+    let mut child = Command::new("/usr/bin/node")
+        .arg(&paths.pi_mono_tsx)
+        .arg(&paths.pi_mono_cli)
+        .args([
+            "--mode",
+            "rpc",
+            "--provider",
+            RPC_TEST_PROVIDER,
+            "--model",
+            RPC_TEST_MODEL,
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+        ])
+        .env("PI_CODING_AGENT_DIR", &agent_dir)
+        .env("TZ", "UTC")
+        .current_dir(&paths.pi_mono_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| anyhow::anyhow!("spawn pi-mono RPC: {err}"))?;
+
+    run_rpc_sequence("pi-mono", &mut child, commands)
+}
+
+fn run_rpc_sequence(label: &str, child: &mut Child, commands: &[RpcStep]) -> anyhow::Result<Value> {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("{label} RPC child stdout was not piped"))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("{label} RPC child stdin was not piped"))?;
+
+    let (line_tx, line_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if line_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let mut responses = Vec::new();
+    for (index, step) in commands.iter().enumerate() {
+        let id = format!("cmd-{index}");
+        let mut command = step.command.clone();
+        let object = command
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("RPC command is not an object: {}", step.label))?;
+        object.insert("id".to_string(), json!(id));
+
+        writeln!(stdin, "{command}")
+            .map_err(|err| anyhow::anyhow!("write {label} RPC command {}: {err}", step.label))?;
+        stdin
+            .flush()
+            .map_err(|err| anyhow::anyhow!("flush {label} RPC command {}: {err}", step.label))?;
+
+        responses.push(wait_for_rpc_response(
+            label,
+            &line_rx,
+            &id,
+            &step.label,
+            RPC_RESPONSE_TIMEOUT,
+        )?);
+    }
+
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+
+    Ok(json!({
+        "status": "ok",
+        "runner": label,
+        "responses": responses,
+    }))
+}
+
+fn wait_for_rpc_response(
+    label: &str,
+    line_rx: &mpsc::Receiver<Result<String, std::io::Error>>,
+    id: &str,
+    step_label: &str,
+    timeout: Duration,
+) -> anyhow::Result<Value> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            anyhow::bail!("timed out waiting for {label} RPC response to {step_label}");
+        }
+
+        let line = match line_rx.recv_timeout(remaining) {
+            Ok(Ok(line)) => line,
+            Ok(Err(err)) => anyhow::bail!("read {label} RPC stdout: {err}"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                anyhow::bail!("timed out waiting for {label} RPC response to {step_label}");
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("{label} RPC stdout disconnected before {step_label} response");
+            }
+        };
+
+        let value = serde_json::from_str::<Value>(&line)
+            .map_err(|err| anyhow::anyhow!("parse {label} RPC JSON line {line:?}: {err}"))?;
+        if !matches!(value.get("type").and_then(Value::as_str), Some("response")) {
+            continue;
+        }
+        if value.get("id").and_then(Value::as_str) == Some(id) {
+            return Ok(value);
         }
     }
 }
@@ -276,6 +636,19 @@ pub struct TestResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_fail_closed(result: &TestResult) {
+        assert!(!result.success);
+        assert!(
+            result
+                .differences
+                .iter()
+                .any(|diff| diff.contains(DIFFERENTIAL_RUNNER_UNAVAILABLE)
+                    || diff.contains("not observable through the shared RPC protocol")),
+            "runner should fail closed with a clear execution or support gap: {:?}",
+            result.differences
+        );
+    }
 
     #[test]
     fn test_canonicalize_response() {
@@ -335,24 +708,49 @@ mod tests {
     }
 
     #[test]
-    fn test_scenario_run_fails_closed_until_runner_is_wired() {
+    fn test_scenario_run_fails_closed_until_runner_is_available() {
         let tester = DifferentialTester::new().unwrap();
 
         if let Some(scenario) = tester.scenarios.first() {
             let result = DifferentialTester::run_scenario(scenario);
             assert_eq!(result.scenario_name, scenario.name);
-            assert!(!result.success);
-            assert_eq!(result.rust_response["status"], "not_run");
-            assert_eq!(result.pi_mono_response["status"], "not_run");
+            assert_eq!(result.rust_response["status"], "blocked");
+            assert_eq!(result.pi_mono_response["status"], "blocked");
             assert_eq!(result.rust_response["command"], scenario.command);
             assert_eq!(result.pi_mono_response["command"], scenario.command);
-            assert!(
-                result
-                    .differences
-                    .iter()
-                    .any(|diff| diff.contains(DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED)),
-                "runner should fail closed with a clear implementation gap"
-            );
+            assert_fail_closed(&result);
         }
+    }
+
+    #[test]
+    fn rpc_mapping_covers_supported_slash_commands() {
+        for command in [
+            "/help",
+            "/h",
+            "/?",
+            "/model",
+            "/m",
+            "/thinking off",
+            "/thinking high",
+            "/t medium",
+            "/session",
+            "/info",
+            "/tree",
+            "/compact notes",
+            "/clear",
+            "/cls",
+        ] {
+            let steps = slash_input_to_rpc_steps(command).expect("supported slash command");
+            assert!(!steps.is_empty(), "expected RPC steps for {command}");
+        }
+    }
+
+    #[test]
+    fn rpc_mapping_rejects_non_rpc_observable_commands() {
+        let err = slash_input_to_rpc_steps("/exit").expect_err("exit is not RPC-observable");
+        assert!(err.to_string().contains("not observable"));
+
+        let err = slash_input_to_rpc_steps("plain prompt").expect_err("plain prompt needs model");
+        assert!(err.to_string().contains("not credential-free"));
     }
 }

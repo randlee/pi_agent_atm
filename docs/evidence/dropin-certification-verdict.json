@@ -168,9 +168,9 @@
       "gate_id": "G04-cli-parity",
       "status": "fail",
       "blocking": true,
-      "detail": "gap-cli-slash-command-surface reopened: tests/dropin_slash_differential.rs is fail-closed and the runner returns DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED.",
+      "detail": "gap-cli-slash-command-surface remains open: tests/dropin_slash_differential.rs is fail-closed because the legacy tsx runtime is absent and UI-only slash commands are not yet fully RPC-observable.",
       "artifact_path": "docs/evidence/dropin-differential-evidence-suite.json",
-      "bead": "bd-jgnx0"
+      "bead": "bd-7derw"
     },
     {
       "gate_id": "G10-differential-evidence-suite",
@@ -178,11 +178,11 @@
       "blocking": true,
       "detail": "dropin-differential-evidence-suite cannot pass while slash_command_differential is fail_closed.",
       "artifact_path": "docs/evidence/dropin-differential-evidence-suite.json",
-      "bead": "bd-jgnx0"
+      "bead": "bd-7derw"
     }
   ],
   "blocking_reasons": [
-    "gap-cli-slash-command-surface blocks G04-cli-parity because the slash-command differential runner returns DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED.",
+    "gap-cli-slash-command-surface blocks G04-cli-parity because the slash-command differential runner cannot complete mirrored Rust Pi/pi-mono RPC execution while legacy node_modules/tsx is absent and UI-only slash commands are not fully RPC-observable.",
     "gap-cli-slash-command-surface blocks G10-differential-evidence-suite because slash_command_differential is fail_closed."
   ],
   "evidence_index": [
@@ -279,6 +279,6 @@
     "certification_lane_artifact": "tests/full_suite_gate/certification_verdict.json",
     "lane_verdict": "pass",
     "lane_generated_at": "2026-05-01T06:00:46.624Z",
-    "claim_integrity_override": "bd-jgnx0 reopened gap-cli-slash-command-surface after detecting that slash_command_differential pass evidence was backed by a fail-closed unimplemented runner."
+    "claim_integrity_override": "bd-jgnx0 reopened gap-cli-slash-command-surface after detecting that slash_command_differential pass evidence was backed by fail-closed placeholder evidence; bd-7derw now keeps the gap active until real mirrored RPC execution passes."
   }
 }

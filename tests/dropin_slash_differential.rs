@@ -40,30 +40,36 @@ fn find_json_entry<'a>(
         .ok_or_else(|| format!("{label} must contain {field}={expected}"))
 }
 
-fn assert_runner_not_implemented(scenario: &SlashCommandScenario, result: &TestResult) {
+fn result_has_execution_gap(result: &TestResult) -> bool {
+    result.differences.iter().any(|diff| {
+        diff.contains("unavailable")
+            || diff.contains("not observable through the shared RPC protocol")
+            || diff.contains("not credential-free")
+            || diff.contains("not implemented")
+    })
+}
+
+fn assert_runner_fail_closed(scenario: &SlashCommandScenario, result: &TestResult) {
     assert!(
         !result.success,
         "scenario '{}' must not report synthetic differential success",
         scenario.name
     );
     assert_eq!(result.scenario_name, scenario.name);
-    assert_eq!(result.rust_response["status"], "not_run");
-    assert_eq!(result.pi_mono_response["status"], "not_run");
+    assert_eq!(result.rust_response["status"], "blocked");
+    assert_eq!(result.pi_mono_response["status"], "blocked");
     assert_eq!(result.rust_response["command"], scenario.command);
     assert_eq!(result.pi_mono_response["command"], scenario.command);
     assert!(
-        result
-            .differences
-            .iter()
-            .any(|diff| diff.contains("not implemented")),
-        "scenario '{}' should explain that the real runner is not implemented",
+        result_has_execution_gap(result),
+        "scenario '{}' should explain that the real runner could not produce pass evidence",
         scenario.name
     );
 }
 
 /// The harness must not report slash-command parity until real RPC execution exists.
 #[test]
-fn test_slash_command_differential_harness_fails_closed() {
+fn test_slash_command_differential_harness_fails_closed_without_mirrored_success() {
     let tester = DifferentialTester::new().expect("Failed to create differential tester");
 
     let results = tester.run_all_scenarios();
@@ -76,11 +82,8 @@ fn test_slash_command_differential_harness_fails_closed() {
             continue;
         }
         assert!(
-            result
-                .differences
-                .iter()
-                .any(|diff| diff.contains("not implemented")),
-            "scenario '{scenario_name}' should fail closed with an implementation gap"
+            result_has_execution_gap(&result),
+            "scenario '{scenario_name}' should fail closed with an execution gap"
         );
     }
 
@@ -90,9 +93,9 @@ fn test_slash_command_differential_harness_fails_closed() {
     );
 }
 
-/// Release evidence must not certify slash-command parity while the runner is fail-closed.
+/// Release evidence must not certify slash-command parity until every scenario has real pass evidence.
 #[test]
-fn test_certification_artifacts_fail_closed_while_runner_unimplemented() -> Result<(), String> {
+fn test_certification_artifacts_fail_closed_until_full_runner_pass() -> Result<(), String> {
     let tester = DifferentialTester::new()
         .map_err(|err| format!("failed to create differential tester: {err:?}"))?;
     let results = tester.run_all_scenarios();
@@ -100,19 +103,8 @@ fn test_certification_artifacts_fail_closed_while_runner_unimplemented() -> Resu
         return Err("expected slash command scenarios".to_owned());
     }
 
-    let all_results_fail_closed = results.values().all(|result| {
-        !result.success
-            && result
-                .differences
-                .iter()
-                .any(|diff| diff.contains("not implemented"))
-    });
-    let runner_source_path = repo_path("tests/dropin_slash_differential/mod.rs");
-    let runner_source = std::fs::read_to_string(&runner_source_path)
-        .map_err(|err| format!("failed to read {}: {err}", runner_source_path.display()))?;
-    let runner_not_implemented = runner_source.contains("DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED");
-
-    if !runner_not_implemented && !all_results_fail_closed {
+    let all_results_success = results.values().all(|result| result.success);
+    if all_results_success {
         return Ok(());
     }
 
@@ -120,7 +112,7 @@ fn test_certification_artifacts_fail_closed_while_runner_unimplemented() -> Resu
     let suite_status = string_field(&suite, "overall_status", "differential suite")?;
     if suite_status == "pass" {
         return Err(
-            "G10 evidence suite must not pass while slash differential runner is fail-closed"
+            "G10 evidence suite must not pass before slash differential scenarios all pass"
                 .to_owned(),
         );
     }
@@ -137,7 +129,8 @@ fn test_certification_artifacts_fail_closed_while_runner_unimplemented() -> Resu
     let slash_component_status = string_field(slash_component, "status", "slash component")?;
     if slash_component_status == "pass" {
         return Err(
-            "G04 slash_command_differential must not pass while runner is fail-closed".to_owned(),
+            "G04 slash_command_differential must not pass before slash scenarios all pass"
+                .to_owned(),
         );
     }
 
@@ -155,7 +148,7 @@ fn test_certification_artifacts_fail_closed_while_runner_unimplemented() -> Resu
     let gap_status = string_field(slash_gap, "status", "slash gap")?;
     if !matches!(gap_status, "open" | "in_progress") {
         return Err(format!(
-            "slash gap must be active while runner is fail-closed, found status={gap_status}"
+            "slash gap must be active until slash scenarios all pass, found status={gap_status}"
         ));
     }
     let gap_severity = string_field(slash_gap, "severity", "slash gap")?;
@@ -169,7 +162,7 @@ fn test_certification_artifacts_fail_closed_while_runner_unimplemented() -> Resu
     let overall_verdict = string_field(&verdict, "overall_verdict", "drop-in verdict")?;
     if overall_verdict == "CERTIFIED" {
         return Err(
-            "strict drop-in verdict must not be CERTIFIED while slash differential runner is fail-closed"
+            "strict drop-in verdict must not be CERTIFIED before slash scenarios all pass"
                 .to_owned(),
         );
     }
@@ -308,7 +301,7 @@ fn test_combinatorial_slash_commands() {
 
     for scenario in combinatorial_scenarios {
         let result = DifferentialTester::run_scenario(&scenario);
-        assert_runner_not_implemented(&scenario, &result);
+        assert_runner_fail_closed(&scenario, &result);
     }
 }
 
@@ -345,6 +338,6 @@ fn test_invalid_slash_command_handling() {
     for scenario in invalid_scenarios {
         tester.add_scenario(scenario.clone());
         let result = DifferentialTester::run_scenario(&scenario);
-        assert_runner_not_implemented(&scenario, &result);
+        assert_runner_fail_closed(&scenario, &result);
     }
 }

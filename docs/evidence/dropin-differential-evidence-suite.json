@@ -2,7 +2,7 @@
   "schema": "pi.dropin.differential_evidence_suite.v1",
   "bead_id": "bd-lnmtp.4.4",
   "gate_id": "G10-differential-evidence-suite",
-  "generated_at_utc": "2026-05-18T10:07:45Z",
+  "generated_at_utc": "2026-05-18T11:33:17Z",
   "overall_status": "fail_closed",
   "description": "Unified evidence bundle aggregating differential test harnesses from G04, G05, G08, and G09 gate completions. The suite fails closed until the G04 slash-command differential runner executes both Rust Pi and pi-mono.",
   "component_evidence": [
@@ -11,10 +11,11 @@
       "component": "slash_command_differential",
       "status": "fail_closed",
       "test_harness": "tests/dropin_slash_differential.rs",
-      "description": "Slash command differential coverage is not certified: the harness currently fails closed because the real Rust Pi/pi-mono RPC runner is not implemented.",
+      "description": "Slash command differential coverage is not certified: the harness now preflights the Rust Pi and pi-mono RPC entrypoints and maps RPC-observable slash behavior, but the pinned legacy runtime is not runnable because node_modules/tsx is absent.",
       "evidence_artifacts": [
-        "tests/dropin_slash_differential.rs asserts that synthetic differential success is forbidden",
-        "tests/dropin_slash_differential/mod.rs returns success=false with DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED for every scenario",
+        "tests/dropin_slash_differential.rs asserts that synthetic differential success is forbidden until every scenario reports real mirrored pass evidence",
+        "tests/dropin_slash_differential/mod.rs preflights CARGO_BIN_EXE_pi plus legacy pi-mono RPC paths and returns blocked with DIFFERENTIAL_RUNNER_UNAVAILABLE when the legacy tsx runtime is absent",
+        "RPC-observable slash scenarios are mapped to JSONL RPC commands; non-RPC-observable UI-only commands remain fail-closed until an adapter exists",
         "Comprehensive CLI edge case coverage (tests/cli_edge_cases.rs) is supporting coverage only, not differential parity evidence"
       ]
     },
@@ -58,7 +59,7 @@
   "aggregated_metrics": {
     "total_test_scenarios": 79,
     "surfaces_covered": [
-      "CLI slash commands (fail-closed: differential runner not implemented)",
+      "CLI slash commands (fail-closed: legacy RPC runtime unavailable and some UI-only commands are not RPC-observable)",
       "RPC command semantics",
       "Session JSONL schema",
       "Error taxonomy",
@@ -84,12 +85,12 @@
     {
       "criterion": "All four differential gate evidence bundles present and valid",
       "status": "fail_closed",
-      "evidence": "G04 slash_command_differential is present but explicitly fail-closed until the real Rust Pi/pi-mono runner is implemented"
+      "evidence": "G04 slash_command_differential is present but explicitly fail-closed until the Rust Pi/pi-mono runner executes every slash scenario successfully"
     },
     {
       "criterion": "Differential test harnesses cover critical interaction surfaces",
       "status": "fail_closed",
-      "evidence": "CLI slash-command scenarios return DIFFERENTIAL_RUNNER_NOT_IMPLEMENTED and cannot be counted as pass evidence"
+      "evidence": "CLI slash-command scenarios return blocked DIFFERENTIAL_RUNNER_UNAVAILABLE in this environment because the pinned legacy tsx runtime is absent; unsupported UI-only slash commands are also fail-closed"
     },
     {
       "criterion": "Canonicalization rules documented for cross-platform stability",
