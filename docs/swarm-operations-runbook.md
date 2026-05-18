@@ -125,6 +125,12 @@ python3 scripts/check_ubs_staged_delta.py
 
 If `timeout 60s ubs --staged --only=rust .` times out or is dominated by whole-file baseline noise, run `python3 scripts/check_ubs_staged_delta.py`. The delta gate is acceptable only when it reports no warning or critical finding on staged changed lines. Keep the raw timeout or baseline-noise summary in the handoff.
 
+If a local pre-commit hook appears to be running a broad repo scan instead of
+the staged UBS contract, run
+`python3 scripts/check_ubs_staged_delta.py --check-pre-commit-hook --json`.
+The audit is read-only: it reports `.git/hooks/pre-commit` drift without
+editing the hook.
+
 ## Remote Validation Proof Ledger
 
 Remote validation proof is governed by
