@@ -231,6 +231,12 @@ README_SECTIONS = (
         end_marker="### Fast Loop",
     ),
 )
+README_SNAPSHOT_JSON_PATH_RE = re.compile(
+    r"`?((?:docs|tests)/[A-Za-z0-9_./-]+\.json)`?"
+)
+README_SNAPSHOT_GENERATED_RE = re.compile(
+    r"\s+\(generated `([^`]+)`(?:, run `([^`]+)`)?\)"
+)
 
 HOSTCALL_QUEUE_METRICS = (
     HostcallQueueMetricSpec(
@@ -2423,6 +2429,81 @@ def find_readme_anchor(
     return None, None
 
 
+def check_readme_snapshot_artifact_citations(
+    repo_root: Path,
+    lines: list[str],
+    section_specs: dict[str, ReadmeSectionSpec],
+    bounds: dict[str, tuple[int, int, int | None]],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, str]] = set()
+    for section_id, (start_index, end_index, section_line) in bounds.items():
+        if section_line is None:
+            continue
+        for line_index in range(start_index, end_index):
+            line = lines[line_index]
+            line_number = line_index + 1
+            for match in README_SNAPSHOT_JSON_PATH_RE.finditer(line):
+                artifact_path = match.group(1)
+                key = (section_id, line_number, artifact_path)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                artifact_file = repo_root / artifact_path
+                if not artifact_file.is_file():
+                    issues.append({
+                        "path": "README.md",
+                        "line": line_number,
+                        "category": "docs",
+                        "kind": "readme_snapshot_missing",
+                        "detail": (
+                            f"{section_id} cites missing artifact {artifact_path!r} "
+                            f"in section {section_specs[section_id].start_marker!r}"
+                        ),
+                        "remediation": remediation_for("readme_snapshot_missing"),
+                    })
+                    continue
+
+                generated_match = README_SNAPSHOT_GENERATED_RE.match(line[match.end():])
+                if generated_match is None:
+                    continue
+
+                payload = readme_json_artifact(repo_root, artifact_path)
+                actual_generated = readme_timestamp_text(payload)
+                expected_generated = generated_match.group(1)
+                if actual_generated != expected_generated:
+                    issues.append({
+                        "path": "README.md",
+                        "line": line_number,
+                        "category": "docs",
+                        "kind": "readme_snapshot_mismatch",
+                        "detail": (
+                            f"{section_id} citation for {artifact_path} expected generated "
+                            f"{actual_generated!r}; actual line cites {expected_generated!r}"
+                        ),
+                        "remediation": remediation_for("readme_snapshot_mismatch"),
+                    })
+
+                expected_run = generated_match.group(2)
+                if expected_run is None:
+                    continue
+                actual_run = get_path(payload, "run_id") or get_path(payload, "ci_run_id")
+                if isinstance(actual_run, str) and actual_run != expected_run:
+                    issues.append({
+                        "path": "README.md",
+                        "line": line_number,
+                        "category": "docs",
+                        "kind": "readme_snapshot_mismatch",
+                        "detail": (
+                            f"{section_id} citation for {artifact_path} expected run "
+                            f"{actual_run!r}; actual line cites {expected_run!r}"
+                        ),
+                        "remediation": remediation_for("readme_snapshot_mismatch"),
+                    })
+    return issues
+
+
 def check_readme_release_snapshot(repo_root: Path) -> list[dict[str, Any]]:
     readme_path = repo_root / "README.md"
     try:
@@ -2489,6 +2570,12 @@ def check_readme_release_snapshot(repo_root: Path) -> list[dict[str, Any]]:
                 ),
                 "remediation": remediation_for("readme_snapshot_mismatch"),
             })
+    issues.extend(check_readme_snapshot_artifact_citations(
+        repo_root,
+        lines,
+        section_specs,
+        bounds,
+    ))
     return issues
 
 
@@ -3053,6 +3140,47 @@ def run_self_test() -> int:
         assert_condition(
             readme_blockers[0].get("line") is not None,
             "README snapshot mismatch should include an exact line number",
+        )
+
+        repo_root = fixture_root()
+        make_complete_fixture(repo_root, now)
+        readme_path = repo_root / "README.md"
+        readme_path.write_text(
+            readme_path.read_text(encoding="utf-8").replace(
+                "tests/ext_conformance/reports/journeys/journey_report.json",
+                "tests/ext_conformance/reports/journeys/missing_journey_report.json",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        report = build_report(repo_root, now=now)
+        readme_blockers = [
+            issue
+            for issue in report["blocking_issues"]
+            if issue["kind"] == "readme_snapshot_missing"
+        ]
+        assert_condition(
+            any("missing_journey_report.json" in issue["detail"] for issue in readme_blockers),
+            "missing README snapshot artifact citation should block claim readiness",
+        )
+
+        repo_root = fixture_root()
+        make_complete_fixture(repo_root, now)
+        stale_generated = format_datetime(now - timedelta(days=1))
+        assert stale_generated is not None
+        health_delta_path = repo_root / "tests/ext_conformance/reports/health_delta/health_delta_report.json"
+        health_delta = json.loads(health_delta_path.read_text(encoding="utf-8"))
+        health_delta["generated_at"] = stale_generated
+        health_delta_path.write_text(json.dumps(health_delta, sort_keys=True) + "\n", encoding="utf-8")
+        report = build_report(repo_root, now=now)
+        readme_blockers = [
+            issue
+            for issue in report["blocking_issues"]
+            if issue["kind"] == "readme_snapshot_mismatch"
+        ]
+        assert_condition(
+            any("health_delta_report.json" in issue["detail"] for issue in readme_blockers),
+            "README snapshot generated_at drift should block claim readiness",
         )
 
         repo_root = fixture_root()
