@@ -86,6 +86,7 @@ WORK_ADMISSION_GATE_CONTRACT_SCHEMA = "pi.swarm.work_admission_gate_contract.v1"
 WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA = (
     "pi.swarm.work_admission_dry_run_executor.v1"
 )
+STRUCTURED_INPUT_FUZZ_SCHEMA = "pi.swarm.structured_input_fuzz_harness.v1"
 BUDGET_DRIFT_SCHEMA = "pi.swarm.budget_drift.v1"
 AUTOPILOT_HANDOFF_SCHEMA = "pi.swarm.autopilot_handoff.v1"
 AUTOPILOT_E2E_SCHEMA = "pi.swarm.autopilot_e2e.v1"
@@ -188,6 +189,7 @@ AUTOPILOT_PLAN_GOLDEN = "autopilot_plan_projection.json"
 WORK_ADMISSION_GATE_GOLDEN = "work_admission_gate_projection.json"
 AUTOPILOT_DECISION_GATE_GOLDEN = "autopilot_decision_gate_projection.json"
 MALFORMED_SOURCE_GOLDEN = "malformed_source_fail_closed_projection.json"
+STRUCTURED_INPUT_FUZZ_GOLDEN = "structured_input_fuzz_projection.json"
 UPDATE_GOLDEN_ENV = "UPDATE_SWARM_OPERATOR_RUNPACK_GOLDEN"
 DEFAULT_MAX_ITEMS = 8
 DEFAULT_STALE_AFTER_HOURS = 24
@@ -369,6 +371,15 @@ WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS = (
     "blocked",
     "requires_operator",
     "never_execute",
+)
+STRUCTURED_INPUT_FUZZ_REQUIRED_CASE_IDS = (
+    "malformed_evidence_json",
+    "nested_json_redaction",
+    "path_canonicalization_edges",
+    "oversized_beads_bounded",
+    "ordering_perturbation_equivalence",
+    "unsupported_schema_fail_closed",
+    "ambiguous_command_fail_closed",
 )
 TURN_PRESSURE_LEDGER_DIMENSION_IDS = (
     "normal_turn_baseline",
@@ -11751,6 +11762,338 @@ def assert_work_admission_gate_missing_field_negative_control(
     raise AssertionError("work-admission golden negative control accepted missing decision")
 
 
+def classify_runpack_error_message(message: str) -> str:
+    lowered = message.lower()
+    if "malformed json" in lowered:
+        return "malformed_json"
+    if "schema mismatch" in lowered:
+        return "unsupported_schema"
+    if "does not exist" in lowered:
+        return "missing_source"
+    return "runpack_error"
+
+
+def expect_runpack_error(case_id: str, operation) -> dict[str, Any]:
+    try:
+        operation()
+    except RunpackError as exc:
+        message = str(exc)
+        return {
+            "case_id": case_id,
+            "accepted": False,
+            "error_type": "RunpackError",
+            "classification": classify_runpack_error_message(message),
+            "message": bounded_text(message, 240),
+        }
+    raise AssertionError(f"{case_id} accepted unsupported structured fuzz input")
+
+
+def assert_structured_input_fuzz_golden(
+    summary: dict[str, Any],
+    workspace: Path,
+) -> None:
+    assert_named_golden(
+        summary,
+        workspace,
+        golden_filename=STRUCTURED_INPUT_FUZZ_GOLDEN,
+        label="structured swarm input fuzz",
+    )
+
+
+def build_structured_swarm_input_fuzz_harness(
+    *,
+    workspace: Path,
+    generated_at: str,
+    max_items: int,
+) -> dict[str, Any]:
+    cases: list[dict[str, Any]] = []
+
+    def add_case(
+        case_id: str,
+        *,
+        boundary: str,
+        input_shape: str,
+        oracle: str,
+        expected_classification: str,
+        details: dict[str, Any],
+    ) -> None:
+        cases.append(
+            {
+                "id": case_id,
+                "boundary": boundary,
+                "input_shape": input_shape,
+                "status": "pass",
+                "oracle": oracle,
+                "expected_classification": expected_classification,
+                "details": details,
+            }
+        )
+
+    malformed_path = workspace / "structured-fuzz-malformed-evidence.json"
+    malformed_path.write_text("{not valid json", encoding="utf-8")
+    malformed_failure = expect_runpack_error(
+        "malformed_evidence_json",
+        lambda: load_json_source("doctor_swarm", malformed_path),
+    )
+    assert malformed_failure["classification"] == "malformed_json"
+    add_case(
+        "malformed_evidence_json",
+        boundary="load_json_source",
+        input_shape="malformed evidence envelope",
+        oracle="RunpackError with malformed_json classification",
+        expected_classification="malformed_json",
+        details=malformed_failure,
+    )
+
+    nested_payload = {
+        "schema": "pi.swarm.structured_fuzz.nested_tool_payload.v1",
+        "events": [
+            {
+                "id": "tool-call-1",
+                "tool": "bash",
+                "arguments": {
+                    "command": "printf ok",
+                    "api_key": "api_key=super-secret-fixture",
+                    "nested": [
+                        {
+                            "body": "Bearer nested-secret-fixture",
+                            "visible": "safe diagnostic text",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "tool-call-2",
+                "result": {
+                    "content": [
+                        {
+                            "token": "nested-token-fixture",
+                            "summary": "bounded structured event",
+                        }
+                    ]
+                },
+            },
+        ],
+    }
+    parsed_nested = json_payload_from_stdout(
+        "diagnostic prefix\n" + json_dumps(nested_payload) + "\n"
+    )
+    assert isinstance(parsed_nested, dict)
+    nested_path = write_json(workspace / "structured-fuzz-nested-payload.json", nested_payload)
+    nested_source = load_json_source("nested_tool_payload", nested_path)
+    nested_serialized = json_dumps(nested_source.payload)
+    assert "super-secret-fixture" not in nested_serialized
+    assert "nested-secret-fixture" not in nested_serialized
+    assert "nested-token-fixture" not in nested_serialized
+    assert "[REDACTED]" in nested_serialized
+    assert nested_source.redacted_count >= 3
+    add_case(
+        "nested_json_redaction",
+        boundary="json_payload_from_stdout/load_json_source/redact_json",
+        input_shape="nested JSON tool payload with sensitive keys and values",
+        oracle="nested payload parses and redacts recursively",
+        expected_classification="redacted_ok",
+        details={
+            "parsed_schema": parsed_nested.get("schema"),
+            "redacted_count": nested_source.redacted_count,
+            "redacted_fields": list(nested_source.redacted_fields),
+        },
+    )
+
+    canonical_path_payload = {
+        "workspace_path": str(workspace / "capture" / "source.json"),
+        "project_path": str(
+            Path(__file__).resolve().parent.parent / "scripts" / "build_swarm_operator_runpack.py"
+        ),
+        "home_path": str(Path.home() / ".config" / "pi" / "settings.json"),
+        "cargo_tmp_path": "/data/tmp/pi_agent_rust_cargo/test/target",
+        "data_tmp_path": "/data/tmp/pi-agent/fuzz-artifact.json",
+        "root_tmp_path": "/tmp/pi-agent/fuzz-artifact.json",
+        "relative_tmp_word": "tests/tmp/fixtures remain literal",
+        "sha256_text": "a" * 64,
+        "git_sha_text": "b" * 40,
+        "timestamp_text": generated_at,
+    }
+    canonical_paths = canonicalize_for_golden(canonical_path_payload, workspace)
+    assert canonical_paths["workspace_path"].startswith("[WORKSPACE]")
+    assert canonical_paths["project_path"].startswith("[PROJECT_ROOT]")
+    assert canonical_paths["home_path"].startswith("[HOME]")
+    assert canonical_paths["cargo_tmp_path"].startswith("[PI_AGENT_CARGO_TMP]")
+    assert canonical_paths["data_tmp_path"].startswith("[DATA_TMP]")
+    assert canonical_paths["root_tmp_path"].startswith("[TMP]")
+    assert canonical_paths["relative_tmp_word"] == "tests/tmp/fixtures remain literal"
+    assert canonical_paths["sha256_text"] == "[SHA256]"
+    assert canonical_paths["git_sha_text"] == "[GIT_SHA]"
+    assert canonical_paths["timestamp_text"] == "[TIMESTAMP]"
+    add_case(
+        "path_canonicalization_edges",
+        boundary="canonicalize_for_golden",
+        input_shape="workspace/home/project/tmp/data-tmp paths plus hash and timestamp text",
+        oracle="host-specific paths are scrubbed without corrupting relative tmp words",
+        expected_classification="canonicalized_ok",
+        details=canonical_paths,
+    )
+
+    oversized_issues = [
+        {
+            "id": f"bd-fuzz-{index:03d}",
+            "title": f"Fuzz candidate {index:03d}",
+            "status": "open",
+            "priority": index % 4,
+            "updated_at": generated_at,
+            "labels": ["swarm", "fuzzing", {"nested": index}],
+        }
+        for index in range(max_items * 3 + 5)
+    ]
+    oversized_summary = summarize_beads(
+        SourcePayload("beads", None, "ok", None, {"issues": oversized_issues}),
+        generated_at=parse_utc(generated_at),
+        stale_after_hours=24,
+        max_items=max_items,
+    )
+    assert oversized_summary["total_issues"] == len(oversized_issues)
+    assert oversized_summary["open_candidate_count"] == len(oversized_issues)
+    assert len(oversized_summary["open_candidates"]) == max_items
+    add_case(
+        "oversized_beads_bounded",
+        boundary="summarize_beads",
+        input_shape="oversized but bounded structured Beads issue list",
+        oracle="summary keeps total counts while bounding retained samples",
+        expected_classification="bounded_ok",
+        details={
+            "input_issue_count": len(oversized_issues),
+            "open_candidate_count": oversized_summary["open_candidate_count"],
+            "retained_open_candidates": len(oversized_summary["open_candidates"]),
+            "first_retained_ids": [
+                item["id"] for item in oversized_summary["open_candidates"][:max_items]
+            ],
+        },
+    )
+
+    ordering_issues = [
+        {
+            "id": "bd-order-c",
+            "title": "Third candidate",
+            "status": "open",
+            "priority": 2,
+            "updated_at": "2026-05-09T09:02:00+00:00",
+        },
+        {
+            "id": "bd-order-a",
+            "title": "First candidate",
+            "status": "open",
+            "priority": 1,
+            "updated_at": "2026-05-09T09:00:00+00:00",
+        },
+        {
+            "id": "bd-order-b",
+            "title": "Second candidate",
+            "status": "open",
+            "priority": 1,
+            "updated_at": "2026-05-09T09:01:00+00:00",
+        },
+    ]
+    forward_summary = summarize_beads(
+        SourcePayload("beads", None, "ok", None, {"issues": ordering_issues}),
+        generated_at=parse_utc(generated_at),
+        stale_after_hours=24,
+        max_items=8,
+    )
+    reversed_summary = summarize_beads(
+        SourcePayload("beads", None, "ok", None, {"issues": list(reversed(ordering_issues))}),
+        generated_at=parse_utc(generated_at),
+        stale_after_hours=24,
+        max_items=8,
+    )
+    forward_order = [item["id"] for item in forward_summary["open_candidates"]]
+    reversed_order = [item["id"] for item in reversed_summary["open_candidates"]]
+    assert forward_order == reversed_order
+    add_case(
+        "ordering_perturbation_equivalence",
+        boundary="parse_issue_list/summarize_beads",
+        input_shape="equivalent Beads issue lists in opposite source order",
+        oracle="normalized candidate order is deterministic",
+        expected_classification="equivalent_ok",
+        details={"normalized_order": forward_order},
+    )
+
+    unsupported_path = write_json(
+        workspace / "structured-fuzz-unsupported-schema.json",
+        {"schema": "pi.rpc.concurrent_swarm_e2e.v0", "generated_at": generated_at},
+    )
+    unsupported_failure = expect_runpack_error(
+        "unsupported_schema_fail_closed",
+        lambda: load_json_source(
+            "rpc_swarm_e2e",
+            unsupported_path,
+            expected_schema=RPC_SWARM_E2E_SCHEMA,
+        ),
+    )
+    assert unsupported_failure["classification"] == "unsupported_schema"
+    add_case(
+        "unsupported_schema_fail_closed",
+        boundary="load_json_source schema validator",
+        input_shape="known evidence id with unsupported schema version",
+        oracle="RunpackError with unsupported_schema classification",
+        expected_classification="unsupported_schema",
+        details=unsupported_failure,
+    )
+
+    missing_text_classification, missing_text_reasons = classify_work_admission_command(
+        {"purpose": "ambiguous missing command text"}
+    )
+    deletion_classification, deletion_reasons = classify_work_admission_command(
+        {"purpose": "fixture only", "command": "rm /tmp/pi-agent-fuzz-fixture"}
+    )
+    assert missing_text_classification == "blocked"
+    assert missing_text_reasons == ["missing_command_text"]
+    assert deletion_classification == "never_execute"
+    assert deletion_reasons == ["filesystem_deletion_request"]
+    add_case(
+        "ambiguous_command_fail_closed",
+        boundary="classify_work_admission_command",
+        input_shape="ambiguous or unsafe dry-run command records",
+        oracle="commands classify to blocked/never_execute with reason codes",
+        expected_classification="blocked_or_never_execute",
+        details={
+            "missing_text": {
+                "classification": missing_text_classification,
+                "reason_codes": missing_text_reasons,
+            },
+            "deletion_request": {
+                "classification": deletion_classification,
+                "reason_codes": deletion_reasons,
+            },
+        },
+    )
+
+    case_ids = {case["id"] for case in cases}
+    missing_cases = set(STRUCTURED_INPUT_FUZZ_REQUIRED_CASE_IDS) - case_ids
+    assert not missing_cases, f"missing structured input fuzz cases: {sorted(missing_cases)}"
+    summary = {
+        "schema": STRUCTURED_INPUT_FUZZ_SCHEMA,
+        "generated_at": generated_at,
+        "status": "pass",
+        "purpose": "deterministic_structure_aware_swarm_input_fuzz_regression",
+        "case_count": len(cases),
+        "required_case_ids": list(STRUCTURED_INPUT_FUZZ_REQUIRED_CASE_IDS),
+        "covered_boundaries": sorted({case["boundary"] for case in cases}),
+        "cases": cases,
+        "guards": {
+            "deterministic": True,
+            "structure_aware_inputs": True,
+            "no_random_string_only_mutation": True,
+            "no_live_provider_calls": True,
+            "no_network_required": True,
+            "no_large_fuzz_corpus": True,
+            "small_minimized_regression_fixtures_only": True,
+            "fail_closed_error_classification": True,
+        },
+    }
+    assert_structured_input_fuzz_golden(summary, workspace)
+    return summary
+
+
 def assert_no_dangerous_runnable_commands(commands: list[dict[str, Any]]) -> None:
     for command in commands:
         text = str(command.get("command") or "").lower()
@@ -21810,6 +22153,16 @@ def run_self_test() -> int:
             item["id"] for item in healthy_executor["never_execute"]
         ]
         assert_work_admission_gate_contract(healthy_work_gate)
+        structured_input_fuzz = build_structured_swarm_input_fuzz_harness(
+            workspace=workspace,
+            generated_at=generated_at,
+            max_items=args.max_items,
+        )
+        assert structured_input_fuzz["schema"] == STRUCTURED_INPUT_FUZZ_SCHEMA
+        assert structured_input_fuzz["status"] == "pass"
+        assert structured_input_fuzz["case_count"] == len(
+            STRUCTURED_INPUT_FUZZ_REQUIRED_CASE_IDS
+        )
 
         def clone_json(value: Any) -> Any:
             return json.loads(json_dumps(value))
