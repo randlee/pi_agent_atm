@@ -254,6 +254,55 @@ fn load_provider_doc_native_modules(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
+fn load_readme_native_provider_rule_modules(root: &Path) -> BTreeSet<String> {
+    let path = root.join("README.md");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display())); // ubs:ignore test harness assertion, not production runtime.
+    let rule_line = content
+        .lines()
+        .find(|line| line.starts_with("Provider-count rule: Pi has "))
+        .unwrap_or_else(|| test_fail("README.md missing Provider-count rule line"));
+    let marker = "Those modules are ";
+    let module_text = rule_line
+        .split(marker)
+        .nth(1)
+        .and_then(|rest| rest.split(". User-visible").next())
+        .unwrap_or_else(|| test_fail("README.md provider-count rule missing module list"));
+
+    module_text
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
+}
+
+fn assert_readme_native_provider_count_claims(root: &Path, expected_count: usize) {
+    let path = root.join("README.md");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display())); // ubs:ignore test harness assertion, not production runtime.
+    let claim_phrase = "native provider implementation modules";
+    let expected_claim = format!("{expected_count} {claim_phrase}");
+    let mut claim_lines = 0usize;
+
+    for (line_index, line) in content.lines().enumerate() {
+        if !line.contains(claim_phrase) {
+            continue;
+        }
+        claim_lines += 1;
+        assert!(
+            line.contains(&expected_claim),
+            "README.md line {} native-provider count must be `{expected_claim}`: {line}",
+            line_index + 1
+        );
+    }
+
+    assert!(
+        claim_lines > 0,
+        "README.md should contain at least one native-provider count claim"
+    );
+}
+
 fn source_inventory_diff(
     on_disk: &BTreeSet<String>,
     documented: &BTreeSet<String>,
@@ -303,6 +352,19 @@ fn native_provider_module_inventory_matches_provider_docs() {
         on_disk.len(),
         10,
         "native provider module count changed; update docs/providers.md and this expectation"
+    );
+}
+
+#[test]
+fn native_provider_module_inventory_matches_readme_claims() {
+    let root = repo_root();
+    let on_disk = on_disk_native_provider_modules(&root);
+    let documented = load_readme_native_provider_rule_modules(&root);
+
+    assert_readme_native_provider_count_claims(&root, on_disk.len());
+    assert_eq!(
+        documented, on_disk,
+        "README.md provider-count rule must match src/providers/*.rs excluding mod.rs"
     );
 }
 
