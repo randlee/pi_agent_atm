@@ -1,0 +1,29 @@
+{
+  "blockers": [],
+  "decision": "closeout_admitted",
+  "generated_at": "[GENERATED_AT]",
+  "operator_next_actions": [],
+  "schema": "pi.completion_audit.closeout_gate.v1",
+  "source": {
+    "completion_allowed": true,
+    "overall_status": "complete",
+    "schema": "pi.completion_audit.v1"
+  },
+  "source_boundaries": {
+    "deletes_files": false,
+    "mutates_agent_mail": false,
+    "mutates_beads": false,
+    "mutates_rch": false,
+    "read_only": true,
+    "runs_cargo": false,
+    "runs_live_provider": false
+  },
+  "status": "pass",
+  "summary": {
+    "artifact_count": 0,
+    "blocker_count": 0,
+    "command_count": 1,
+    "requirement_count": 1,
+    "unresolved_gap_count": 0
+  }
+}

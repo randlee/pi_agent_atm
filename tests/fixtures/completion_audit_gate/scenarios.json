@@ -1,0 +1,199 @@
+{
+  "schema": "pi.completion_audit.closeout_gate_fixtures.v1",
+  "scenarios": [
+    {
+      "id": "pass",
+      "audit": {
+        "schema": "pi.completion_audit.v1",
+        "overall_status": "complete",
+        "completion_allowed": true,
+        "requirements": [
+          {
+            "id": "REQ-001",
+            "kind": "command",
+            "evidence_status": "covered",
+            "evidence_refs": [
+              "command[0]:python3 scripts/build_completion_audit.py --self-test"
+            ]
+          }
+        ],
+        "evidence": {
+          "commands": [
+            {
+              "command": "python3 scripts/build_completion_audit.py --self-test",
+              "status": "passed",
+              "exit_code": 0
+            }
+          ],
+          "artifacts": [],
+          "unresolved_gaps": []
+        }
+      },
+      "expected": {
+        "status": "pass",
+        "blocker_kinds": [],
+        "contains": [
+          "closeout_admitted"
+        ]
+      }
+    },
+    {
+      "id": "missing_push",
+      "audit": {
+        "schema": "pi.completion_audit.v1",
+        "overall_status": "blocked",
+        "completion_allowed": false,
+        "requirements": [
+          {
+            "id": "REQ-004",
+            "kind": "commit_push",
+            "evidence_status": "failed",
+            "issue": "missing push evidence",
+            "evidence_refs": [
+              "commit[0]",
+              "push[0]",
+              "commit_push:required_pair"
+            ]
+          }
+        ],
+        "evidence": {
+          "commands": [],
+          "artifacts": [],
+          "unresolved_gaps": []
+        }
+      },
+      "expected": {
+        "status": "block",
+        "blocker_kinds": [
+          "missing_push"
+        ],
+        "contains": [
+          "Push the closeout commit"
+        ]
+      }
+    },
+    {
+      "id": "failed_command",
+      "audit": {
+        "schema": "pi.completion_audit.v1",
+        "overall_status": "blocked",
+        "completion_allowed": false,
+        "requirements": [
+          {
+            "id": "REQ-002",
+            "kind": "command",
+            "evidence_status": "failed",
+            "issue": "exit_code=7",
+            "evidence_refs": [
+              "command[0]:python3 -c 'import sys; sys.exit(7)'"
+            ]
+          }
+        ],
+        "evidence": {
+          "commands": [
+            {
+              "command": "python3 -c 'import sys; sys.exit(7)'",
+              "status": "failed",
+              "exit_code": 7
+            }
+          ],
+          "artifacts": [],
+          "unresolved_gaps": []
+        }
+      },
+      "expected": {
+        "status": "block",
+        "blocker_kinds": [
+          "failed_command"
+        ],
+        "contains": [
+          "Fix or rerun the failed command"
+        ]
+      }
+    },
+    {
+      "id": "proxy_only",
+      "audit": {
+        "schema": "pi.completion_audit.v1",
+        "overall_status": "incomplete",
+        "completion_allowed": false,
+        "requirements": [
+          {
+            "id": "REQ-002",
+            "kind": "command",
+            "evidence_status": "proxy_only",
+            "issue": "only proxy evidence matched this requirement",
+            "evidence_refs": [
+              "command[0]:python3 --version"
+            ]
+          }
+        ],
+        "evidence": {
+          "commands": [
+            {
+              "command": "python3 --version",
+              "status": "proxy_only"
+            }
+          ],
+          "artifacts": [],
+          "unresolved_gaps": []
+        }
+      },
+      "expected": {
+        "status": "block",
+        "blocker_kinds": [
+          "proxy_only_evidence"
+        ],
+        "contains": [
+          "Replace proxy-only evidence"
+        ]
+      }
+    },
+    {
+      "id": "missing_artifact_and_gap",
+      "audit": {
+        "schema": "pi.completion_audit.v1",
+        "overall_status": "blocked",
+        "completion_allowed": false,
+        "requirements": [
+          {
+            "id": "REQ-003",
+            "kind": "artifact_bundle",
+            "evidence_status": "contradiction",
+            "issue": "artifact status passed but path is missing: missing-completion-audit.md",
+            "evidence_refs": [
+              "artifact[1]:missing-completion-audit.md"
+            ]
+          }
+        ],
+        "evidence": {
+          "commands": [],
+          "artifacts": [
+            {
+              "path": "missing-completion-audit.md",
+              "status": "contradiction"
+            }
+          ],
+          "unresolved_gaps": [
+            {
+              "gap_id": "followup_not_owned",
+              "status": "open",
+              "issue": "follow-up bead missing"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": "block",
+        "blocker_kinds": [
+          "missing_artifact",
+          "unresolved_gap"
+        ],
+        "contains": [
+          "Create or correct the missing artifact path",
+          "Close the gap or create an active owner bead"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "blockers": [
+    {
+      "id": "REQ-003",
+      "issue": "artifact status passed but path is missing: missing-completion-audit.md",
+      "kind": "missing_artifact",
+      "refs": [
+        "artifact[1]:missing-completion-audit.md"
+      ],
+      "remediation": "Create or correct the missing artifact path, then regenerate the audit.",
+      "requirement_kind": "artifact_bundle",
+      "status": "contradiction"
+    },
+    {
+      "id": "followup_not_owned",
+      "issue": "follow-up bead missing",
+      "kind": "unresolved_gap",
+      "refs": [],
+      "remediation": "Close the gap or create an active owner bead before closeout.",
+      "requirement_kind": "gap",
+      "status": "open"
+    }
+  ],
+  "decision": "closeout_blocked",
+  "generated_at": "[GENERATED_AT]",
+  "operator_next_actions": [
+    "Create or correct the missing artifact path, then regenerate the audit.",
+    "Close the gap or create an active owner bead before closeout."
+  ],
+  "schema": "pi.completion_audit.closeout_gate.v1",
+  "source": {
+    "completion_allowed": false,
+    "overall_status": "blocked",
+    "schema": "pi.completion_audit.v1"
+  },
+  "source_boundaries": {
+    "deletes_files": false,
+    "mutates_agent_mail": false,
+    "mutates_beads": false,
+    "mutates_rch": false,
+    "read_only": true,
+    "runs_cargo": false,
+    "runs_live_provider": false
+  },
+  "status": "block",
+  "summary": {
+    "artifact_count": 1,
+    "blocker_count": 2,
+    "command_count": 0,
+    "requirement_count": 1,
+    "unresolved_gap_count": 1
+  }
+}

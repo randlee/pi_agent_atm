@@ -1,0 +1,43 @@
+{
+  "blockers": [
+    {
+      "id": "REQ-002",
+      "issue": "only proxy evidence matched this requirement",
+      "kind": "proxy_only_evidence",
+      "refs": [
+        "command[0]:python3 --version"
+      ],
+      "remediation": "Replace proxy-only evidence with direct command, artifact, git, or Beads evidence.",
+      "requirement_kind": "command",
+      "status": "proxy_only"
+    }
+  ],
+  "decision": "closeout_blocked",
+  "generated_at": "[GENERATED_AT]",
+  "operator_next_actions": [
+    "Replace proxy-only evidence with direct command, artifact, git, or Beads evidence."
+  ],
+  "schema": "pi.completion_audit.closeout_gate.v1",
+  "source": {
+    "completion_allowed": false,
+    "overall_status": "incomplete",
+    "schema": "pi.completion_audit.v1"
+  },
+  "source_boundaries": {
+    "deletes_files": false,
+    "mutates_agent_mail": false,
+    "mutates_beads": false,
+    "mutates_rch": false,
+    "read_only": true,
+    "runs_cargo": false,
+    "runs_live_provider": false
+  },
+  "status": "block",
+  "summary": {
+    "artifact_count": 0,
+    "blocker_count": 1,
+    "command_count": 1,
+    "requirement_count": 1,
+    "unresolved_gap_count": 0
+  }
+}

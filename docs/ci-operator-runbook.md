@@ -32,6 +32,38 @@ cargo test --test ci_full_suite_gate -- full_suite_gate --nocapture --exact
 
 ## Failure Signature Map
 
+### Completion audit closeout gate failure
+
+**Signature:** `Completion audit closeout gate self-test` fails or
+`scripts/check_completion_audit_gate.py` exits non-zero for a closeout artifact.
+
+**Artifacts:**
+- Completion audit JSON from `scripts/build_completion_audit.py`
+- `tests/fixtures/completion_audit_gate/scenarios.json`
+- `tests/fixtures/completion_audit_gate/goldens/*.json`
+
+**Replay:**
+```bash
+python3 scripts/check_completion_audit_gate.py --self-test \
+  --generated-at 2026-01-02T03:04:05+00:00
+
+python3 scripts/check_completion_audit_gate.py \
+  --audit-json docs/evidence/<completion-audit>.json
+```
+
+**Remediation:**
+1. Read `blockers[*].kind` and `operator_next_actions` in the gate JSON.
+2. For `missing_push`, push the closeout commit and regenerate the audit.
+3. For `failed_command`, rerun the exact command after fixing the failure and include the passing transcript.
+4. For `proxy_only_evidence`, replace narrative or indirect proof with direct command, artifact, git, or Beads evidence.
+5. For `missing_artifact`, create or correct the artifact path and rerun the audit.
+6. For `unresolved_gap`, close the gap or create an active owner bead before closeout.
+
+The gate is intentionally lightweight: it reads existing JSON only. It must not
+run Cargo, call live providers, mutate Beads, send Agent Mail, launch RCH, or
+delete files. Any future heavy validation referenced by the audit must use the
+repo's RCH-backed command form.
+
 ### Non-mock compliance gate failure
 
 **Signature:** `non_mock_compliance_gate ... FAILED`
