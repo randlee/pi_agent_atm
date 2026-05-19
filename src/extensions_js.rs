@@ -20886,6 +20886,13 @@ if (typeof globalThis.Buffer === 'undefined') {
             }
             return n;
         }
+        static _writeBound(value, defaultValue, max) {
+            const n = value === undefined ? defaultValue : Number(value);
+            if (!Number.isInteger(n) || n < 0 || n > max) {
+                throw new RangeError('Index out of range');
+            }
+            return n;
+        }
         static from(input, encoding, length) {
             if (typeof input === 'string') {
                 const enc = __pi_buffer_normalize_encoding(encoding);
@@ -21158,13 +21165,14 @@ if (typeof globalThis.Buffer === 'undefined') {
                 enc = offset;
                 len = undefined;
             } else {
-                o = offset || 0;
+                o = Buffer._writeBound(offset, 0, this.length);
                 if (typeof length === 'string') {
                     enc = length;
                     len = undefined;
                 }
             }
             const bytes = Buffer.from(string, enc);
+            if (len !== undefined) len = Buffer._writeBound(len, 0, this.length);
             const limit = len !== undefined ? Math.min(len, bytes.length) : bytes.length;
             const copyLen = Math.max(0, Math.min(limit, this.length - o));
             this.set(bytes.subarray(0, copyLen), o);

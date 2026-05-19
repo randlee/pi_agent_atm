@@ -908,6 +908,60 @@ fn global_buffer_copy_range_vectors_match_node() {
 }
 
 #[test]
+fn global_buffer_write_range_vectors_match_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["write_default", () => {
+                const b = Buffer.alloc(4);
+                const written = b.write("abcdef");
+                return written + ":" + b.toString("hex");
+            }],
+            ["write_offset", () => {
+                const b = Buffer.alloc(4);
+                const written = b.write("abcdef", 2);
+                return written + ":" + b.toString("hex");
+            }],
+            ["write_len", () => {
+                const b = Buffer.alloc(4);
+                const written = b.write("abcdef", 1, 2);
+                return written + ":" + b.toString("hex");
+            }],
+            ["write_oob", () => {
+                const b = Buffer.alloc(2);
+                const written = b.write("abc", 9);
+                return written + ":" + b.toString("hex");
+            }],
+            ["write_negative", () => {
+                const b = Buffer.alloc(2);
+                return b.write("abc", -1);
+            }],
+            ["write_len_oob", () => {
+                const b = Buffer.alloc(3);
+                const written = b.write("abcdef", 1, 99);
+                return written + ":" + b.toString("hex");
+            }],
+            ["write_negative_len", () => {
+                const b = Buffer.alloc(3);
+                return b.write("abc", 0, -1);
+            }],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "write_default:4:61626364|write_offset:2:00006162|write_len:2:00616200|write_oob:RangeError|write_negative:RangeError|write_len_oob:RangeError|write_negative_len:RangeError"
+    );
+}
+
+#[test]
 fn global_buffer_slice_and_subarray_are_shared_buffer_views_like_node() {
     let result = eval_global_buffer(
         r#"(() => {
