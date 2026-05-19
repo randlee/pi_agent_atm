@@ -727,6 +727,27 @@ fn global_buffer_arraybuffer_offset_length_match_node_vectors() {
 }
 
 #[test]
+fn global_buffer_array_like_inputs_match_node_vectors() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["plain", { 0: 65, 1: 66, length: 2 }],
+            ["mask", { 0: 257, 1: -1, length: 2 }],
+            ["empty", { length: 0 }],
+        ];
+        return cases.map(([label, value]) => {
+            try {
+                return label + ":" + Buffer.from(value).toString("hex");
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(result, "plain:4142|mask:01ff|empty:");
+}
+
+#[test]
 fn global_buffer_unknown_encoding_strict_entrypoints_match_node() {
     let result = eval_global_buffer(
         r#"(() => {

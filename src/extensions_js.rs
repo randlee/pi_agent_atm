@@ -20899,6 +20899,11 @@ if (typeof globalThis.Buffer === 'undefined') {
                 for (let i = 0; i < input.length; i++) out[i] = input[i] & 0xff;
                 return out;
             }
+            if (input && typeof input === 'object' && typeof input.length === 'number') {
+                const out = new Buffer(input.length);
+                for (let i = 0; i < input.length; i++) out[i] = input[i] & 0xff;
+                return out;
+            }
             throw new Error('Buffer.from: unsupported input');
         }
         static alloc(size, fill, encoding) {
