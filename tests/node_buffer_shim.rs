@@ -792,6 +792,34 @@ fn global_buffer_slice_and_subarray_are_shared_buffer_views_like_node() {
 }
 
 #[test]
+fn global_buffer_compare_and_equals_type_validation_match_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["equals_buf", () => Buffer.from("a").equals(Buffer.from("a"))],
+            ["equals_uint8", () => Buffer.from("a").equals(new Uint8Array([97]))],
+            ["compare_uint8", () => Buffer.from("a").compare(new Uint8Array([97]))],
+            ["static_compare_uint8", () => Buffer.compare(Buffer.from("a"), new Uint8Array([98]))],
+            ["equals_string", () => Buffer.from("a").equals("a")],
+            ["compare_string", () => Buffer.from("a").compare("a")],
+            ["static_compare_string", () => Buffer.compare(Buffer.from("a"), "a")],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "equals_buf:true|equals_uint8:true|compare_uint8:0|static_compare_uint8:-1|equals_string:TypeError|compare_string:TypeError|static_compare_string:TypeError"
+    );
+}
+
+#[test]
 fn global_buffer_unknown_encoding_strict_entrypoints_match_node() {
     let result = eval_global_buffer(
         r#"(() => {

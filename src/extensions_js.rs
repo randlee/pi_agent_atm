@@ -20941,6 +20941,9 @@ if (typeof globalThis.Buffer === 'undefined') {
             return out;
         }
         static compare(a, b) {
+            if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) {
+                throw new TypeError('Arguments must be Buffers');
+            }
             const len = Math.min(a.length, b.length);
             for (let i = 0; i < len; i++) {
                 if (a[i] < b[i]) return -1;
@@ -20989,6 +20992,7 @@ if (typeof globalThis.Buffer === 'undefined') {
             return { type: 'Buffer', data: Array.from(this) };
         }
         equals(other) {
+            if (!(other instanceof Uint8Array)) throw new TypeError('Argument must be a Buffer');
             if (this.length !== other.length) return false;
             for (let i = 0; i < this.length; i++) {
                 if (this[i] !== other[i]) return false;
