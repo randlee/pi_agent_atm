@@ -514,6 +514,15 @@ fn create_hash_update_after_digest_throws() {
 }
 
 #[test]
+fn hash_update_latin1_input_encoding_uses_single_byte_string() {
+    let result = eval_crypto(r#"createHash("sha256").update("\u00ffA", "latin1").digest("hex")"#);
+    assert_eq!(
+        result, "be611a063fe2322ed4671804fd2e68027756b32e14ec8d64f2e790344eb93261",
+        "Hash.update latin1 input encoding should match Node Buffer single-byte semantics"
+    );
+}
+
+#[test]
 fn create_hmac_second_digest_throws() {
     let result = eval_crypto(
         r#"(() => {
@@ -550,6 +559,28 @@ fn create_hmac_update_after_digest_throws() {
     assert!(
         result.contains("digest() already called"),
         "Expected HMAC update() after digest() to throw, got: {result}"
+    );
+}
+
+#[test]
+fn hmac_update_latin1_binary_ascii_use_single_byte_strings() {
+    let result = eval_crypto(
+        r#"(() => {
+        return ["latin1", "binary", "ascii"]
+            .map((enc) => createHmac("sha256", "secret")
+                .update("\u00ffA", enc)
+                .digest("hex"))
+            .join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        concat!(
+            "bbd41c1d309f223632dd368957de328977b73705b7001c50d270fe61ff1b9015|",
+            "bbd41c1d309f223632dd368957de328977b73705b7001c50d270fe61ff1b9015|",
+            "bbd41c1d309f223632dd368957de328977b73705b7001c50d270fe61ff1b9015"
+        ),
+        "latin1/binary/ascii input encodings should match Node Buffer single-byte semantics"
     );
 }
 
@@ -706,6 +737,34 @@ fn aes_128_gcm_matches_known_vector() {
         result,
         "0388dace60b6a392f328c2b971b2fe78|ab6e47d42cec13bdf53a67b21257bddf"
     );
+}
+
+#[test]
+fn aes_gcm_latin1_input_and_output_preserve_single_byte_plaintext() {
+    let result = eval_crypto(
+        r#"(() => {
+        const key = new Uint8Array(16);
+        const iv = new Uint8Array(12);
+        const cipher = createCipheriv("aes-128-gcm", key, iv);
+        const ciphertext = cipher.update("\u00ffA", "latin1", "hex") + cipher.final("hex");
+        const tag = cipher.getAuthTag();
+
+        const latin1Decipher = createDecipheriv("aes-128-gcm", key, iv);
+        latin1Decipher.setAuthTag(tag);
+        const latin1Text =
+            latin1Decipher.update(ciphertext, "hex", "latin1") + latin1Decipher.final("latin1");
+
+        const asciiDecipher = createDecipheriv("aes-128-gcm", key, iv);
+        asciiDecipher.setAuthTag(tag);
+        const asciiText =
+            asciiDecipher.update(ciphertext, "hex", "ascii") + asciiDecipher.final("ascii");
+
+        const latin1Codes = Array.from(latin1Text).map((ch) => ch.charCodeAt(0).toString(16)).join(",");
+        const asciiCodes = Array.from(asciiText).map((ch) => ch.charCodeAt(0).toString(16)).join(",");
+        return ciphertext + "|" + tag.toString("hex") + "|" + latin1Codes + "|" + asciiCodes;
+    })()"#,
+    );
+    assert_eq!(result, "fcc9|01f639cf1075df70a828d0cba61c1992|ff,41|7f,41");
 }
 
 #[test]

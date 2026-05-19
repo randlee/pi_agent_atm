@@ -703,8 +703,9 @@ function bufferFromBytes(input) {
   const bytes = new Uint8Array(input.length);
   bytes.set(input);
   bytes.toString = function(enc) {
-    if (enc === 'hex') return bufToHex(this);
-    if (enc === 'base64') {
+    const normalized = normalizeBufferEncoding(enc);
+    if (normalized === 'hex') return bufToHex(this);
+    if (normalized === 'base64') {
       let binary = '';
       let chunk = [];
       for (let i = 0; i < this.length; i++) {
@@ -719,6 +720,8 @@ function bufferFromBytes(input) {
       }
       return globalThis.btoa(binary);
     }
+    if (normalized === 'latin1' || normalized === 'binary') return bytesToOneByteString(this, false);
+    if (normalized === 'ascii') return bytesToOneByteString(this, true);
     return new TextDecoder().decode(this);
   };
   return bytes;
@@ -727,6 +730,30 @@ function bufferFromBytes(input) {
 // Helper: Uint8Array to hex string
 function bufToHex(buf) {
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function stringToOneByteBytes(input) {
+  const out = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    out[i] = input.charCodeAt(i) & 0xff;
+  }
+  return bufferFromBytes(out);
+}
+
+function bytesToOneByteString(input, stripHighBit) {
+  let output = '';
+  let chunk = [];
+  for (let i = 0; i < input.length; i++) {
+    chunk.push(stripHighBit ? (input[i] & 0x7f) : input[i]);
+    if (chunk.length >= 4096) {
+      output += String.fromCharCode.apply(null, chunk);
+      chunk.length = 0;
+    }
+  }
+  if (chunk.length > 0) {
+    output += String.fromCharCode.apply(null, chunk);
+  }
+  return output;
 }
 
 function requireCryptoHostcall(hostcallName, apiName) {
@@ -759,6 +786,9 @@ function toUint8Array(input, encoding) {
       return hexToBuffer(input);
     }
     if (enc === 'base64') return base64ToBytes(input);
+    if (enc === 'latin1' || enc === 'binary' || enc === 'ascii') {
+      return stringToOneByteBytes(input);
+    }
     return new TextEncoder().encode(input);
   }
   return new TextEncoder().encode(String(input ?? ''));
@@ -776,9 +806,11 @@ function normalizeBufferEncoding(encoding) {
 function encodeOutput(bytes, encoding) {
   const out = bufferFromBytes(bytes);
   if (encoding === undefined || encoding === null) return out;
-  if (encoding === 'hex') return out.toString('hex');
-  if (encoding === 'base64') return out.toString('base64');
-  if (encoding === 'utf8' || encoding === 'utf-8') return out.toString('utf8');
+  const enc = normalizeBufferEncoding(encoding);
+  if (enc === 'hex') return out.toString('hex');
+  if (enc === 'base64') return out.toString('base64');
+  if (enc === 'utf8') return out.toString('utf8');
+  if (enc === 'latin1' || enc === 'binary' || enc === 'ascii') return out.toString(enc);
   throw new Error(`unsupported output encoding '${encoding}'`);
 }
 
@@ -889,11 +921,11 @@ export function createHash(algorithm) {
   const chunks = [];
   let finalized = false;
   return {
-    update(input) {
+    update(input, inputEncoding) {
       if (finalized) {
         throw new Error('Hash.digest() already called');
       }
-      chunks.push(toUint8Array(input));
+      chunks.push(toUint8Array(input, inputEncoding));
       return this;
     },
     digest(encoding) {
@@ -924,11 +956,11 @@ export function createHmac(algorithm, key) {
   const keyBuf = toUint8Array(key);
   let finalized = false;
   return {
-    update(input) {
+    update(input, inputEncoding) {
       if (finalized) {
         throw new Error('Hmac.digest() already called');
       }
-      chunks.push(toUint8Array(input));
+      chunks.push(toUint8Array(input, inputEncoding));
       return this;
     },
     digest(encoding) {
