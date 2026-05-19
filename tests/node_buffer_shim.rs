@@ -1912,6 +1912,46 @@ fn global_buffer_variable_width_unsigned_integer_vectors_match_node() {
 }
 
 #[test]
+fn global_buffer_variable_width_signed_integer_vectors_match_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["types", () => ["readIntBE", "readIntLE", "writeIntBE", "writeIntLE"].map((name) => name + ":" + typeof Buffer.prototype[name]).join(",")],
+            ["read_be_pos_1", () => Buffer.from([0x7f]).readIntBE(0, 1)],
+            ["read_be_neg_1", () => Buffer.from([0x80]).readIntBE(0, 1)],
+            ["read_be_neg_2", () => Buffer.from([0xff, 0xfe]).readIntBE(0, 2)],
+            ["read_be_pos_6", () => Buffer.from([0x7f, 0xff, 0xff, 0xff, 0xff, 0xff]).readIntBE(0, 6)],
+            ["read_be_neg_6", () => Buffer.from([0x80, 0, 0, 0, 0, 0]).readIntBE(0, 6)],
+            ["read_le_neg_6", () => Buffer.from([0, 0, 0, 0, 0, 0x80]).readIntLE(0, 6)],
+            ["write_be_neg_6", () => { const b = Buffer.alloc(6); return b.writeIntBE(-0x010203040506, 0, 6) + ":" + b.toString("hex"); }],
+            ["write_le_neg_6", () => { const b = Buffer.alloc(6); return b.writeIntLE(-0x010203040506, 0, 6) + ":" + b.toString("hex"); }],
+            ["read_len_zero", () => Buffer.from([1]).readIntBE(0, 0)],
+            ["read_len_seven", () => Buffer.from([1, 2, 3, 4, 5, 6, 7]).readIntBE(0, 7)],
+            ["read_len_fraction", () => Buffer.from([1, 2]).readIntBE(0, 1.9)],
+            ["read_len_string", () => Buffer.from([1, 2]).readIntBE(0, "2")],
+            ["read_offset_null", () => Buffer.from([1, 2]).readIntBE(null, 1)],
+            ["write_high_oob", () => { const b = Buffer.alloc(2); return b.writeIntBE(0x8000, 0, 2) + ":" + b.toString("hex"); }],
+            ["write_low_oob", () => { const b = Buffer.alloc(2); return b.writeIntBE(-0x8001, 0, 2) + ":" + b.toString("hex"); }],
+            ["write_fraction_value", () => { const b = Buffer.alloc(2); return b.writeIntBE(-1.9, 0, 2) + ":" + b.toString("hex"); }],
+            ["write_nan_value", () => { const b = Buffer.alloc(2); return b.writeIntBE(NaN, 0, 2) + ":" + b.toString("hex"); }],
+            ["write_string_value", () => { const b = Buffer.alloc(2); return b.writeIntBE("-1", 0, 2) + ":" + b.toString("hex"); }],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "types:readIntBE:function,readIntLE:function,writeIntBE:function,writeIntLE:function|read_be_pos_1:127|read_be_neg_1:-128|read_be_neg_2:-2|read_be_pos_6:140737488355327|read_be_neg_6:-140737488355328|read_le_neg_6:-140737488355328|write_be_neg_6:6:fefdfcfbfafa|write_le_neg_6:6:fafafbfcfdfe|read_len_zero:RangeError|read_len_seven:RangeError|read_len_fraction:RangeError|read_len_string:TypeError|read_offset_null:TypeError|write_high_oob:RangeError|write_low_oob:RangeError|write_fraction_value:2:ffff|write_nan_value:2:0000|write_string_value:2:ffff"
+    );
+}
+
+#[test]
 fn global_buffer_integer_offset_argument_validation_matches_node_vectors() {
     let result = eval_global_buffer(
         r#"(() => {
