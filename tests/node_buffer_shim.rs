@@ -1140,6 +1140,43 @@ fn global_buffer_array_like_inputs_match_node_vectors() {
 }
 
 #[test]
+fn global_buffer_array_like_length_coercion_matches_node_vectors() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["number_two", { 0: 65, 1: 66, length: 2 }],
+            ["string_two", { 0: 65, 1: 66, length: "2" }],
+            ["fraction", { 0: 65, 1: 66, 2: 67, length: 2.9 }],
+            ["negative_fraction", { 0: 65, length: -0.9 }],
+            ["negative", { 0: 65, length: -1 }],
+            ["negative_infinity", { 0: 65, length: -Infinity }],
+            ["nan", { 0: 65, length: NaN }],
+            ["bad_string", { 0: 65, length: "bad" }],
+            ["null_len", { 0: 65, length: null }],
+            ["object_len", { 0: 65, length: { valueOf() { return 2; } } }],
+            ["undefined_len", { 0: 65, length: undefined }],
+            ["infinity", { 0: 65, length: Infinity }],
+            ["true_len", { 0: 65, length: true }],
+            ["false_len", { 0: 65, length: false }],
+            ["no_length", { 0: 65 }],
+        ];
+        return cases.map(([label, value]) => {
+            try {
+                const out = Buffer.from(value);
+                return label + ":" + out.length + ":" + out.toString("hex");
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "number_two:2:4142|string_two:0:|fraction:2:4142|negative_fraction:0:|negative:0:|negative_infinity:0:|nan:0:|bad_string:0:|null_len:0:|object_len:0:|undefined_len:TypeError|infinity:RangeError|true_len:0:|false_len:0:|no_length:TypeError"
+    );
+}
+
+#[test]
 fn global_buffer_json_object_inputs_match_node_vectors() {
     let result = eval_global_buffer(
         r#"(() => {

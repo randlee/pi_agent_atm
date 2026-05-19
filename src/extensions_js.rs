@@ -20956,6 +20956,18 @@ if (typeof globalThis.Buffer === 'undefined') {
                 defaultLength: Math.max(0, Math.trunc(byteLength - n)),
             };
         }
+        static _arrayLikeLength(input) {
+            const raw = input.length;
+            if (raw === undefined) {
+                throw new TypeError('Buffer.from: unsupported input');
+            }
+            if (typeof raw !== 'number') return 0;
+            if (raw === Infinity) {
+                throw new RangeError('The array-like length argument is out of range');
+            }
+            if (Number.isNaN(raw) || raw <= 0) return 0;
+            return Math.trunc(raw);
+        }
         static from(input, encoding, length) {
             if (typeof input === 'string') {
                 const enc = __pi_buffer_normalize_encoding(encoding);
@@ -21002,9 +21014,10 @@ if (typeof globalThis.Buffer === 'undefined') {
                 for (let i = 0; i < input.data.length; i++) out[i] = input.data[i] & 0xff;
                 return out;
             }
-            if (input && typeof input === 'object' && typeof input.length === 'number') {
-                const out = new Buffer(input.length);
-                for (let i = 0; i < input.length; i++) out[i] = input[i] & 0xff;
+            if (input && typeof input === 'object' && 'length' in input) {
+                const len = Buffer._arrayLikeLength(input);
+                const out = new Buffer(len);
+                for (let i = 0; i < len; i++) out[i] = input[i] & 0xff;
                 return out;
             }
             throw new TypeError('Buffer.from: unsupported input');
