@@ -1975,6 +1975,42 @@ fn global_buffer_biguint64_integer_vectors_match_node() {
 }
 
 #[test]
+fn global_buffer_bigint64_integer_vectors_match_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["types", () => ["readBigInt64BE", "readBigInt64LE", "writeBigInt64BE", "writeBigInt64LE"].map((name) => name + ":" + typeof Buffer.prototype[name]).join(",")],
+            ["read_be_pos", () => Buffer.from([0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]).readBigInt64BE(0)],
+            ["read_be_neg", () => Buffer.from([0x80, 0, 0, 0, 0, 0, 0, 0]).readBigInt64BE(0)],
+            ["read_le_neg", () => Buffer.from([0, 0, 0, 0, 0, 0, 0, 0x80]).readBigInt64LE(0)],
+            ["read_le_minus1", () => Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]).readBigInt64LE(0)],
+            ["write_be_neg", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE(-0x0102030405060708n, 0) + ":" + b.toString("hex"); }],
+            ["write_le_neg", () => { const b = Buffer.alloc(8); return b.writeBigInt64LE(-0x0102030405060708n, 0) + ":" + b.toString("hex"); }],
+            ["write_be_pos", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE(0x0102030405060708n, 0) + ":" + b.toString("hex"); }],
+            ["read_offset_null", () => Buffer.alloc(8).readBigInt64BE(null)],
+            ["read_oob", () => Buffer.alloc(7).readBigInt64BE(0)],
+            ["write_number", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE(1, 0) + ":" + b.toString("hex"); }],
+            ["write_string", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE("1", 0) + ":" + b.toString("hex"); }],
+            ["write_low_oob", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE(-0x8000000000000001n, 0) + ":" + b.toString("hex"); }],
+            ["write_high_oob", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE(0x8000000000000000n, 0) + ":" + b.toString("hex"); }],
+            ["write_offset_null", () => { const b = Buffer.alloc(8); return b.writeBigInt64BE(1n, null) + ":" + b.toString("hex"); }],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "types:readBigInt64BE:function,readBigInt64LE:function,writeBigInt64BE:function,writeBigInt64LE:function|read_be_pos:9223372036854775807|read_be_neg:-9223372036854775808|read_le_neg:-9223372036854775808|read_le_minus1:-1|write_be_neg:8:fefdfcfbfaf9f8f8|write_le_neg:8:f8f8f9fafbfcfdfe|write_be_pos:8:0102030405060708|read_offset_null:TypeError|read_oob:RangeError|write_number:TypeError|write_string:TypeError|write_low_oob:RangeError|write_high_oob:RangeError|write_offset_null:TypeError"
+    );
+}
+
+#[test]
 fn global_buffer_variable_width_signed_integer_vectors_match_node() {
     let result = eval_global_buffer(
         r#"(() => {

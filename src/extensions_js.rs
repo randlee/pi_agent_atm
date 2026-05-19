@@ -20935,6 +20935,15 @@ if (typeof globalThis.Buffer === 'undefined') {
             }
             return value;
         }
+        static _checkedBigInt64Value(value) {
+            if (typeof value !== 'bigint') {
+                throw new TypeError('The value argument must be a BigInt');
+            }
+            if (value < -0x8000000000000000n || value > 0x7fffffffffffffffn) {
+                throw new RangeError('value out of range');
+            }
+            return value;
+        }
         static _checkedByteLength(byteLength) {
             if (typeof byteLength !== 'number') {
                 throw new TypeError('The byteLength argument must be a number');
@@ -21378,6 +21387,8 @@ if (typeof globalThis.Buffer === 'undefined') {
         readBigUInt64LE(offset) { const o = Buffer._checkedOffset(offset, 8, this.length); let value = 0n; for (let i = 7; i >= 0; i--) value = (value << 8n) | BigInt(this[o + i]); return value; }
         readBigUint64BE(offset) { return this.readBigUInt64BE(offset); }
         readBigUint64LE(offset) { return this.readBigUInt64LE(offset); }
+        readBigInt64BE(offset) { const value = this.readBigUInt64BE(offset); return value >= 0x8000000000000000n ? value - 0x10000000000000000n : value; }
+        readBigInt64LE(offset) { const value = this.readBigUInt64LE(offset); return value >= 0x8000000000000000n ? value - 0x10000000000000000n : value; }
         readUint8(offset) { return this.readUInt8(offset); }
         readUint16BE(offset) { return this.readUInt16BE(offset); }
         readUint16LE(offset) { return this.readUInt16LE(offset); }
@@ -21409,6 +21420,8 @@ if (typeof globalThis.Buffer === 'undefined') {
         writeBigUInt64LE(value, offset) { const o = Buffer._checkedOffset(offset, 8, this.length); let v = Buffer._checkedBigUInt64Value(value); for (let i = 0; i < 8; i++) { this[o + i] = Number(v & 0xffn); v >>= 8n; } return o + 8; }
         writeBigUint64BE(value, offset) { return this.writeBigUInt64BE(value, offset); }
         writeBigUint64LE(value, offset) { return this.writeBigUInt64LE(value, offset); }
+        writeBigInt64BE(value, offset) { let v = Buffer._checkedBigInt64Value(value); if (v < 0n) v += 0x10000000000000000n; return this.writeBigUInt64BE(v, offset); }
+        writeBigInt64LE(value, offset) { let v = Buffer._checkedBigInt64Value(value); if (v < 0n) v += 0x10000000000000000n; return this.writeBigUInt64LE(v, offset); }
         writeUInt32BE(value, offset) { const o = Buffer._checkedOffset(offset, 4, this.length); const v = Buffer._checkedWriteValue(value, 0, 0xffffffff); this[o]=(v>>>24)&0xff; this[o+1]=(v>>>16)&0xff; this[o+2]=(v>>>8)&0xff; this[o+3]=v&0xff; return o+4; }
         writeUInt32LE(value, offset) { const o = Buffer._checkedOffset(offset, 4, this.length); const v = Buffer._checkedWriteValue(value, 0, 0xffffffff); this[o]=v&0xff; this[o+1]=(v>>>8)&0xff; this[o+2]=(v>>>16)&0xff; this[o+3]=(v>>>24)&0xff; return o+4; }
         writeUint32BE(value, offset) { return this.writeUInt32BE(value, offset); }
