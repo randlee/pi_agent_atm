@@ -6,6 +6,7 @@ conformance_trend.jsonl, and generates TREND_REPORT.md with trend analysis.
 
 Usage:
   python3 scripts/conformance_trend.py
+  python3 scripts/conformance_trend.py --self-test
 
 Environment variables:
   GIT_SHA       Override git sha (default: read from `git rev-parse HEAD`)
@@ -14,6 +15,7 @@ Environment variables:
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -245,7 +247,116 @@ def generate_report(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+def run_self_test() -> int:
+    failures: list[str] = []
+
+    def require(condition: bool, message: str) -> None:
+        if not condition:
+            failures.append(message)
+
+    stable_direction, stable_delta = compute_direction(
+        [{"pass_rate_pct": 90.0}, {"pass_rate_pct": 90.05}],
+        7,
+    )
+    require(stable_direction == "stable", f"stable direction was {stable_direction!r}")
+    require(abs(stable_delta - 0.05) < 0.0001, f"stable delta was {stable_delta!r}")
+
+    improving_direction, improving_delta = compute_direction(
+        [{"pass_rate_pct": 80.0}, {"pass_rate_pct": 85.0}],
+        7,
+    )
+    require(
+        improving_direction == "improving",
+        f"improving direction was {improving_direction!r}",
+    )
+    require(improving_delta == 5.0, f"improving delta was {improving_delta!r}")
+
+    degrading_direction, degrading_delta = compute_direction(
+        [{"pass_rate_pct": 88.0}, {"pass_rate_pct": 84.0}],
+        7,
+    )
+    require(
+        degrading_direction == "degrading",
+        f"degrading direction was {degrading_direction!r}",
+    )
+    require(degrading_delta == -4.0, f"degrading delta was {degrading_delta!r}")
+
+    entries = [
+        {
+            "timestamp": "2026-05-01T00:00:00Z",
+            "git_sha": "aaaaaaaaaaaa",
+            "git_ref": "main",
+            "counts": {"total": 10, "pass": 9, "fail": 1, "na": 0},
+            "pass_rate_pct": 90.0,
+            "negative": {"pass": 3, "fail": 0},
+        },
+        {
+            "timestamp": "2026-05-02T00:00:00Z",
+            "git_sha": "bbbbbbbbbbbb",
+            "git_ref": "main",
+            "counts": {"total": 10, "pass": 8, "fail": 2, "na": 0},
+            "pass_rate_pct": 80.0,
+            "negative": {"pass": 2, "fail": 1},
+        },
+        {
+            "timestamp": "2026-05-03T00:00:00Z",
+            "git_sha": "cccccccccccc",
+            "git_ref": "main",
+            "counts": {"total": 10, "pass": 9, "fail": 1, "na": 0},
+            "pass_rate_pct": 90.0,
+            "negative": {"pass": 3, "fail": 0},
+        },
+    ]
+    regressions = find_regressions(entries)
+    require(len(regressions) == 1, f"expected one regression, got {len(regressions)}")
+    if regressions:
+        require(regressions[0]["from_sha"] == "aaaaaaaaaaaa", "regression from_sha mismatch")
+        require(regressions[0]["to_sha"] == "bbbbbbbbbbbb", "regression to_sha mismatch")
+        require(
+            regressions[0]["delta"] == -10.0,
+            f"regression delta was {regressions[0]['delta']!r}",
+        )
+
+    require(
+        sparkline([0.0, 50.0, 100.0]) == " =@",
+        "sparkline should map 0/50/100 deterministically",
+    )
+
+    report = generate_report(entries)
+    for expected in (
+        "# Conformance Trend Report",
+        "## Current Status",
+        "**Pass rate**: 90.0%",
+        "Found 1 regression(s):",
+        "`cccccccc`",
+    ):
+        require(expected in report, f"report missing {expected!r}")
+
+    if failures:
+        print("Conformance trend self-test failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+
+    print("Conformance trend self-test passed.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="run deterministic in-memory checks without mutating trend artifacts",
+    )
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        return run_self_test()
+
     summary = load_summary()
     entries = load_trend()
     entry = build_entry(summary)
