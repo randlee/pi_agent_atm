@@ -585,6 +585,48 @@ fn hmac_update_latin1_binary_ascii_use_single_byte_strings() {
 }
 
 #[test]
+fn create_hmac_key_encoding_option_matches_node_vectors() {
+    let result = eval_crypto(
+        r#"(() => {
+        return [
+            createHmac("sha256", "\u00ffA").update("data").digest("hex"),
+            createHmac("sha256", "\u00ffA", { encoding: "utf8" }).update("data").digest("hex"),
+            createHmac("sha256", "\u00ffA", { encoding: "latin1" }).update("data").digest("hex"),
+            createHmac("sha256", "\u00ffA", { encoding: "binary" }).update("data").digest("hex"),
+        ].join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        concat!(
+            "3919b4895e983e4f4a93c7dac6d603ccc8d15a166f2fc6193637d66800f925fc|",
+            "3919b4895e983e4f4a93c7dac6d603ccc8d15a166f2fc6193637d66800f925fc|",
+            "cd94c8465ef9705cd72ea90cb12e9cfb8196f355277b69195c2b38ab88b4989b|",
+            "cd94c8465ef9705cd72ea90cb12e9cfb8196f355277b69195c2b38ab88b4989b"
+        ),
+        "createHmac key encoding option should match Node vectors"
+    );
+}
+
+#[test]
+fn create_hmac_rejects_unsupported_key_encoding_option() {
+    let result = eval_crypto(
+        r#"(() => {
+        try {
+            createHmac("sha256", "secret", { encoding: "utf16le" });
+            return "no-throw";
+        } catch (e) {
+            return "threw:" + e.message;
+        }
+    })()"#,
+    );
+    assert!(
+        result.contains("unsupported input encoding"),
+        "Expected unsupported key encoding to throw, got: {result}"
+    );
+}
+
+#[test]
 fn pbkdf2_sync_derives_expected_key() {
     let result =
         eval_crypto(r#"pbkdf2Sync("password", "salt", 1000, 16, "sha256").toString("hex")"#);

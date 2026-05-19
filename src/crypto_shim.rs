@@ -881,6 +881,15 @@ function unsupportedCryptoApi(name) {
   throw new Error(`${name} is not implemented in the Pi node:crypto shim`);
 }
 
+function normalizeCryptoOptionsEncoding(options, apiName) {
+  if (options === undefined || options === null) return undefined;
+  if (typeof options !== 'object') {
+    throw new Error(`${apiName}: options must be an object`);
+  }
+  if (!Object.prototype.hasOwnProperty.call(options, 'encoding')) return undefined;
+  return normalizeBufferEncoding(options.encoding);
+}
+
 function normalizeCipherAlgorithm(algorithm, apiName) {
   if (algorithm === undefined || algorithm === null || String(algorithm).trim() === '') {
     throw new Error(`${apiName}: algorithm is required`);
@@ -947,13 +956,13 @@ export function createHash(algorithm) {
   };
 }
 
-export function createHmac(algorithm, key) {
+export function createHmac(algorithm, key, options) {
   if (algorithm === undefined || algorithm === null || String(algorithm).trim() === '') {
     throw new Error('createHmac: algorithm is required');
   }
   const algo = normalizeDigestName(algorithm);
   const chunks = [];
-  const keyBuf = toUint8Array(key);
+  const keyBuf = toUint8Array(key, normalizeCryptoOptionsEncoding(options, 'createHmac'));
   let finalized = false;
   return {
     update(input, inputEncoding) {
