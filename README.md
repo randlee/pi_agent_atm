@@ -1776,7 +1776,7 @@ Concrete engineering work in this codebase includes:
 | Registry/policy lookup | Immutable policy snapshots with O(1) capability checks, plus RCU-style metadata snapshots for extension registry/tool metadata | Removes repeated dynamic lookup overhead in hot authorization/dispatch paths |
 | Queueing + concurrency | Core-pinned SPSC reactor mesh, S3-FIFO-inspired admission with fairness guards, BRAVO-style fallback behavior | Improves tail latency under contention instead of only optimizing median latency |
 | Batched execution | AMAC-style interleaved batch executor with stall-aware toggling | Avoids head-of-line stalls when many independent hostcalls are in flight |
-| IO specialization | io_uring lane policy + telemetry and compatibility fallback | Routes IO-heavy calls to a specialized lane when safe and beneficial |
+| IO specialization | io_uring lane policy + telemetry and explicit executor-unavailable fallback | Evaluates IO-heavy calls without presenting the placeholder bridge as real io_uring execution |
 | Runtime startup for extensions | QuickJS pre-warm path, warm isolate/bytecode cache behavior, and startup pipeline parallelization | Lowers cold-start overhead before the first real extension workload |
 | JS bridge/scheduler path | Pending-job fast-path tuning and bridge-level dispatch cleanup in hot extension loops | Reduces overhead between JS requests and Rust execution |
 | Adaptive control loops | Regime-shift detection (CUSUM/BOCPD), budget controllers, VOI-based experiment planner, mean-field load controller, off-policy evaluation gates | Lets runtime behavior adapt to workload shifts without blind tuning |

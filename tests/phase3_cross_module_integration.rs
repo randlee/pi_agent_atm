@@ -54,10 +54,16 @@ fn io_uring_lane_all_capability_classes_have_deterministic_outcomes() {
         let d2 = decide_io_uring_lane(config, input);
         assert_eq!(d1, d2, "non-deterministic for {capability:?}");
 
-        // Only Filesystem and Network should reach io_uring
+        // Filesystem and Network are policy-eligible, but the real executor is
+        // not wired yet, so they must report explicit fallback instead of
+        // presenting a placeholder bridge as io_uring execution.
         match capability {
             HostcallCapabilityClass::Filesystem | HostcallCapabilityClass::Network => {
-                assert_eq!(d1.lane, HostcallDispatchLane::IoUring);
+                assert_eq!(d1.lane, HostcallDispatchLane::Fast);
+                assert_eq!(
+                    d1.fallback_reason,
+                    Some(IoUringFallbackReason::IoUringExecutorUnavailable)
+                );
             }
             _ => {
                 assert_eq!(d1.lane, HostcallDispatchLane::Fast);
@@ -128,7 +134,8 @@ fn io_uring_lane_queue_depth_boundary_values() {
         allow_network: true,
     };
 
-    // At budget - should succeed
+    // At budget: policy preconditions pass, but executor availability still
+    // fails closed until the real ring executor is wired.
     let at_budget = decide_io_uring_lane(
         config,
         IoUringLaneDecisionInput {
@@ -138,7 +145,11 @@ fn io_uring_lane_queue_depth_boundary_values() {
             force_compat_lane: false,
         },
     );
-    assert_eq!(at_budget.lane, HostcallDispatchLane::IoUring);
+    assert_eq!(at_budget.lane, HostcallDispatchLane::Fast);
+    assert_eq!(
+        at_budget.fallback_reason,
+        Some(IoUringFallbackReason::IoUringExecutorUnavailable)
+    );
 
     // Exceeding budget
     let over_budget = decide_io_uring_lane(
@@ -777,12 +788,18 @@ fn composed_io_uring_to_s3fifo_admission_pipeline() {
         let key = format!("fs-call-{idx}");
         let admission = s3fifo.access("ext-a", key);
 
-        // First 2 should admit (budget=2), rest rejected
+        // First 2 should admit (budget=2), but io_uring remains an explicit
+        // fallback until an actual executor exists.
         if idx < 2 {
             assert_eq!(
                 decision.lane,
-                HostcallDispatchLane::IoUring,
-                "call {idx} should use io_uring"
+                HostcallDispatchLane::Fast,
+                "call {idx} should not use the placeholder io_uring bridge"
+            );
+            assert_eq!(
+                decision.fallback_reason,
+                Some(IoUringFallbackReason::IoUringExecutorUnavailable),
+                "call {idx} should explain executor unavailability"
             );
             assert_eq!(admission.kind, S3FifoDecisionKind::AdmitSmall);
         } else {

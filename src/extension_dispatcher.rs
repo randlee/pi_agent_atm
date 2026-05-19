@@ -33,8 +33,9 @@ use crate::extensions::{
 use crate::extensions_js::{HostcallKind, HostcallRequest, PiJsRuntime, js_to_json, json_to_js};
 use crate::hostcall_amac::{AmacBatchExecutor, AmacBatchExecutorConfig};
 use crate::hostcall_io_uring_lane::{
-    HostcallCapabilityClass, HostcallDispatchLane, HostcallIoHint, IoUringLaneDecisionInput,
-    IoUringLanePolicyConfig, decide_io_uring_lane,
+    HostcallCapabilityClass, HostcallDispatchLane, HostcallIoHint, IoUringFallbackReason,
+    IoUringLaneDecisionInput, IoUringLanePolicyConfig, decide_io_uring_lane,
+    io_uring_executor_available,
 };
 use crate::resource_governor::{
     AdmissionAction, AdmissionDecision, ResourceGovernor, ResourceOperationKind, ResourceRequest,
@@ -395,7 +396,7 @@ pub struct ExtensionDispatcher<C: SchedulerClock = WallClock> {
     dual_exec_config: DualExecOracleConfig,
     /// Runtime state for sampled dual execution and rollback guards.
     dual_exec_state: RefCell<DualExecOracleState>,
-    /// Decision-only io_uring lane policy for IO-dominant hostcalls.
+    /// Advisory io_uring lane policy for IO-dominant hostcalls.
     io_uring_lane_config: IoUringLanePolicyConfig,
     /// Kill switch forcing compatibility lane regardless of policy input.
     io_uring_force_compat: bool,
@@ -1255,17 +1256,15 @@ const fn hostcall_capability_label(capability: HostcallCapabilityClass) -> &'sta
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IoUringBridgeState {
-    DelegatedFastPath,
+    ExecutorUnavailable,
     CancelledBeforeDispatch,
-    CancelledAfterDispatch,
 }
 
 impl IoUringBridgeState {
     const fn as_str(self) -> &'static str {
         match self {
-            Self::DelegatedFastPath => "delegated_fast_path",
+            Self::ExecutorUnavailable => "executor_unavailable",
             Self::CancelledBeforeDispatch => "cancelled_before_dispatch",
-            Self::CancelledAfterDispatch => "cancelled_after_dispatch",
         }
     }
 }
@@ -2257,6 +2256,7 @@ impl<C: SchedulerClock + 'static> ExtensionDispatcher<C> {
             queue_occupancy_permille = occupancy_permille,
             io_uring_enabled = self.io_uring_lane_config.enabled,
             io_uring_ring_available = self.io_uring_lane_config.ring_available,
+            io_uring_executor_available = io_uring_executor_available(),
             io_uring_force_compat = self.io_uring_force_compat,
             "Hostcall io_uring lane decision evaluated"
         );
@@ -2277,6 +2277,7 @@ impl<C: SchedulerClock + 'static> ExtensionDispatcher<C> {
             fallback_reason = %fallback_reason.unwrap_or("none"),
             io_uring_enabled = self.io_uring_lane_config.enabled,
             io_uring_ring_available = self.io_uring_lane_config.ring_available,
+            io_uring_executor_available = io_uring_executor_available(),
             io_uring_force_compat = self.io_uring_force_compat,
             "Hostcall io_uring bridge dispatch completed"
         );
@@ -2437,25 +2438,13 @@ impl<C: SchedulerClock + 'static> ExtensionDispatcher<C> {
             };
         }
 
-        // io_uring submission/completion wiring is introduced incrementally.
-        // Keep bridge semantics explicit while delegating execution to the
-        // existing fast hostcall path until the ring executor lands.
-        let delegated_outcome = self.dispatch_hostcall_fast(request).await;
-        if !self.js_runtime().is_hostcall_active(&request.call_id) {
-            return IoUringBridgeDispatch {
-                outcome: HostcallOutcome::Error {
-                    code: "cancelled".to_string(),
-                    message: "Hostcall cancelled before io_uring completion".to_string(),
-                },
-                state: IoUringBridgeState::CancelledAfterDispatch,
-                fallback_reason: Some("cancelled_before_io_uring_completion"),
-            };
-        }
-
         IoUringBridgeDispatch {
-            outcome: delegated_outcome,
-            state: IoUringBridgeState::DelegatedFastPath,
-            fallback_reason: Some("io_uring_bridge_delegated_fast_path"),
+            outcome: HostcallOutcome::Error {
+                code: "io_uring_unavailable".to_string(),
+                message: "io_uring executor is unavailable; hostcall was not dispatched through the placeholder bridge".to_string(),
+            },
+            state: IoUringBridgeState::ExecutorUnavailable,
+            fallback_reason: Some(IoUringFallbackReason::IoUringExecutorUnavailable.as_code()),
         }
     }
 
@@ -13651,6 +13640,54 @@ mod tests {
                     assert!(
                         message.contains("cancelled before io_uring dispatch"),
                         "unexpected cancellation message: {message}"
+                    );
+                }
+                other => unreachable!("unexpected hostcall outcome: {other:?}"),
+            }
+        });
+    }
+
+    #[test]
+    fn io_uring_bridge_fails_closed_when_executor_is_not_wired() {
+        futures::executor::block_on(async {
+            let runtime = Rc::new(
+                PiJsRuntime::with_clock(DeterministicClock::new(0))
+                    .await
+                    .expect("runtime"),
+            );
+
+            runtime
+                .eval(
+                    r#"
+                    globalThis.result = null;
+                    pi.http({ url: "https://example.com", method: "GET" })
+                        .then((r) => { globalThis.result = r; })
+                        .catch((e) => { globalThis.result = e; });
+                "#,
+                )
+                .await
+                .expect("eval");
+
+            let mut requests = runtime.drain_hostcall_requests();
+            assert_eq!(requests.len(), 1);
+
+            let dispatcher = build_dispatcher(Rc::clone(&runtime));
+            let request = requests.pop_front().expect("request");
+            let bridge_dispatch = dispatcher.dispatch_hostcall_io_uring(&request).await;
+            assert_eq!(
+                bridge_dispatch.state,
+                IoUringBridgeState::ExecutorUnavailable
+            );
+            assert_eq!(
+                bridge_dispatch.fallback_reason,
+                Some("io_uring_executor_unavailable")
+            );
+            match bridge_dispatch.outcome {
+                HostcallOutcome::Error { code, message } => {
+                    assert_eq!(code, "io_uring_unavailable");
+                    assert!(
+                        message.contains("executor is unavailable"),
+                        "unexpected unavailable message: {message}"
                     );
                 }
                 other => unreachable!("unexpected hostcall outcome: {other:?}"),

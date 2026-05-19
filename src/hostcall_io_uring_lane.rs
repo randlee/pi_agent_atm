@@ -1,8 +1,9 @@
 //! Deterministic io_uring lane policy for hostcall dispatch.
 //!
 //! This module intentionally models policy decisions only. It does not perform
-//! syscalls or ring operations directly; integration code can consume the
-//! decisions and wire them into runtime-specific execution paths.
+//! syscalls or ring operations directly. Until a real ring executor is wired,
+//! the policy must report explicit fallback instead of selecting an execution
+//! lane that implies io_uring-backed dispatch.
 
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +87,7 @@ pub enum IoUringFallbackReason {
     MissingIoHint,
     UnsupportedCapability,
     QueueDepthBudgetExceeded,
+    IoUringExecutorUnavailable,
 }
 
 impl IoUringFallbackReason {
@@ -98,8 +100,19 @@ impl IoUringFallbackReason {
             Self::MissingIoHint => "io_hint_missing",
             Self::UnsupportedCapability => "io_uring_capability_not_supported",
             Self::QueueDepthBudgetExceeded => "io_uring_queue_depth_budget_exceeded",
+            Self::IoUringExecutorUnavailable => "io_uring_executor_unavailable",
         }
     }
+}
+
+/// Current build-time status for a real ring-backed hostcall executor.
+///
+/// The dispatcher has lane policy and telemetry, but no io_uring
+/// submission/completion executor. Keep this false until that executor exists
+/// so env overrides cannot make placeholder dispatch look like real io_uring.
+#[must_use]
+pub const fn io_uring_executor_available() -> bool {
+    false
 }
 
 /// Runtime-tunable policy knobs for io_uring lane selection.
@@ -207,6 +220,8 @@ pub struct IoUringLaneTelemetry {
     pub force_compat_lane: bool,
     pub policy_enabled: bool,
     pub ring_available: bool,
+    #[serde(default = "io_uring_executor_available")]
+    pub executor_available: bool,
     pub capability_allowed: bool,
     pub queue_depth_within_budget: bool,
 }
@@ -233,6 +248,7 @@ pub fn build_io_uring_lane_telemetry(
         force_compat_lane: input.force_compat_lane,
         policy_enabled: config.enabled,
         ring_available: config.ring_available,
+        executor_available: io_uring_executor_available(),
         capability_allowed,
         queue_depth_within_budget,
     }
@@ -258,6 +274,7 @@ pub fn decide_io_uring_lane_with_telemetry(
 /// 4) IO-heavy hint presence
 /// 5) capability allowlist
 /// 6) queue depth budget
+/// 7) real executor availability
 #[must_use]
 pub const fn decide_io_uring_lane(
     config: IoUringLanePolicyConfig,
@@ -280,6 +297,9 @@ pub const fn decide_io_uring_lane(
     }
     if input.queue_depth >= config.max_queue_depth {
         return IoUringLaneDecision::fast(IoUringFallbackReason::QueueDepthBudgetExceeded);
+    }
+    if !io_uring_executor_available() {
+        return IoUringLaneDecision::fast(IoUringFallbackReason::IoUringExecutorUnavailable);
     }
     IoUringLaneDecision::io_uring()
 }
@@ -319,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_io_uring_for_io_heavy_allowed_capability_with_budget_headroom() {
+    fn executor_unavailable_blocks_io_uring_for_policy_allowed_requests() {
         let decision = decide_io_uring_lane(
             enabled_config(),
             IoUringLaneDecisionInput {
@@ -329,8 +349,15 @@ mod tests {
                 force_compat_lane: false,
             },
         );
-        assert_eq!(decision.lane, HostcallDispatchLane::IoUring);
-        assert!(decision.fallback_reason.is_none());
+        assert_eq!(decision.lane, HostcallDispatchLane::Fast);
+        assert_eq!(
+            decision.fallback_reason,
+            Some(IoUringFallbackReason::IoUringExecutorUnavailable)
+        );
+        assert_eq!(
+            decision.fallback_code(),
+            Some("io_uring_executor_unavailable")
+        );
     }
 
     #[test]
@@ -454,7 +481,7 @@ mod tests {
             queue_depth: 2,
             force_compat_lane: false,
         };
-        let decision = decide_io_uring_lane(config, input);
+        let decision = IoUringLaneDecision::io_uring();
         let telemetry = build_io_uring_lane_telemetry(config, input, decision);
         assert_eq!(telemetry.lane, HostcallDispatchLane::IoUring);
         assert_eq!(telemetry.fallback_reason, None);
@@ -467,6 +494,10 @@ mod tests {
         assert!(!obj.contains_key("fallback_reason"));
         assert!(!obj.contains_key("fallback_code"));
         assert_eq!(obj.get("queue_depth_budget"), Some(&serde_json::json!(8)));
+        assert_eq!(
+            obj.get("executor_available"),
+            Some(&serde_json::json!(false))
+        );
         assert_eq!(
             obj.get("queue_depth_budget_remaining"),
             Some(&serde_json::json!(6))
@@ -827,6 +858,10 @@ mod tests {
             IoUringFallbackReason::QueueDepthBudgetExceeded.as_code(),
             "io_uring_queue_depth_budget_exceeded"
         );
+        assert_eq!(
+            IoUringFallbackReason::IoUringExecutorUnavailable.as_code(),
+            "io_uring_executor_unavailable"
+        );
     }
 
     #[test]
@@ -982,7 +1017,24 @@ mod tests {
                         input.queue_depth < cfg.max_queue_depth,
                         "queue depth must be within budget"
                     );
+                    assert!(
+                        io_uring_executor_available(),
+                        "real io_uring executor must be available"
+                    );
                 }
+            }
+
+            #[test]
+            fn no_config_selects_io_uring_before_executor_is_wired(
+                cfg in arb_config(),
+                input in arb_input(),
+            ) {
+                let decision = decide_io_uring_lane(cfg, input);
+                assert_ne!(
+                    decision.lane,
+                    HostcallDispatchLane::IoUring,
+                    "io_uring lane must remain unavailable until the ring executor is wired"
+                );
             }
 
             #[test]

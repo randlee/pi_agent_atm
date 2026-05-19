@@ -307,13 +307,18 @@ fn invariant_io_uring_lane_decision_independent_of_policy_check() {
 
         let decision = decide_io_uring_lane(config, input);
 
-        // Only Filesystem and Network can be routed to io_uring
+        // Filesystem and Network are policy-eligible, but the real executor is
+        // not wired yet, so they must fail closed to an explicit fallback.
         match cap {
             HostcallCapabilityClass::Filesystem | HostcallCapabilityClass::Network => {
                 assert_eq!(
                     decision.lane,
-                    HostcallDispatchLane::IoUring,
-                    "IO-capable {cap:?} should route to io_uring when conditions met"
+                    HostcallDispatchLane::Fast,
+                    "IO-capable {cap:?} must not route to a placeholder io_uring bridge"
+                );
+                assert_eq!(
+                    decision.fallback_reason,
+                    Some(IoUringFallbackReason::IoUringExecutorUnavailable)
                 );
             }
             _ => {
@@ -1107,7 +1112,7 @@ fn invariant_io_uring_queue_depth_budget_cannot_be_exceeded() {
     );
     assert_ne!(over_limit.lane, HostcallDispatchLane::IoUring);
 
-    // Under budget is fine
+    // Under budget still fails closed until the real ring executor exists.
     let under_limit = decide_io_uring_lane(
         config,
         IoUringLaneDecisionInput {
@@ -1117,5 +1122,9 @@ fn invariant_io_uring_queue_depth_budget_cannot_be_exceeded() {
             force_compat_lane: false,
         },
     );
-    assert_eq!(under_limit.lane, HostcallDispatchLane::IoUring);
+    assert_eq!(under_limit.lane, HostcallDispatchLane::Fast);
+    assert_eq!(
+        under_limit.fallback_reason,
+        Some(IoUringFallbackReason::IoUringExecutorUnavailable)
+    );
 }
