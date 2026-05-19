@@ -20930,6 +20930,15 @@ if (typeof globalThis.Buffer === 'undefined') {
             if (n > length) return length;
             return n;
         }
+        static _concatLength(size) {
+            if (typeof size !== 'number') {
+                throw new TypeError('The totalLength argument must be a number');
+            }
+            if (!Number.isFinite(size) || !Number.isInteger(size) || size < 0) {
+                throw new RangeError('The totalLength argument is out of range');
+            }
+            return size;
+        }
         static from(input, encoding, length) {
             if (typeof input === 'string') {
                 const enc = __pi_buffer_normalize_encoding(encoding);
@@ -21011,14 +21020,20 @@ if (typeof globalThis.Buffer === 'undefined') {
         static concat(list, totalLength) {
             if (!Array.isArray(list)) throw new TypeError('list argument must be an Array of Buffers');
             if (list.length === 0) return Buffer.alloc(0);
-            const total = totalLength !== undefined ? totalLength : list.reduce((s, b) => s + b.length, 0);
+            let computedTotal = 0;
+            for (const buf of list) {
+                if (!(buf instanceof Uint8Array)) {
+                    throw new TypeError('list elements must be Buffers or Uint8Arrays');
+                }
+                computedTotal += buf.length;
+            }
+            const total = totalLength !== undefined ? Buffer._concatLength(totalLength) : computedTotal;
             const out = Buffer.alloc(total);
             let offset = 0;
             for (const buf of list) {
                 if (offset >= total) break;
-                const src = buf instanceof Uint8Array ? buf : Buffer.from(buf);
-                const copyLen = Math.min(src.length, total - offset);
-                out.set(src.subarray(0, copyLen), offset);
+                const copyLen = Math.min(buf.length, total - offset);
+                out.set(buf.subarray(0, copyLen), offset);
                 offset += copyLen;
             }
             return out;

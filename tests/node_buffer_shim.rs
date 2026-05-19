@@ -1093,6 +1093,13 @@ fn global_buffer_concat_rejects_non_arrays_like_node() {
             ["empty", () => Buffer.concat([]).toString("hex")],
             ["not_array_string", () => Buffer.concat("abc").toString("hex")],
             ["not_array_uint8", () => Buffer.concat(new Uint8Array([1, 2])).toString("hex")],
+            ["string_element", () => Buffer.concat(["ab"]).toString("hex")],
+            ["array_element", () => Buffer.concat([[97, 98]]).toString("hex")],
+            ["arraybuffer_element", () => Buffer.concat([new ArrayBuffer(2)]).toString("hex")],
+            ["object_element", () => Buffer.concat([{ length: 2, 0: 97, 1: 98 }]).toString("hex")],
+            ["uint16_element", () => Buffer.concat([new Uint16Array([0x6162])]).toString("hex")],
+            ["dataview_element", () => Buffer.concat([new DataView(new ArrayBuffer(2))]).toString("hex")],
+            ["null_element", () => Buffer.concat([null]).toString("hex")],
         ];
         return cases.map(([label, run]) => {
             try {
@@ -1105,7 +1112,39 @@ fn global_buffer_concat_rejects_non_arrays_like_node() {
     );
     assert_eq!(
         result,
-        "empty:|not_array_string:TypeError|not_array_uint8:TypeError"
+        "empty:|not_array_string:TypeError|not_array_uint8:TypeError|string_element:TypeError|array_element:TypeError|arraybuffer_element:TypeError|object_element:TypeError|uint16_element:TypeError|dataview_element:TypeError|null_element:TypeError"
+    );
+}
+
+#[test]
+fn global_buffer_concat_total_length_vectors_match_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const totals = [
+            ["default", undefined],
+            ["zero", 0],
+            ["one", 1],
+            ["fraction", 1.9],
+            ["string", "1"],
+            ["negative", -1],
+            ["nan", NaN],
+            ["infinity", Infinity],
+            ["null", null],
+        ];
+        return totals.map(([label, total]) => {
+            try {
+                const list = [Buffer.from([97, 98])];
+                const out = total === undefined ? Buffer.concat(list) : Buffer.concat(list, total);
+                return label + ":" + out.length + ":" + out.toString("hex");
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "default:2:6162|zero:0:|one:1:61|fraction:RangeError|string:TypeError|negative:RangeError|nan:RangeError|infinity:RangeError|null:TypeError"
     );
 }
 
