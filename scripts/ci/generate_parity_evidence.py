@@ -5,9 +5,8 @@ Parses cargo test stdout for pass/fail counts across parity test suites
 and emits a structured JSON artifact suitable for CI gate consumption.
 
 Usage:
-    python3 scripts/ci/generate_parity_evidence.py \
-        --output path/to/parity_evidence.json \
-        --log path/to/output.log
+    python3 scripts/ci/generate_parity_evidence.py --output OUT --log LOG
+    python3 scripts/ci/generate_parity_evidence.py --self-test
 """
 
 import argparse
@@ -388,15 +387,128 @@ def build_evidence(suites: dict, project_root: Path) -> dict:
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--output", required=True, help="Path for output JSON"
+def synthetic_parity_log(
+    failed_suite: str | None = None,
+    omit_suite: str | None = None,
+) -> str:
+    lines = []
+    for suite in PARITY_SUITES:
+        if suite == omit_suite:
+            continue
+        status = "FAILED" if suite == failed_suite else "ok"
+        failed = 1 if suite == failed_suite else 0
+        passed = 2 if suite == failed_suite else 3
+        lines.append(f"Running tests/{suite}.rs (target/debug/deps/{suite}-abcdef)")
+        lines.append(
+            f"test result: {status}. {passed} passed; {failed} failed; "
+            "0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+        )
+    return "\n".join(lines)
+
+
+def run_self_test() -> int:
+    failures: list[str] = []
+
+    def require(condition: bool, message: str) -> None:
+        if not condition:
+            failures.append(message)
+
+    project_root = project_root_from_script()
+    all_pass_suites = parse_log(synthetic_parity_log())
+    require(set(all_pass_suites) == set(PARITY_SUITES), "parser missed parity suites")
+    require(
+        all(suite["status"] == "pass" for suite in all_pass_suites.values()),
+        "all-pass synthetic log should parse as pass",
+    )
+
+    all_pass_evidence = build_evidence(all_pass_suites, project_root)
+    require(all_pass_evidence["verdict"] == "pass", "all-pass evidence should pass")
+    require(
+        all_pass_evidence["summary"]["suites_found"] == len(PARITY_SUITES),
+        "all-pass evidence should find every suite",
+    )
+    require(all_pass_evidence["summary"]["total_passed"] == 15, "unexpected pass total")
+    require(all_pass_evidence["summary"]["total_failed"] == 0, "unexpected fail total")
+    require(
+        all_pass_evidence["summary"]["pass_rate_pct"] == 100.0,
+        "all-pass evidence should report 100% pass rate",
+    )
+    require(
+        all_pass_evidence["counting_taxonomy"]["schema"] == COUNTING_TAXONOMY_SCHEMA,
+        "evidence should include counting taxonomy",
+    )
+
+    failed_suites = parse_log(synthetic_parity_log(failed_suite="config_precedence"))
+    failed_evidence = build_evidence(failed_suites, project_root)
+    require(failed_evidence["verdict"] == "fail", "failed suite should fail evidence")
+    require(
+        failed_evidence["summary"]["total_failed"] == 1,
+        "failed evidence should count one failed test",
+    )
+    require(
+        failed_evidence["suites"]["config_precedence"]["status"] == "fail",
+        "failed suite status should be preserved",
+    )
+
+    missing_suites = parse_log(synthetic_parity_log(omit_suite="vcr_parity_validation"))
+    missing_evidence = build_evidence(missing_suites, project_root)
+    require(missing_evidence["verdict"] == "fail", "missing suite should fail evidence")
+    require(
+        missing_evidence["summary"]["suites_missing"] == ["vcr_parity_validation"],
+        "missing suite should be named in the summary",
+    )
+
+    contract = load_counting_taxonomy_contract(project_root)
+    invalid_taxonomy = json.loads(json.dumps(all_pass_evidence["counting_taxonomy"]))
+    provider_metrics = invalid_taxonomy["dimensions"]["providers"]["metrics"]
+    invalid_taxonomy["dimensions"]["providers"]["metrics"] = [
+        metric
+        for metric in provider_metrics
+        if metric.get("granularity_label") != PROVIDER_ALIAS_LABEL
+    ]
+    taxonomy_errors = validate_counting_taxonomy(invalid_taxonomy, contract)
+    require(
+        any(PROVIDER_ALIAS_LABEL in error for error in taxonomy_errors),
+        "invalid taxonomy should report missing provider alias label",
+    )
+
+    if failures:
+        print("Parity evidence self-test failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+
+    print("Parity evidence self-test passed.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--log", required=True, help="Path to cargo test log"
+        "--self-test",
+        action="store_true",
+        help="run deterministic in-memory checks without writing evidence artifacts",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--output", required=False, help="Path for output JSON"
+    )
+    parser.add_argument(
+        "--log", required=False, help="Path to cargo test log"
+    )
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        return run_self_test()
+
+    if not args.output:
+        print("ERROR: --output is required unless --self-test is used", file=sys.stderr)
+        return 2
+    if not args.log:
+        print("ERROR: --log is required unless --self-test is used", file=sys.stderr)
+        return 2
 
     log_path = Path(args.log)
     if not log_path.exists():
