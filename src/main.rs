@@ -1036,6 +1036,11 @@ async fn run(
         return Ok(());
     }
 
+    if let Some(provider) = cli.fetch_models.take() {
+        handle_fetch_models(&provider, cli.refresh_models).await?;
+        return Ok(());
+    }
+
     if !cli.no_migrations {
         let migration_report = pi::migrations::run_startup_migrations(&cwd);
         for message in migration_report.messages() {
@@ -5558,6 +5563,64 @@ fn save_list_models_cache(models_path: &Path, payload: &ListModelsCachePayload) 
     } else {
         let _ = fs::remove_file(&temp_path);
     }
+}
+
+async fn handle_fetch_models(provider: &str, refresh: bool) -> Result<()> {
+    // Resolve the API key: prefer the user's auth.json credential for the
+    // provider, then fall back to environment variables advertised in the
+    // canonical metadata.  An empty key triggers the static-registry path
+    // inside `fetch_provider_models` itself.
+    let api_key = resolve_provider_api_key(provider);
+
+    let models = if refresh {
+        pi::providers::refresh_provider_models(provider, &api_key).await
+    } else {
+        pi::providers::fetch_provider_models(provider, &api_key).await
+    };
+
+    let models = match models {
+        Ok(models) => models,
+        Err(err) => {
+            // `fetch_provider_models` only returns Err for inputs that can
+            // never produce a useful list (unknown provider, etc.); surface
+            // those clearly rather than dumping the empty static fallback.
+            eprintln!("Failed to list models for {provider:?}: {err}");
+            return Err(anyhow::anyhow!(err.to_string()));
+        }
+    };
+
+    if models.is_empty() {
+        eprintln!(
+            "No models available for {provider:?} (static registry is empty and live fetch failed). \
+             Run with RUST_LOG=warn for fallback diagnostics."
+        );
+    } else {
+        let stdout = io::stdout();
+        let mut out = io::BufWriter::new(stdout.lock());
+        for id in &models {
+            let _ = writeln!(out, "{id}");
+        }
+        let _ = out.flush();
+    }
+    Ok(())
+}
+
+fn resolve_provider_api_key(provider: &str) -> String {
+    if let Ok(auth) = AuthStorage::load(Config::auth_path()) {
+        if let Some(key) = auth.api_key(provider) {
+            if !key.trim().is_empty() {
+                return key;
+            }
+        }
+    }
+    for env_key in provider_metadata::provider_auth_env_keys(provider) {
+        if let Ok(value) = std::env::var(env_key) {
+            if !value.trim().is_empty() {
+                return value;
+            }
+        }
+    }
+    String::new()
 }
 
 fn list_providers() {

@@ -499,6 +499,18 @@ pub struct Cli {
     #[arg(long)]
     pub list_providers: bool,
 
+    /// Fetch the live model catalog from a provider's `/v1/models` endpoint
+    /// (OpenAI-compatible providers only). Falls back to the static registry
+    /// when the live call fails. Results are cached in-memory for 5 minutes;
+    /// set `PI_DISABLE_MODEL_CACHE=1` to bypass.
+    #[arg(long, value_name = "PROVIDER")]
+    pub fetch_models: Option<String>,
+
+    /// When used with `--fetch-models`, ignore any cached entry and force a
+    /// fresh network call (still falls back to the static registry on error).
+    #[arg(long, requires = "fetch_models")]
+    pub refresh_models: bool,
+
     // === Subcommands ===
     #[command(subcommand)]
     pub command: Option<Commands>,
