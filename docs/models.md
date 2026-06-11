@@ -90,7 +90,7 @@ Azure requires resource-specific URLs and `api-key` header instead of Bearer tok
 {
   "providers": {
     "azure-openai": {
-      "api": "openai",
+      "api": "openai-completions",
       "baseUrl": "https://my-resource.openai.azure.com/openai/deployments/my-deployment",
       "apiKey": "...",
       "authHeader": false,
@@ -114,7 +114,7 @@ Azure requires resource-specific URLs and `api-key` header instead of Bearer tok
 {
   "providers": {
     "ollama": {
-      "api": "openai",
+      "api": "openai-completions",
       "baseUrl": "http://localhost:11434/v1",
       "apiKey": "ollama",
       "models": [
