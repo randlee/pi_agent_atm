@@ -878,8 +878,18 @@ fn model_is_reasoning(model_id: &str) -> Option<bool> {
         return Some(false);
     }
 
-    // DeepSeek: deepseek-reasoner (R1) is reasoning; deepseek-chat (V3) and others are not.
-    if id.starts_with("deepseek-reasoner") || id.starts_with("deepseek-r") {
+    // DeepSeek: thinking-mode models are reasoning.
+    // - deepseek-reasoner (legacy thinking alias) and the R-series (R1).
+    // - deepseek-v4-pro / deepseek-v4-flash: the current V4 models, both
+    //   thinking-capable with reasoning_effort high/max (gh #114;
+    //   https://api-docs.deepseek.com/news/news260424).
+    // The legacy non-thinking deepseek-chat (V3 / non-thinking alias) and
+    // deepseek-coder are NOT reasoning.
+    if id.starts_with("deepseek-reasoner")
+        || id.starts_with("deepseek-r")
+        || id.starts_with("deepseek-v4-pro")
+        || id.starts_with("deepseek-v4-flash")
+    {
         return Some(true);
     }
     if id.starts_with("deepseek") {
@@ -3742,7 +3752,8 @@ mod tests {
 
         // (2) Feed the clamped level into the real request builder.
         let provider = crate::providers::openai::OpenAIProvider::new(entry.model.id.as_str())
-            .with_provider_name(entry.model.provider.as_str());
+            .with_provider_name(entry.model.provider.as_str())
+            .with_reasoning(entry.model.reasoning);
         let context = Context {
             system_prompt: None,
             messages: vec![crate::model::Message::User(crate::model::UserMessage {
@@ -3774,6 +3785,110 @@ mod tests {
         let high_body = body(high);
         assert_eq!(high_body["thinking"]["type"], "enabled");
         assert_eq!(high_body["reasoning_effort"], "high");
+    }
+
+    /// Stronger end-to-end variant that derives the `reasoning` flag through the
+    /// REAL classification path (`model_is_reasoning` -> `effective_reasoning`)
+    /// instead of hardcoding `true`. This is the case #114's first cut missed: in
+    /// production `model_is_reasoning("deepseek-v4-pro")` was `Some(false)`, so the
+    /// model was non-reasoning and the whole feature was inert for it.
+    #[test]
+    fn deepseek_v4_pro_real_registry_path_xhigh_reaches_wire_as_max() {
+        use crate::model::ThinkingLevel;
+        use crate::provider::{Context, StreamOptions};
+
+        // The production reasoning flag is DERIVED, not hardcoded.
+        assert_eq!(model_is_reasoning("deepseek-v4-pro"), Some(true));
+        assert_eq!(model_is_reasoning("deepseek-v4-flash"), Some(true));
+        // Even against a non-reasoning provider default, the model classification wins.
+        let reasoning = effective_reasoning("deepseek-v4-pro", false);
+        assert!(
+            reasoning,
+            "deepseek-v4-pro must be reasoning via effective_reasoning/model_is_reasoning"
+        );
+
+        // Build the entry with the DERIVED reasoning flag (not a hardcoded true).
+        let entry = make_model_entry_with_provider(
+            "deepseek-v4-pro",
+            reasoning,
+            "deepseek",
+            "https://api.deepseek.com",
+        );
+        assert!(entry.supports_xhigh());
+        let effective = entry.clamp_thinking_level(ThinkingLevel::XHigh);
+        assert_eq!(effective, ThinkingLevel::XHigh);
+
+        let provider = crate::providers::openai::OpenAIProvider::new(entry.model.id.as_str())
+            .with_provider_name(entry.model.provider.as_str())
+            .with_reasoning(entry.model.reasoning);
+        let context = Context {
+            system_prompt: None,
+            messages: vec![crate::model::Message::User(crate::model::UserMessage {
+                content: crate::model::UserContent::Text("solve it".to_string()),
+                timestamp: 0,
+            })]
+            .into(),
+            tools: Vec::<crate::provider::ToolDef>::new().into(),
+        };
+        let options = StreamOptions {
+            thinking_level: Some(effective),
+            ..Default::default()
+        };
+        let body = serde_json::to_value(provider.build_request(&context, &options))
+            .expect("serialize request");
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(
+            body["reasoning_effort"], "max",
+            "xhigh must reach the wire as max via the real registry classification path"
+        );
+    }
+
+    /// `deepseek-chat` classifies as non-reasoning, so it exposes only `[Off]`,
+    /// the clamp pins to Off, and the transport emits NO `thinking`/`reasoning_effort`
+    /// (pre-#113 wire body preserved — gh #114, finding 2).
+    #[test]
+    fn deepseek_chat_non_reasoning_emits_no_thinking_end_to_end() {
+        use crate::model::ThinkingLevel;
+        use crate::provider::{Context, StreamOptions};
+
+        assert_eq!(model_is_reasoning("deepseek-chat"), Some(false));
+        let reasoning = effective_reasoning("deepseek-chat", true);
+        assert!(!reasoning, "deepseek-chat must classify as non-reasoning");
+
+        let entry = make_model_entry_with_provider(
+            "deepseek-chat",
+            reasoning,
+            "deepseek",
+            "https://api.deepseek.com",
+        );
+        assert!(!entry.supports_xhigh());
+        assert_eq!(entry.available_thinking_levels(), vec![ThinkingLevel::Off]);
+        // Whatever the user asks for, a non-reasoning model clamps to Off.
+        assert_eq!(
+            entry.clamp_thinking_level(ThinkingLevel::XHigh),
+            ThinkingLevel::Off
+        );
+
+        let provider = crate::providers::openai::OpenAIProvider::new(entry.model.id.as_str())
+            .with_provider_name(entry.model.provider.as_str())
+            .with_reasoning(entry.model.reasoning);
+        let context = Context {
+            system_prompt: None,
+            messages: vec![crate::model::Message::User(crate::model::UserMessage {
+                content: crate::model::UserContent::Text("hi".to_string()),
+                timestamp: 0,
+            })]
+            .into(),
+            tools: Vec::<crate::provider::ToolDef>::new().into(),
+        };
+        let options = StreamOptions {
+            thinking_level: Some(entry.clamp_thinking_level(ThinkingLevel::XHigh)),
+            ..Default::default()
+        };
+        let body = serde_json::to_value(provider.build_request(&context, &options))
+            .expect("serialize request");
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
@@ -4781,6 +4896,8 @@ mod tests {
         // DeepSeek
         assert_eq!(model_is_reasoning("deepseek-reasoner"), Some(true));
         assert_eq!(model_is_reasoning("deepseek-r1"), Some(true));
+        assert_eq!(model_is_reasoning("deepseek-v4-pro"), Some(true));
+        assert_eq!(model_is_reasoning("deepseek-v4-flash"), Some(true));
         assert_eq!(model_is_reasoning("deepseek-chat"), Some(false));
         assert_eq!(model_is_reasoning("deepseek-coder"), Some(false));
 

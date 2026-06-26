@@ -16,6 +16,7 @@ use crate::model::{
 };
 use crate::models::CompatConfig;
 use crate::provider::{Context, Provider, StreamOptions, ToolDef};
+use crate::provider_metadata::canonical_provider_id;
 use crate::sse::SseStream;
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -104,6 +105,11 @@ pub struct OpenAIProvider {
     base_url: String,
     provider: String,
     compat: Option<CompatConfig>,
+    /// Whether the model is a reasoning model. Gates the DeepSeek thinking
+    /// dialect so non-reasoning DeepSeek models (e.g. `deepseek-chat`) never
+    /// emit `thinking`/`reasoning_effort` (gh #114). Defaults to `false`; the
+    /// registry sets it from `ModelEntry::model.reasoning` via `with_reasoning`.
+    reasoning: bool,
 }
 
 impl OpenAIProvider {
@@ -115,7 +121,19 @@ impl OpenAIProvider {
             base_url: OPENAI_API_URL.to_string(),
             provider: "openai".to_string(),
             compat: None,
+            reasoning: false,
         }
+    }
+
+    /// Set whether the underlying model is a reasoning model.
+    ///
+    /// Only consulted by the DeepSeek thinking dialect (`reasoning_style`): a
+    /// non-reasoning DeepSeek model serializes with no `thinking`/`reasoning_effort`
+    /// (byte-for-byte as before #113), while a reasoning one forwards the level.
+    #[must_use]
+    pub const fn with_reasoning(mut self, reasoning: bool) -> Self {
+        self.reasoning = reasoning;
+        self
     }
 
     /// Override the provider name reported in streamed events.
@@ -154,14 +172,21 @@ impl OpenAIProvider {
 
     /// Detect a provider-specific reasoning dialect for this transport.
     ///
-    /// DeepSeek is identified the same way the legacy TS SDK did it — by the
-    /// provider id or a `deepseek.com` base URL — so a DeepSeek model routed
-    /// through the OpenAI-compatible transport forwards the user's thinking
-    /// level, while every other OpenAI-compatible provider is left untouched.
+    /// DeepSeek is identified the same way `ModelEntry::is_deepseek_reasoning_model`
+    /// does it — by the canonical provider id (so the `deep-seek` alias also
+    /// matches) or a `deepseek.com` base URL — AND only for reasoning models, so a
+    /// non-reasoning DeepSeek model (e.g. `deepseek-chat`) emits no
+    /// `thinking`/`reasoning_effort` (byte-for-byte as before #113, gh #114).
+    /// Every other OpenAI-compatible provider is left untouched.
     fn reasoning_style(&self) -> Option<ReasoningStyle> {
-        if self.provider.eq_ignore_ascii_case("deepseek")
-            || self.base_url.to_ascii_lowercase().contains("deepseek.com")
-        {
+        if !self.reasoning {
+            return None;
+        }
+        let provider_is_deepseek = canonical_provider_id(&self.provider)
+            .is_some_and(|canonical| canonical == "deepseek")
+            || self.provider.eq_ignore_ascii_case("deepseek");
+        let base_is_deepseek = self.base_url.to_ascii_lowercase().contains("deepseek.com");
+        if provider_is_deepseek || base_is_deepseek {
             Some(ReasoningStyle::DeepSeek)
         } else {
             None
@@ -1388,8 +1413,11 @@ mod tests {
                 .expect("serialize request")
         };
 
-        // Detected via the provider id.
-        let ds = OpenAIProvider::new("deepseek-v4-pro").with_provider_name("deepseek");
+        // Detected via the provider id. `with_reasoning(true)` mirrors the
+        // registry wiring for a DeepSeek reasoning model (deepseek-v4-pro).
+        let ds = OpenAIProvider::new("deepseek-v4-pro")
+            .with_provider_name("deepseek")
+            .with_reasoning(true);
 
         let off = body(&ds, crate::model::ThinkingLevel::Off);
         assert_eq!(off["thinking"]["type"], "disabled");
@@ -1413,10 +1441,66 @@ mod tests {
 
         // Detected via the base URL even when the provider id is generic.
         let ds_by_url = OpenAIProvider::new("deepseek-v4-pro")
-            .with_base_url("https://api.deepseek.com/v1/chat/completions".to_string());
+            .with_base_url("https://api.deepseek.com/v1/chat/completions".to_string())
+            .with_reasoning(true);
         let high_url = body(&ds_by_url, crate::model::ThinkingLevel::High);
         assert_eq!(high_url["thinking"]["type"], "enabled");
         assert_eq!(high_url["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn test_build_request_non_reasoning_deepseek_omits_thinking() {
+        // A non-reasoning DeepSeek model (e.g. deepseek-chat) must NOT emit the
+        // `thinking` toggle or `reasoning_effort`, even though the provider is
+        // deepseek — pre-#113 wire behavior is preserved (gh #114, finding 2).
+        let provider = OpenAIProvider::new("deepseek-chat")
+            .with_provider_name("deepseek")
+            .with_reasoning(false);
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::User(crate::model::UserMessage {
+                content: UserContent::Text("hi".to_string()),
+                timestamp: 0,
+            })]
+            .into(),
+            tools: Vec::<ToolDef>::new().into(),
+        };
+        // Even at Off (the default/clamped level) there must be no thinking field.
+        let options = StreamOptions {
+            thinking_level: Some(crate::model::ThinkingLevel::Off),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(provider.build_request(&context, &options))
+            .expect("serialize request");
+        assert!(value.get("thinking").is_none());
+        assert!(value.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn test_build_request_deepseek_provider_alias_detected() {
+        // The `deep-seek` provider alias canonicalizes to `deepseek`, so the
+        // thinking dialect must fire for it too (gh #114, finding 3) — matching
+        // `ModelEntry::is_deepseek_reasoning_model`'s `canonical_provider_id` use.
+        let provider = OpenAIProvider::new("deepseek-v4-pro")
+            .with_provider_name("deep-seek")
+            .with_reasoning(true);
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::User(crate::model::UserMessage {
+                content: UserContent::Text("solve it".to_string()),
+                timestamp: 0,
+            })]
+            .into(),
+            tools: Vec::<ToolDef>::new().into(),
+        };
+        let options = StreamOptions {
+            thinking_level: Some(crate::model::ThinkingLevel::XHigh),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(provider.build_request(&context, &options))
+            .expect("serialize request");
+        assert_eq!(value["thinking"]["type"], "enabled");
+        assert_eq!(value["reasoning_effort"], "max");
     }
 
     #[test]
