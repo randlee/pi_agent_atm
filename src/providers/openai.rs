@@ -12,7 +12,7 @@ use crate::error::{Error, Result};
 use crate::http::client::Client;
 use crate::model::{
     AssistantMessage, ContentBlock, Message, StopReason, StreamEvent, TextContent, ThinkingContent,
-    ToolCall, Usage, UserContent,
+    ThinkingLevel, ToolCall, Usage, UserContent,
 };
 use crate::models::CompatConfig;
 use crate::provider::{Context, Provider, StreamOptions, ToolDef};
@@ -152,6 +152,22 @@ impl OpenAIProvider {
         self
     }
 
+    /// Detect a provider-specific reasoning dialect for this transport.
+    ///
+    /// DeepSeek is identified the same way the legacy TS SDK did it — by the
+    /// provider id or a `deepseek.com` base URL — so a DeepSeek model routed
+    /// through the OpenAI-compatible transport forwards the user's thinking
+    /// level, while every other OpenAI-compatible provider is left untouched.
+    fn reasoning_style(&self) -> Option<ReasoningStyle> {
+        if self.provider.eq_ignore_ascii_case("deepseek")
+            || self.base_url.to_ascii_lowercase().contains("deepseek.com")
+        {
+            Some(ReasoningStyle::DeepSeek)
+        } else {
+            None
+        }
+    }
+
     /// Build the request body for the OpenAI API.
     pub fn build_request<'a>(
         &'a self,
@@ -199,6 +215,23 @@ impl OpenAIProvider {
 
         let stream_options = Some(OpenAIStreamOptions { include_usage });
 
+        // Forward the reasoning level for providers with a request-side reasoning
+        // dialect. Only DeepSeek today; all other transports get `(None, None)`,
+        // so their serialized body is unchanged. DeepSeek collapses `low`/`medium`
+        // into `high` and `xhigh` into `max` itself, so we only emit the values it
+        // documents and let `off` request the explicit non-thinking path.
+        let (thinking, reasoning_effort) = match self.reasoning_style() {
+            Some(ReasoningStyle::DeepSeek) => match options.thinking_level.unwrap_or_default() {
+                ThinkingLevel::Off => (Some(OpenAIThinking { kind: "disabled" }), None),
+                ThinkingLevel::High => (Some(OpenAIThinking { kind: "enabled" }), Some("high")),
+                ThinkingLevel::XHigh => (Some(OpenAIThinking { kind: "enabled" }), Some("max")),
+                ThinkingLevel::Minimal | ThinkingLevel::Low | ThinkingLevel::Medium => {
+                    (Some(OpenAIThinking { kind: "enabled" }), None)
+                }
+            },
+            None => (None, None),
+        };
+
         OpenAIRequest {
             model: &self.model,
             messages,
@@ -208,6 +241,8 @@ impl OpenAIProvider {
             tools,
             stream: true,
             stream_options,
+            thinking,
+            reasoning_effort,
         }
     }
 
@@ -871,11 +906,42 @@ pub struct OpenAIRequest<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_options: Option<OpenAIStreamOptions>,
+    /// DeepSeek-only thinking toggle (`{"type": "enabled" | "disabled"}`). Other
+    /// OpenAI-compatible providers never set this, so it serializes away.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<OpenAIThinking>,
+    /// DeepSeek-only reasoning effort (`"high"` | `"max"`). DeepSeek maps
+    /// `low`/`medium` to `high` and `xhigh` to `max` itself, so we only emit the
+    /// two values it documents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
 struct OpenAIStreamOptions {
     include_usage: bool,
+}
+
+/// DeepSeek's `thinking` request object on the chat-completions transport.
+/// `{"type": "enabled"}` turns on thinking mode; `{"type": "disabled"}` forces
+/// the non-thinking path. Serialized only for DeepSeek (see `ReasoningStyle`).
+#[derive(Debug, Serialize)]
+struct OpenAIThinking {
+    #[serde(rename = "type")]
+    kind: &'static str,
+}
+
+/// Request-side reasoning dialect for OpenAI-compatible providers that take
+/// non-standard reasoning controls. The plain Chat Completions transport has no
+/// reasoning toggle, so this is `None` for OpenAI/Groq/OpenRouter/etc. and the
+/// emitted body is byte-for-byte unchanged for them. Kept as an enum so other
+/// dialects (zai/qwen/openrouter "reasoning") can be added without touching the
+/// `build_request` call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReasoningStyle {
+    /// DeepSeek: `thinking: {type: enabled|disabled}` + `reasoning_effort`
+    /// (`high`|`max`). Mirrors the legacy `@earendil-works/pi-ai` `thinkingFormat`.
+    DeepSeek,
 }
 
 #[derive(Debug, Serialize)]
@@ -1299,6 +1365,82 @@ mod tests {
                 "required": ["q"]
             })
         );
+    }
+
+    #[test]
+    fn test_build_request_deepseek_forwards_thinking_and_reasoning_effort() {
+        // Builds the serialized request body for a given thinking level.
+        let body = |provider: &OpenAIProvider, level: crate::model::ThinkingLevel| {
+            let context = Context {
+                system_prompt: None,
+                messages: vec![Message::User(crate::model::UserMessage {
+                    content: UserContent::Text("Solve it".to_string()),
+                    timestamp: 0,
+                })]
+                .into(),
+                tools: Vec::<ToolDef>::new().into(),
+            };
+            let options = StreamOptions {
+                thinking_level: Some(level),
+                ..Default::default()
+            };
+            serde_json::to_value(provider.build_request(&context, &options))
+                .expect("serialize request")
+        };
+
+        // Detected via the provider id.
+        let ds = OpenAIProvider::new("deepseek-v4-pro").with_provider_name("deepseek");
+
+        let off = body(&ds, crate::model::ThinkingLevel::Off);
+        assert_eq!(off["thinking"]["type"], "disabled");
+        assert!(
+            off.get("reasoning_effort").is_none(),
+            "off must not send reasoning_effort"
+        );
+
+        let high = body(&ds, crate::model::ThinkingLevel::High);
+        assert_eq!(high["thinking"]["type"], "enabled");
+        assert_eq!(high["reasoning_effort"], "high");
+
+        let xhigh = body(&ds, crate::model::ThinkingLevel::XHigh);
+        assert_eq!(xhigh["thinking"]["type"], "enabled");
+        assert_eq!(xhigh["reasoning_effort"], "max");
+
+        // medium/low/minimal enable thinking but let DeepSeek pick the effort.
+        let medium = body(&ds, crate::model::ThinkingLevel::Medium);
+        assert_eq!(medium["thinking"]["type"], "enabled");
+        assert!(medium.get("reasoning_effort").is_none());
+
+        // Detected via the base URL even when the provider id is generic.
+        let ds_by_url = OpenAIProvider::new("deepseek-v4-pro")
+            .with_base_url("https://api.deepseek.com/v1/chat/completions".to_string());
+        let high_url = body(&ds_by_url, crate::model::ThinkingLevel::High);
+        assert_eq!(high_url["thinking"]["type"], "enabled");
+        assert_eq!(high_url["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn test_build_request_non_deepseek_omits_reasoning_controls() {
+        let provider = OpenAIProvider::new("gpt-4o");
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::User(crate::model::UserMessage {
+                content: UserContent::Text("hi".to_string()),
+                timestamp: 0,
+            })]
+            .into(),
+            tools: Vec::<ToolDef>::new().into(),
+        };
+        let options = StreamOptions {
+            thinking_level: Some(crate::model::ThinkingLevel::High),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(provider.build_request(&context, &options))
+            .expect("serialize request");
+        // A non-DeepSeek openai-completions provider serializes exactly as before:
+        // no thinking toggle and no reasoning_effort regardless of thinking level.
+        assert!(value.get("thinking").is_none());
+        assert!(value.get("reasoning_effort").is_none());
     }
 
     #[test]
