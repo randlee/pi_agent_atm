@@ -38,6 +38,38 @@ impl ModelEntry {
                 | "gpt-5.3-codex"
                 | "gpt-5.3-codex-spark"
         ) || self.is_deepseek_reasoning_model()
+            || self.is_anthropic_xhigh_effort_model()
+    }
+
+    /// Whether this is an Anthropic adaptive-thinking model whose modern
+    /// `output_config.effort` accepts the `xhigh` tier.
+    ///
+    /// xhigh effort is supported on Claude Opus 4.7/4.8 and the Claude
+    /// Fable/Mythos (5.x) families; Opus 4.6 and Sonnet 4.6 support adaptive
+    /// thinking + effort but NOT the xhigh tier (so they correctly clamp
+    /// `XHigh -> High`). Scoped to the `anthropic-messages` transport (native
+    /// Anthropic and Anthropic-compatible providers that route through
+    /// `AnthropicProvider`); the `claude-` id check additionally excludes
+    /// Anthropic-compatible non-Claude models on that transport (e.g. MiniMax).
+    ///
+    /// Without this, the registry clamps `XHigh -> High` before
+    /// `AnthropicProvider::build_request` runs and the transport's `"xhigh"`
+    /// effort arm is dead at runtime (the same reasoning as the DeepSeek
+    /// `is_deepseek_reasoning_model` path; gh #116).
+    /// Ref: https://platform.claude.com/docs/en/build-with-claude/effort
+    fn is_anthropic_xhigh_effort_model(&self) -> bool {
+        if !self.model.reasoning || self.model.api != "anthropic-messages" {
+            return false;
+        }
+        let id = self.model.id.to_ascii_lowercase();
+        let Some(pos) = id.find("claude-") else {
+            return false;
+        };
+        let id = &id[pos..];
+        id.starts_with("claude-opus-4-7")
+            || id.starts_with("claude-opus-4-8")
+            || id.starts_with("claude-fable-")
+            || id.starts_with("claude-mythos-")
     }
 
     /// Whether this is a DeepSeek reasoning model whose thinking-mode API accepts
@@ -181,6 +213,25 @@ pub struct CompatConfig {
     // ── Gateway/routing metadata ────────────────────────────────────────
     pub open_router_routing: Option<serde_json::Value>,
     pub vercel_gateway_routing: Option<serde_json::Value>,
+
+    // ── Reasoning / thinking controls (modern per-model capability data) ──
+    /// Map pi's thinking levels onto the provider's native effort/thinking
+    /// vocabulary, e.g. `{"xhigh": "max"}`. Keyed by the lowercase
+    /// `ThinkingLevel` name (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`).
+    /// Lets the catalog steer a transport's effort serialization without code
+    /// changes (gh #117). When absent, transports apply their built-in mapping.
+    pub thinking_level_map: Option<HashMap<String, String>>,
+    /// Force the modern adaptive-thinking API (`thinking: {type: "adaptive"}`
+    /// plus `output_config.effort`) instead of the deprecated `budget_tokens`
+    /// extended-thinking path. Authoritative over a transport's built-in
+    /// model-id heuristic; the heuristic is consulted only when this is `None`
+    /// (gh #116/#117).
+    pub force_adaptive_thinking: Option<bool>,
+    /// Provider-specific thinking serialization dialect carried from the
+    /// catalog (e.g. `"zai"`, `"deepseek"`). Surfaced so transports can honor
+    /// per-model thinking formats; previously silently dropped on parse
+    /// (gh #117).
+    pub thinking_format: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,8 +255,11 @@ struct LegacyGeneratedModel {
     provider: String,
     #[serde(default)]
     base_url: String,
+    /// Per-model reasoning capability as declared by the catalog. `Some` when
+    /// the catalog explicitly carries the field (the common case — every
+    /// generated entry sets it); `None` only when a future entry omits it.
     #[serde(default)]
-    reasoning: bool,
+    reasoning: Option<bool>,
     #[serde(default)]
     input: Vec<String>,
     #[serde(default)]
@@ -1240,7 +1294,15 @@ fn built_in_models(auth: &AuthStorage, mode: ModelRegistryLoadMode) -> Vec<Model
                 api: api_string,
                 provider: provider.to_string(),
                 base_url,
-                reasoning: effective_reasoning(&normalized_model_id, legacy.reasoning),
+                // The catalog is authoritative for per-model reasoning: every
+                // generated entry carries an explicit `reasoning` flag, so honor
+                // it directly rather than letting the built-in `model_is_reasoning`
+                // heuristic override it (gh #117 — a stale heuristic must not win
+                // over correct catalog data, e.g. #114). The heuristic is only a
+                // fallback for the rare entry that omits the field.
+                reasoning: legacy
+                    .reasoning
+                    .unwrap_or_else(|| effective_reasoning(&normalized_model_id, false)),
                 input,
                 cost: if mode == ModelRegistryLoadMode::Full {
                     legacy.cost.clone().unwrap_or_else(|| default_cost.clone())
@@ -2004,6 +2066,17 @@ fn merge_compat(
                     .vercel_gateway_routing
                     .clone()
                     .or_else(|| provider.vercel_gateway_routing.clone()),
+                thinking_level_map: model
+                    .thinking_level_map
+                    .clone()
+                    .or_else(|| provider.thinking_level_map.clone()),
+                force_adaptive_thinking: model
+                    .force_adaptive_thinking
+                    .or(provider.force_adaptive_thinking),
+                thinking_format: model
+                    .thinking_format
+                    .clone()
+                    .or_else(|| provider.thinking_format.clone()),
             })
         }
     }
