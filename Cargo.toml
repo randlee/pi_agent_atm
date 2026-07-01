@@ -232,6 +232,8 @@ ring = "0.17.14"
 semver = "1.0.27"
 crc32c = "0.6"
 ast-grep-core = "0.40"
+atm-graft = { git = "https://github.com/randlee/atm-core", rev = "0d5f9d7a5feb9539e2360efe5af2ff4e3b782b06" }
+atm_core = { package = "agent-team-mail-core", git = "https://github.com/randlee/atm-core", rev = "0d5f9d7a5feb9539e2360efe5af2ff4e3b782b06" }
 ast-grep-language = { version = "0.40", default-features = false, features = [
     "tree-sitter-bash",
     "tree-sitter-python",
@@ -388,6 +390,9 @@ opt-level = 3
 lto = "thin"
 debug = 1
 strip = false
+
+[patch."https://github.com/randlee/atm-core"]
+atm-daemon-bootstrap = { path = "vendor/atm-daemon-bootstrap-shim" }
 
 [lints.rust]
 unsafe_code = "forbid"

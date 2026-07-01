@@ -46,6 +46,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
+use std::io::Read as _;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
@@ -17672,7 +17673,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                     ));
                                 }
 
-                                use std::io::Read;
                                 let file = match std::fs::File::open(&checked_path) {
                                     Ok(file) => file,
                                     Err(err) => {
@@ -17686,7 +17686,7 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                     }
                                 };
 
-                                let mut reader = file.take(MAX_SYNC_READ_SIZE + 1);
+                                let mut reader = std::io::Read::take(file, MAX_SYNC_READ_SIZE + 1);
                                 let mut buffer = Vec::new();
                                 reader.read_to_end(&mut buffer).map_err(|err| {
                                     rquickjs::Error::new_loading_message(
@@ -17698,7 +17698,9 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                 if buffer.len() as u64 > MAX_SYNC_READ_SIZE {
                                     return Err(rquickjs::Error::new_loading_message(
                                         &path,
-                                        format!("host read failed: file exceeds {} bytes", MAX_SYNC_READ_SIZE),
+                                        format!(
+                                            "host read failed: file exceeds {MAX_SYNC_READ_SIZE} bytes"
+                                        ),
                                     ));
                                 }
 

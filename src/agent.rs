@@ -3265,6 +3265,7 @@ pub struct AgentSession {
     pub agent: Agent,
     pub session: Arc<Mutex<Session>>,
     save_enabled: bool,
+    atm_graft: Option<crate::atm_graft::AtmGraftBridge>,
     input_source: InputSource,
     /// Extension lifecycle region — ensures the JS runtime thread is shut
     /// down when the session ends.
@@ -7924,6 +7925,7 @@ impl AgentSession {
             agent,
             session,
             save_enabled,
+            atm_graft: None,
             input_source: InputSource::Interactive,
             extensions: None,
             extensions_is_streaming: Arc::new(AtomicBool::new(false)),
@@ -7946,6 +7948,30 @@ impl AgentSession {
 
     pub const fn set_input_source(&mut self, source: InputSource) {
         self.input_source = source;
+    }
+
+    pub fn try_enable_atm_graft(
+        &mut self,
+        workspace_root: &std::path::Path,
+        advisory_session_id: Option<&str>,
+    ) {
+        match crate::atm_graft::AtmGraftBridge::activate(
+            &mut self.agent,
+            workspace_root,
+            advisory_session_id,
+        ) {
+            Ok(Some(bridge)) => {
+                self.atm_graft = Some(bridge);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                tracing::warn!(
+                    workspace_root = %workspace_root.display(),
+                    error = %err,
+                    "ATM graft activation failed; continuing without ATM steering"
+                );
+            }
+        }
     }
 
     #[must_use]
