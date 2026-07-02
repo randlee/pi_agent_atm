@@ -23,6 +23,7 @@ target: integrate/phase-A
 - `feature/atm-graft-integration`
 - `integrate/phase-A`
 - `tests/`
+- `tests/suite_classification.toml`
 
 ## Deliverables
 
@@ -42,7 +43,12 @@ silently dropped or partially deferred.
 
 ## Explicit Code Samples
 
-No code samples required for this sprint.
+```text
+merge-forward sequence:
+integrate/phase-A -> sprint-a-7-* worktree
+sprint-a-7-* -> integrate/phase-A
+integrate/phase-A baseline -> atm-graft integration work
+```
 
 ## This Sprint Does Not Close
 
@@ -57,3 +63,4 @@ No code samples required for this sprint.
 ## Required Validation
 
 - `git merge-base feature/atm-graft-integration integrate/phase-A`
+- `just explain test`

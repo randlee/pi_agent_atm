@@ -4,7 +4,7 @@ title: Stage Revert PR
 status: planned
 branch: sprint-a-1-stage-revert-pr
 worktree: ../pi_agent_atm-worktrees/sprint-a-1-stage-revert-pr
-target: integrate/phase-A
+target: main
 ---
 
 # Sprint A1 — Stage Revert PR
@@ -14,13 +14,16 @@ target: integrate/phase-A
 - Create the reviewable revert PR and hold it unmerged so it is ready to be the
   first execution step after Phase A planning completes.
 
+This is a pre-integration gating sprint. It does not merge into
+`integrate/phase-A`.
+
 ## Hard Dependencies
 
 - Draft revert branch `fix/revert-unauthorized-main-20260702` exists.
 
 ## Exact Targets
 
-- `.github/`
+- `fix/revert-unauthorized-main-20260702`
 - GitHub PR metadata for `fix/revert-unauthorized-main-20260702`
 
 ## Deliverables

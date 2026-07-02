@@ -43,6 +43,14 @@ Target end state:
 - CI workflows invoke the same `just` lanes instead of bespoke parallel shell
   commands
 
+Exploratory candidate sources to review before reimplementation:
+
+- `feature/just-integration:.just/lint_catalog.py`
+- `feature/just-integration:.just/test_catalog.py`
+- `feature/just-integration:.just/explain.py`
+- `feature/just-integration:.just/show_suites.py`
+- `feature/just-integration:.just/run_test.py`
+
 ## Required PR CI Policy
 
 Required PR CI should contain one workflow:
@@ -150,6 +158,14 @@ Examples:
   - point to the relevant `.just/` catalog
 - smoke target issues:
   - point to the smoke-lane definition surface
+
+Minimum failure payload:
+
+- failing lane name
+- exact command string
+- source-of-truth file path
+- one next action
+- non-zero exit code
 
 ## Exit Criteria
 

@@ -23,6 +23,8 @@ target: integrate/phase-A
 - `.just/`
 - `scripts/smoke.sh`
 - `tests/suite_classification.toml`
+- `feature/just-integration:scripts/smoke.sh`
+- `feature/just-integration:.just/run_test.py`
 
 ## Deliverables
 
@@ -44,7 +46,12 @@ silently dropped or partially deferred.
 
 ## Explicit Code Samples
 
-No code samples required for this sprint.
+```text
+just test baseline
+  -> lane catalog entry "baseline"
+  -> smoke runner
+  -> isolated artifact directory
+```
 
 ## This Sprint Does Not Close
 
@@ -63,3 +70,4 @@ No code samples required for this sprint.
 
 - `just test baseline`
 - `just explain test`
+- `just suites`

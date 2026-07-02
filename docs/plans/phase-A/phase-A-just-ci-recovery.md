@@ -59,6 +59,10 @@ Applied interpretation for this phase:
 
 Phase A implementation will use the following branch model:
 
+- prerequisite branch state:
+  - merge the revert PR first
+  - synchronize `master` to the restored `main`
+  - create `integrate/phase-A` from that synchronized `master`
 - integration branch:
   - `integrate/phase-A`
   - created off `master`
@@ -69,20 +73,25 @@ Phase A implementation will use the following branch model:
 
 Merge model:
 
-1. `integrate/phase-A` is created from `master`
-2. sprint worktree for Sprint A1 is created from `integrate/phase-A`
-3. Sprint A1 lands into `integrate/phase-A`
-4. sprint worktree for Sprint A2 is created from updated `integrate/phase-A`
-5. work merges forward sprint-by-sprint
+1. `master` is synchronized to restored `main`
+2. `integrate/phase-A` is created from synchronized `master`
+3. Sprint A1 stages and holds the draft revert PR against `main`
+4. sprint worktree for Sprint A2 is created from `integrate/phase-A`
+5. Sprint A2 lands into `integrate/phase-A`
+6. later sprint worktrees are created from updated `integrate/phase-A`
+7. work merges forward sprint-by-sprint
 
 Expected merge-forward pattern:
 
-- `sprint-a-1` -> `integrate/phase-A`
-- `sprint-a-2` starts from updated `integrate/phase-A`
-- `sprint-a-2` -> `integrate/phase-A`
+- `sprint-a-2-*` starts from updated `integrate/phase-A`
+- `sprint-a-2-*` -> `integrate/phase-A`
 - repeat for later sprints
 
-No sprint should branch from the abandoned exploratory branch.
+No implementation sprint should branch from:
+
+- `plan/just-integration`
+- `feature/just-integration`
+- `feature/atm-graft-integration`
 
 ## Revert PR Policy
 
@@ -134,18 +143,20 @@ This means:
 
 Safe reuse candidates from exploratory work:
 
-- thin root `justfile` shape
-- `.just/print_help.py`
-- `.just/run_fmt.py`
-- `.just/run_lint.py`
-- catalog-driven lane-definition approach
-- `just explain` / `just suites` explanatory surface
-- fast `baseline` workflow concept
-- smoke-lane concept
+- `feature/just-integration:justfile`
+- `feature/just-integration:.just/print_help.py`
+- `feature/just-integration:.just/run_fmt.py`
+- `feature/just-integration:.just/run_lint.py`
+- `feature/just-integration:.just/lint_catalog.py`
+- `feature/just-integration:.just/test_catalog.py`
+- `feature/just-integration:.just/explain.py`
+- `feature/just-integration:.just/show_suites.py`
+- `feature/just-integration:.github/workflows/baseline.yml`
+- `feature/just-integration:scripts/smoke.sh`
 
 Reuse only after revalidation:
 
-- `run_test.py`
+- `feature/just-integration:.just/run_test.py`
 - any `verify --profile ...` coupling
 - broad CI workflow rewrites
 - artifact/shard orchestration changes
@@ -195,6 +206,8 @@ Known issues to preserve in implementation planning:
 - prior `vergen-lib` local build issue
 - historical fuzz instability around `sysinfo` / nightly drift
 - historical CI working-directory mistakes
+- the planning branch itself still carries pre-revert ancestry and must not be
+  used as the code integration base
 
 ## Phase Deliverables By Sprint
 
@@ -209,6 +222,16 @@ Phase A is split into the following sprint documents:
 7. `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
 
 Each sprint has one deliverable only.
+
+Sprint A1 is the only pre-integration gating sprint:
+
+- it creates and holds the draft revert PR against `main`
+- it does not merge into `integrate/phase-A`
+- `integrate/phase-A` is created only after the revert merges and `master` is
+  synchronized
+
+Sprints A2 through A7 follow the normal merge-forward model into
+`integrate/phase-A`.
 
 ## Open Questions For Jen
 

@@ -21,6 +21,10 @@ target: integrate/phase-A
 
 - `.just/`
 - `tests/suite_classification.toml`
+- `feature/just-integration:.just/lint_catalog.py`
+- `feature/just-integration:.just/test_catalog.py`
+- `feature/just-integration:.just/explain.py`
+- `feature/just-integration:.just/show_suites.py`
 
 ## Deliverables
 
@@ -44,7 +48,21 @@ silently dropped or partially deferred.
 
 ## Explicit Code Samples
 
-No code samples required for this sprint.
+```python
+LANES = {
+    "baseline": TestLane(...),
+    "unit": TestLane(...),
+    "integration": TestLane(...),
+    "vcr": TestLane(...),
+    "e2e": TestLane(...),
+    "all": TestLane(...),
+}
+```
+
+```text
+suite membership source of truth:
+tests/suite_classification.toml
+```
 
 ## This Sprint Does Not Close
 
@@ -65,3 +83,4 @@ No code samples required for this sprint.
 - `just suites`
 - `just explain lint`
 - `just explain test`
+- `python3 -c "import tomllib, pathlib; print(sorted(tomllib.loads(pathlib.Path('tests/suite_classification.toml').read_text())['suite'].keys()))"`

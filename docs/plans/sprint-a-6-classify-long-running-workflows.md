@@ -22,6 +22,12 @@ target: integrate/phase-A
 
 - `.github/workflows/`
 - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
+- `.github/workflows/conformance.yml`
+- `.github/workflows/fuzz.yml`
+- `.github/workflows/semver.yml`
+- `.github/workflows/bench.yml`
+- `.github/workflows/weekly-certification-verdict.yml`
+- `.github/workflows/weekly-evidence-refresh.yml`
 
 ## Deliverables
 
@@ -45,7 +51,13 @@ silently dropped or partially deferred.
 
 ## Explicit Code Samples
 
-No code samples required for this sprint.
+```text
+classification values:
+- required PR
+- optional PR
+- manual
+- nightly/scheduled
+```
 
 ## This Sprint Does Not Close
 
@@ -62,3 +74,4 @@ No code samples required for this sprint.
 ## Required Validation
 
 - `find .github/workflows -maxdepth 1 -type f | sort`
+- `gh run list --limit 20 --json workflowName,status,conclusion,headBranch`

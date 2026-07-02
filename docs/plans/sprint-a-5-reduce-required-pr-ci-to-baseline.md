@@ -22,6 +22,7 @@ target: integrate/phase-A
 - `.github/workflows/baseline.yml`
 - `.github/workflows/ci.yml`
 - `.just/`
+- `feature/just-integration:.github/workflows/baseline.yml`
 
 ## Deliverables
 
@@ -46,7 +47,13 @@ silently dropped or partially deferred.
 
 ## Explicit Code Samples
 
-No code samples required for this sprint.
+```yaml
+steps:
+  - run: just fmt check
+  - run: just lint clippy-lib
+  - run: just lint clippy-bins
+  - run: just test baseline
+```
 
 ## This Sprint Does Not Close
 
@@ -66,3 +73,7 @@ No code samples required for this sprint.
 
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
+- `just fmt check`
+- `just lint clippy-lib`
+- `just lint clippy-bins`
+- `just test baseline`

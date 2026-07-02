@@ -16,12 +16,19 @@ target: integrate/phase-A
 
 ## Hard Dependencies
 
-- Sprint A1 merged into `integrate/phase-A`.
+- Sprint A1 completed.
+- Revert PR merged into `main`.
+- `master` synchronized to restored `main`.
+- `integrate/phase-A` created from synchronized `master`.
 
 ## Exact Targets
 
 - `justfile`
 - `.just/`
+- `feature/just-integration:justfile`
+- `feature/just-integration:.just/print_help.py`
+- `feature/just-integration:.just/run_fmt.py`
+- `feature/just-integration:.just/run_lint.py`
 
 ## Deliverables
 
@@ -45,7 +52,17 @@ silently dropped or partially deferred.
 
 ## Explicit Code Samples
 
-No code samples required for this sprint.
+```just
+default: help
+help:
+    {{python_cmd}} .just/print_help.py
+
+fmt mode='check':
+    {{python_cmd}} .just/run_fmt.py {{mode}}
+
+lint target='all':
+    {{python_cmd}} .just/run_lint.py {{target}}
+```
 
 ## This Sprint Does Not Close
 
@@ -58,6 +75,7 @@ No code samples required for this sprint.
 - Dedicated `.just/` folder exists.
 - `just help`, `just fmt check`, and `just lint` work.
 - No application code or test behavior changes are included.
+- No CI workflow changes are included.
 
 ## Required Validation
 
