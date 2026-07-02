@@ -1,11 +1,8 @@
-# Benchmark CI workflow
-# Runs on pushes to main or manual dispatch. PRs intentionally skip this lane
-# because the full benchmark stack is too expensive for review feedback.
+# Benchmark workflow
+# Manual-only: baseline CI should stay bounded; long-running perf coverage is opt-in.
 name: Benchmarks
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:  # Allow manual triggering
 
 env:

@@ -181,8 +181,8 @@ fn interrupt_budget_preserves_state_after_trip() {
 fn memory_limit_prevents_large_allocation() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 1MB memory limit
-            memory_limit_bytes: Some(1024 * 1024),
+            // Keep enough headroom for PI_BRIDGE_JS init while still forcing OOM.
+            memory_limit_bytes: Some(16 * 1024 * 1024),
             ..Default::default()
         });
 
@@ -260,8 +260,8 @@ fn memory_limit_tracks_usage_in_stats() {
 fn memory_limit_gradual_growth_triggers_oom() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // Very tight: 2MB
-            memory_limit_bytes: Some(2 * 1024 * 1024),
+            // Keep enough headroom for runtime init while still OOMing on growth.
+            memory_limit_bytes: Some(16 * 1024 * 1024),
             ..Default::default()
         });
 
@@ -413,8 +413,8 @@ fn combined_limits_all_enforced() {
 fn memory_limit_with_interrupt_budget_oom_before_budget() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 2MB memory limit — enough for QuickJS GC to work, but OOM on bulk alloc
-            memory_limit_bytes: Some(2 * 1024 * 1024),
+            // Keep enough headroom for runtime init while still OOMing on bulk alloc.
+            memory_limit_bytes: Some(16 * 1024 * 1024),
             // Generous interrupt budget
             interrupt_budget: Some(10_000_000),
             ..Default::default()
