@@ -2,8 +2,6 @@
 target-*/
 target_*/
 .tmp/
-.DS_Store
-.sc/
 a.out
 rustc-ice-*.txt
 *.snap.new
