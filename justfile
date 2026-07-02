@@ -49,10 +49,6 @@ _lint-clippy-benches:
 _lint-clippy-examples:
     {{python_cmd}} .just/run_cargo.py clippy --no-deps --examples -- -D warnings
 
-[private]
-_lint-check:
-    {{python_cmd}} .just/run_cargo.py check --all-targets
-
 # Run the repo lint suite or one child gate.
 lint target='all':
     {{python_cmd}} .just/run_lint.py {{target}}

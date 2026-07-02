@@ -35,7 +35,6 @@ Observed lint timings from isolated serial runs:
 | `just lint clippy-lib` | `50.66s` | completed successfully |
 | `just lint clippy-bins` | `2.87s` | completed successfully |
 | `just lint clippy-tests` | `>3:38.75` | manually interrupted while still compiling local integration-test targets |
-| `just lint check` | `>4:03.31` | manually interrupted; too broad/slow to keep in the default lint aggregate |
 
 ## Commands That Currently Reach Real Work
 
@@ -109,9 +108,8 @@ The lint surface was restructured after the initial timing pass:
 - Clippy is split into explicit local slices:
   `clippy-lib`, `clippy-bins`, `clippy-tests`, `clippy-benches`,
   `clippy-examples`
-- `just lint check` remains available as an explicit broad compile-coverage
-  command, but it is no longer part of the default lint aggregate because it
-  duplicates compile work after Clippy and has poor wall-clock behavior here
+- the broad `lint check` surface was removed because it duplicated compile work
+  after Clippy and had poor wall-clock behavior here
 
 ## Confirmed macOS-Specific Portability Bug
 

@@ -59,11 +59,6 @@ LANES = {
         description="Run Clippy on example targets.",
         recipe="_lint-clippy-examples",
     ),
-    "check": LintLane(
-        name="check",
-        description="Run broad cargo check coverage across all local targets.",
-        recipe="_lint-check",
-    ),
 }
 
 DISPLAY_ORDER = (
@@ -75,7 +70,6 @@ DISPLAY_ORDER = (
     "clippy-tests",
     "clippy-benches",
     "clippy-examples",
-    "check",
 )
 
 
