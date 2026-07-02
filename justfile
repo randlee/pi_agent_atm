@@ -1,81 +1,61 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# Show the available task surface.
-default:
-    @just --list
+python_cmd := if os_family() == "windows" { "python" } else { "python3" }
 
-# Run the canonical verification runner. Includes lint unless skipped explicitly.
-verify profile="full":
-    ./verify --profile {{profile}}
+# Show the curated repo task help.
+default: help
 
-# Run every classified test suite on the repo without lint gates.
-test:
-    ./verify --profile full --skip-lint
+# Show the curated repo task help.
+help:
+    {{python_cmd}} .just/print_help.py
 
-# Run inline lib tests plus the classified unit suite only.
-unit:
-    ./verify --profile quick --skip-lint
+[private]
+_fmt-check:
+    cargo fmt --all --check
 
-# Run all non-E2E integration targets from tests/.
-integrate:
-    ./verify --profile full --skip-lint --skip-e2e
+[private]
+_fmt-write:
+    cargo fmt --all
 
-# Run only VCR / fixture replay targets from tests/suite_classification.toml.
-vcr:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if command -v rch >/dev/null 2>&1; then
-      runner=(rch exec -- cargo)
-    else
-      runner=(cargo)
-    fi
-    mapfile -t targets < <(python3 - <<'PY'
-    import tomllib
-    from pathlib import Path
+# Format the Rust workspace or run the formatting gate.
+fmt mode='check':
+    {{python_cmd}} .just/run_fmt.py {{mode}}
 
-    data = tomllib.loads(Path("tests/suite_classification.toml").read_text())
-    for name in data["suite"]["vcr"]["files"]:
-        print(name)
-    PY
-    )
-    for target in "${targets[@]}"; do
-      "${runner[@]}" test --test "$target" -- --nocapture
-    done
+[private]
+_lint-fmt:
+    @just fmt check
 
-# Run only the classified E2E targets.
-e2e:
-    ./verify --profile full --skip-lint --skip-unit
+[private]
+_lint-clippy:
+    {{python_cmd}} .just/run_cargo.py clippy --all-targets -- -D warnings
+
+[private]
+_lint-check:
+    {{python_cmd}} .just/run_cargo.py check --all-targets
+
+# Run the repo lint suite or one child gate.
+lint target='all':
+    {{python_cmd}} .just/run_lint.py {{target}}
+
+# Run the repo QA/test suite or one child lane.
+test target='ci':
+    {{python_cmd}} .just/run_test.py {{target}}
+
+# Run the local CI-equivalent gate.
+ci: lint test
 
 # Run the quick unified fuzz pipeline (P1 + short P2 smoke).
 fuzz:
-    ./scripts/fuzz_e2e.sh --quick
+    @just test fuzz
 
 # Run the full unified fuzz pipeline.
 fuzz-full:
-    ./scripts/fuzz_e2e.sh
+    @just test fuzz-full
 
 # Run all Criterion benches.
 bench:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if command -v rch >/dev/null 2>&1; then
-      exec rch exec -- cargo bench --benches
-    fi
-    exec cargo bench --benches
+    {{python_cmd}} .just/run_cargo.py bench --benches
 
 # Print the current suite taxonomy from tests/suite_classification.toml.
 suites:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    python3 - <<'PY'
-    import tomllib
-    from pathlib import Path
-
-    data = tomllib.loads(Path("tests/suite_classification.toml").read_text())
-    for suite in ("unit", "vcr", "e2e"):
-        files = data["suite"][suite]["files"]
-        print(f"{suite}: {len(files)} target(s)")
-        for name in files:
-            print(f"  - {name}")
-        print()
-    PY
+    {{python_cmd}} .just/show_suites.py
