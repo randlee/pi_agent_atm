@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from lint_catalog import display_lanes
 from test_catalog import display_targets
 
 
@@ -27,11 +28,9 @@ SECTIONS = (
     ),
     (
         "Lint",
-        (
-            ("lint", "Run the full repo lint suite."),
-            ("lint fmt", "Run only the format check."),
-            ("lint clippy", "Run only Clippy with warnings denied."),
-            ("lint check", "Run only cargo check across all targets."),
+        tuple(
+            [("lint", "Run the repo lint suite across local surfaces.")]
+            + [(f"lint {name}", description) for name, description in display_lanes() if name != "all"]
         ),
     ),
     (

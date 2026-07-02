@@ -5,8 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-
-LINT_ORDER = ("fmt", "clippy", "check")
+from lint_catalog import resolve_lane
 
 
 def repo_root() -> Path:
@@ -17,26 +16,22 @@ def run(command: list[str]) -> None:
     subprocess.run(command, cwd=repo_root(), check=True)
 
 
+def run_lane(target: str) -> None:
+    lane = resolve_lane(target)
+    if lane.children:
+        for child in lane.children:
+            run(["just", "lint", child])
+        return
+    if lane.recipe is not None:
+        run(["just", lane.recipe])
+        return
+    raise SystemExit(f"lint lane {target} is missing both children and recipe")
+
+
 def main() -> int:
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
-    if target == "all":
-        for item in LINT_ORDER:
-            run(["just", "lint", item])
-        return 0
-
-    if target == "fmt":
-        run(["just", "_lint-fmt"])
-        return 0
-
-    if target == "clippy":
-        run(["just", "_lint-clippy"])
-        return 0
-
-    if target == "check":
-        run(["just", "_lint-check"])
-        return 0
-
-    raise SystemExit("unknown lint target: {target}; expected one of: all, fmt, clippy, check".format(target=target))
+    run_lane(target)
+    return 0
 
 
 if __name__ == "__main__":

@@ -23,19 +23,19 @@ These completed successfully on this macOS host:
 |---|---|---|---:|
 | `just help` | PASS | Help surface renders correctly from `.just/print_help.py` | `<1s` |
 | `just suites` | PASS | Suite taxonomy renders correctly from shared catalog-backed loader | `<1s` |
-| `just lint fmt` | PASS | Full lint subtarget dispatch works for the format lane | `25.68s` |
-| `just fmt check` | PASS | Direct format gate works | `25.70s` |
-| `just lint check` | PASS | Shared lint dispatch for Cargo check works | `0.98s` |
-| `cargo check --all-targets` | PASS | Warm-tree baseline for the check lane | `4.95s` |
+| `just fmt check` | PASS | Direct format gate works | `12.46s` |
+| `just lint clippy-lib` | PASS | Local library Clippy slice passes | `50.66s` |
+| `just lint clippy-bins` | PASS | Local binary Clippy slice passes | `2.87s` |
 
 Observed lint timings from isolated serial runs:
 
 | Command | Observed wall time | End state |
 |---|---:|---|
-| `just lint fmt` | `25.68s` | completed successfully |
-| `just lint check` | `0.98s` | completed successfully |
-| `cargo clippy --no-deps --all-targets -- -D warnings` | `1:40.62` | failed on current Clippy errors after substantial analysis/compile work |
-| `just lint` | `1:29.17` | ran `fmt`, then failed in `clippy`; `check` was not reached because `clippy` failed first |
+| `just fmt check` | `12.46s` | completed successfully |
+| `just lint clippy-lib` | `50.66s` | completed successfully |
+| `just lint clippy-bins` | `2.87s` | completed successfully |
+| `just lint clippy-tests` | `>3:38.75` | manually interrupted while still compiling local integration-test targets |
+| `just lint check` | `>4:03.31` | manually interrupted; too broad/slow to keep in the default lint aggregate |
 
 ## Commands That Currently Reach Real Work
 
@@ -66,7 +66,7 @@ Current estimates on this macOS host:
 
 | Command | Estimate |
 |---|---|
-| `just lint` | Roughly 90-120 seconds on a warm tree, dominated by the Clippy lane |
+| `just lint` | More than 4 minutes if the full local test-target Clippy slice remains in scope; dominated by local integration-test linting |
 | `just test` | More than 2 minutes even before the current build blocker is resolved |
 | `just test all` | More than 2 minutes to get through startup/build phase; likely much longer once the full 262 non-E2E targets plus 39 E2E suites run to completion |
 
@@ -90,18 +90,28 @@ payload that `just` is intentionally dispatching:
 - `cargo metadata` reports `336` Rust targets in this package
 - target mix: `301` integration-test targets, `23` examples, `8` benches,
   `2` bins, `1` lib, and `1` build script
-- `cargo check --all-targets` is fast on a warm tree (`4.95s`)
-- `cargo clippy --no-deps --all-targets -- -D warnings` is the dominant cost
+- third-party dependency linting is disabled (`--no-deps`)
+- the dominant remaining cost is local integration-test linting
 
 Interpretation:
 
 - The repo has an unusually large `--all-targets` surface because each file in
   `tests/` is its own integration-test crate.
-- As a result, Clippy has to analyze a very large number of test/example/bench
-  targets even before the current lint errors stop the run.
-- The clippy lane now uses `--no-deps`, so third-party dependency linting is no
-  longer part of the command contract.
+- As a result, Clippy has to analyze a very large number of local
+  test/example/bench targets.
 - This is a repo-shape cost, not evidence of a loop or bug in the `just` layer.
+
+## Current Lint Contract
+
+The lint surface was restructured after the initial timing pass:
+
+- `just lint` now means format + Clippy across local surfaces
+- Clippy is split into explicit local slices:
+  `clippy-lib`, `clippy-bins`, `clippy-tests`, `clippy-benches`,
+  `clippy-examples`
+- `just lint check` remains available as an explicit broad compile-coverage
+  command, but it is no longer part of the default lint aggregate because it
+  duplicates compile work after Clippy and has poor wall-clock behavior here
 
 ## Confirmed macOS-Specific Portability Bug
 

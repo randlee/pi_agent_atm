@@ -30,8 +30,24 @@ _lint-fmt:
     @just fmt check
 
 [private]
-_lint-clippy:
-    {{python_cmd}} .just/run_cargo.py clippy --no-deps --all-targets -- -D warnings
+_lint-clippy-lib:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --lib -- -D warnings
+
+[private]
+_lint-clippy-bins:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --bins -- -D warnings
+
+[private]
+_lint-clippy-tests:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --tests -- -D warnings
+
+[private]
+_lint-clippy-benches:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --benches -- -D warnings
+
+[private]
+_lint-clippy-examples:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --examples -- -D warnings
 
 [private]
 _lint-check:
