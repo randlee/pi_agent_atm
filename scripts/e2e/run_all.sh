@@ -169,9 +169,38 @@ for name in data.get('suite', {}).get('$suite_name', {}).get('files', []):
 " 2>/dev/null || true
 }
 
-mapfile -t ALL_UNIT_FILES < <(read_toml_array "unit")
-mapfile -t ALL_VCR_FILES < <(read_toml_array "vcr")
-mapfile -t ALL_E2E_FILES < <(read_toml_array "e2e")
+fill_array_from_command() {
+    local array_name="$1"
+    shift
+    local line=""
+    local values=()
+    while IFS= read -r line; do
+        values+=("$line")
+    done < <("$@")
+    eval "$array_name=(\"\${values[@]}\")"
+}
+
+rerun_suite_names() {
+    local summary_path="$1"
+    python3 - "$summary_path" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+for name in payload.get("failed_names", []):
+    if isinstance(name, str) and name:
+        print(name)
+PY
+}
+
+sorted_unique_lines() {
+    printf '%s\n' "$@" | awk 'NF' | LC_ALL=C sort -u
+}
+
+fill_array_from_command ALL_UNIT_FILES read_toml_array "unit"
+fill_array_from_command ALL_VCR_FILES read_toml_array "vcr"
+fill_array_from_command ALL_E2E_FILES read_toml_array "e2e"
 
 # Combined non-E2E targets (unit + vcr) for integration test phase.
 ALL_UNIT_TARGETS=("${ALL_UNIT_FILES[@]}" "${ALL_VCR_FILES[@]}")
@@ -401,17 +430,7 @@ if [[ -n "$RERUN_FROM" ]]; then
         echo "Rerun summary not found: $RERUN_FROM" >&2
         exit 1
     fi
-    mapfile -t rerun_suites < <(python3 - "$RERUN_FROM" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    payload = json.load(handle)
-for name in payload.get("failed_names", []):
-    if isinstance(name, str) and name:
-        print(name)
-PY
-)
+    fill_array_from_command rerun_suites rerun_suite_names "$RERUN_FROM"
 
     if [[ ${#rerun_suites[@]} -eq 0 ]]; then
         echo "[rerun] No failed suites found in $RERUN_FROM"
@@ -479,10 +498,10 @@ fi
 export CI_CORRELATION_ID="$CORRELATION_ID"
 
 if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
-    mapfile -t SELECTED_UNIT_TARGETS < <(printf '%s\n' "${SELECTED_UNIT_TARGETS[@]}" | awk 'NF' | LC_ALL=C sort -u)
+    fill_array_from_command SELECTED_UNIT_TARGETS sorted_unique_lines "${SELECTED_UNIT_TARGETS[@]}"
 fi
 if (( ${#SELECTED_SUITES[@]} > 0 )); then
-    mapfile -t SELECTED_SUITES < <(printf '%s\n' "${SELECTED_SUITES[@]}" | awk 'NF' | LC_ALL=C sort -u)
+    fill_array_from_command SELECTED_SUITES sorted_unique_lines "${SELECTED_SUITES[@]}"
 fi
 
 select_shard_items() {
@@ -501,17 +520,15 @@ select_shard_items() {
 
 if [[ "$SHARD_KIND" == "unit" || "$SHARD_KIND" == "both" ]]; then
     if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
-        mapfile -t SELECTED_UNIT_TARGETS < <(
+        fill_array_from_command SELECTED_UNIT_TARGETS \
             select_shard_items "$SHARD_INDEX" "$SHARD_TOTAL" "${SELECTED_UNIT_TARGETS[@]}"
-        )
     fi
 fi
 
 if [[ "$SHARD_KIND" == "suite" || "$SHARD_KIND" == "both" ]]; then
     if (( ${#SELECTED_SUITES[@]} > 0 )); then
-        mapfile -t SELECTED_SUITES < <(
+        fill_array_from_command SELECTED_SUITES \
             select_shard_items "$SHARD_INDEX" "$SHARD_TOTAL" "${SELECTED_SUITES[@]}"
-        )
     fi
 fi
 
