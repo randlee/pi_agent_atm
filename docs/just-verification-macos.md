@@ -34,7 +34,7 @@ Observed lint timings from isolated serial runs:
 |---|---:|---|
 | `just lint fmt` | `25.68s` | completed successfully |
 | `just lint check` | `0.98s` | completed successfully |
-| `cargo clippy --all-targets -- -D warnings` | `1:51.99` | failed on current Clippy errors after substantial analysis/compile work |
+| `cargo clippy --no-deps --all-targets -- -D warnings` | `1:40.62` | failed on current Clippy errors after substantial analysis/compile work |
 | `just lint` | `1:29.17` | ran `fmt`, then failed in `clippy`; `check` was not reached because `clippy` failed first |
 
 ## Commands That Currently Reach Real Work
@@ -91,7 +91,7 @@ payload that `just` is intentionally dispatching:
 - target mix: `301` integration-test targets, `23` examples, `8` benches,
   `2` bins, `1` lib, and `1` build script
 - `cargo check --all-targets` is fast on a warm tree (`4.95s`)
-- `cargo clippy --all-targets -- -D warnings` is the dominant cost
+- `cargo clippy --no-deps --all-targets -- -D warnings` is the dominant cost
 
 Interpretation:
 
@@ -99,6 +99,8 @@ Interpretation:
   `tests/` is its own integration-test crate.
 - As a result, Clippy has to analyze a very large number of test/example/bench
   targets even before the current lint errors stop the run.
+- The clippy lane now uses `--no-deps`, so third-party dependency linting is no
+  longer part of the command contract.
 - This is a repo-shape cost, not evidence of a loop or bug in the `just` layer.
 
 ## Confirmed macOS-Specific Portability Bug

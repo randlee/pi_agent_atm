@@ -31,7 +31,7 @@ _lint-fmt:
 
 [private]
 _lint-clippy:
-    {{python_cmd}} .just/run_cargo.py clippy --all-targets -- -D warnings
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --all-targets -- -D warnings
 
 [private]
 _lint-check:
