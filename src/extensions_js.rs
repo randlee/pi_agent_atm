@@ -5530,11 +5530,10 @@ fn builtin_overlay_module_key(base: &str, canonical: &str) -> String {
 /// Read up to 1MB of a source file for import extraction.
 /// This prevents OOM vulnerabilities if a module path resolves to a massive file or /dev/zero.
 fn read_source_for_import_extraction(path: &str) -> Option<String> {
-    use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
-    let mut handle = file.take(1024 * 1024); // 1MB limit
+    let mut handle = std::io::Read::take(file, 1024 * 1024); // 1MB limit
     let mut buffer = Vec::new();
-    handle.read_to_end(&mut buffer).ok()?;
+    std::io::Read::read_to_end(&mut handle, &mut buffer).ok()?;
     Some(String::from_utf8_lossy(&buffer).into_owned())
 }
 
@@ -17560,7 +17559,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
 
                             #[cfg(target_os = "linux")]
                             {
-                                use std::io::Read;
                                 use std::os::fd::AsRawFd;
 
                                 // Open first to get a handle, then verify the handle's path.
