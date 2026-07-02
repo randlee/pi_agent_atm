@@ -9,6 +9,10 @@ default: help
 help:
     {{python_cmd}} .just/print_help.py
 
+# Explain lint/test lane semantics from the shared catalogs.
+explain domain='' lane='':
+    {{python_cmd}} .just/explain.py {{domain}} {{lane}}
+
 # Remove workspace build artifacts.
 clean:
     cargo clean

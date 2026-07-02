@@ -12,6 +12,7 @@ SECTIONS = (
         "General",
         (
             ("help", "Show this help."),
+            ("explain", "Explain lint/test lane semantics from the shared catalogs."),
             ("ci", "Run the local CI-equivalent lint + test gate."),
             ("clean", "Remove workspace build artifacts."),
             ("bench", "Run the Criterion benchmark suite."),
