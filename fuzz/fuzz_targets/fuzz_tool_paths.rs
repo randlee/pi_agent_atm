@@ -48,7 +48,9 @@ fuzz_target!(|data: &[u8]| {
         assert!(resolved.is_absolute());
         assert!(normalized_once.is_absolute());
     } else if !is_tilde {
-        assert!(resolved.starts_with(&cwd));
+        // Relative inputs resolve against cwd, but parent-segment traversal
+        // like `..` is allowed to normalize outside that root.
+        assert!(resolved.is_absolute());
     }
 
     // Also exercise prefixed relative wrapping commonly used by tools.

@@ -348,8 +348,8 @@ jobs:
             echo "sqlite-sessions claim drift: Cargo.toml enables sqlite-sessions by default; document opt-out with --no-default-features instead."
             exit 1
           fi
-          rg -n --fixed-strings 'default = ["image-resize", "jemalloc", "clipboard", "wasm-host", "sqlite-sessions"]' Cargo.toml >/dev/null
-          rg -n --fixed-strings 'Default builds enable `image-resize`, `jemalloc`, `clipboard`, `wasm-host`, and `sqlite-sessions`.' README.md >/dev/null
+          rg -n --fixed-strings 'default = ["sqlite-sessions", "tui"]' Cargo.toml >/dev/null
+          rg -n --fixed-strings 'Default builds enable `sqlite-sessions` only.' README.md >/dev/null
 
       - name: Suite classification guard
         run: |
