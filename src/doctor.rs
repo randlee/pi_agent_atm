@@ -699,6 +699,8 @@ fn check_dir(cat: CheckCategory, label: &str, dir: &Path, fix: bool, findings: &
 fn check_auth(fix: bool, findings: &mut Vec<Finding>) {
     let cat = CheckCategory::Auth;
     let auth_path = Config::auth_path();
+    #[cfg(unix)]
+    let auth_path_for_metadata = auth_path.clone();
 
     if !auth_path.exists() {
         findings.push(
@@ -712,7 +714,7 @@ fn check_auth(fix: bool, findings: &mut Vec<Finding>) {
     }
 
     // Check if auth.json parses
-    let auth = match AuthStorage::load(auth_path.clone()) {
+    let auth = match AuthStorage::load(auth_path) {
         Ok(auth) => {
             findings.push(Finding::pass(cat, "auth.json parses correctly"));
             Some(auth)
@@ -731,12 +733,15 @@ fn check_auth(fix: bool, findings: &mut Vec<Finding>) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&auth_path) {
+        if let Ok(meta) = std::fs::metadata(&auth_path_for_metadata) {
             let mode = meta.permissions().mode() & 0o777;
             if mode.eq(&0o600) {
                 findings.push(Finding::pass(cat, "auth.json permissions (600)"));
             } else if fix {
-                match std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)) {
+                match std::fs::set_permissions(
+                    &auth_path_for_metadata,
+                    std::fs::Permissions::from_mode(0o600),
+                ) {
                     Ok(()) => {
                         findings.push(
                             Finding::pass(
@@ -759,7 +764,10 @@ fn check_auth(fix: bool, findings: &mut Vec<Finding>) {
                         cat,
                         format!("auth.json permissions are {mode:o}, should be 600"),
                     )
-                    .with_remediation(format!("chmod 600 {}", auth_path.display()))
+                    .with_remediation(format!(
+                        "chmod 600 {}",
+                        auth_path_for_metadata.display()
+                    ))
                     .auto_fixable(),
                 );
             }

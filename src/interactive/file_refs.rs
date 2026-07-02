@@ -166,6 +166,7 @@ const fn is_trailing_punct(ch: char) -> bool {
     )
 }
 
+#[allow(clippy::missing_const_for_fn)]
 pub(super) fn is_file_ref_boundary(text: &str, at: usize) -> bool {
     if at == 0 {
         return true;

@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -2172,6 +2174,7 @@ fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
 fn sync_parent_dir(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
@@ -6828,6 +6831,7 @@ fn command_with_default_sigpipe_for_cwd(
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
 fn command_with_default_sigpipe_for_cwd(
     program: &OsStr,
     _cwd: Option<&Path>,
@@ -6899,6 +6903,10 @@ fn resolve_executable_for_shell_trampoline(
 }
 
 /// Detach a child process from pi's controlling terminal.
+#[allow(
+    clippy::missing_const_for_fn,
+    clippy::needless_pass_by_ref_mut
+)]
 pub(crate) fn isolate_command_process_group(command: &mut Command) {
     #[cfg(unix)]
     {

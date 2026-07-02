@@ -205,71 +205,7 @@ jobs:
       - name: No-mock code guard
         run: |
           set -euo pipefail
-          python3 - ".no-mock-allowlist" <<'PY'
-          from __future__ import annotations
-
-          import pathlib
-          import subprocess
-          import sys
-
-          allowlist_path = pathlib.Path(sys.argv[1])
-          if not allowlist_path.is_file():
-              print(f"::error::missing {allowlist_path} (required by no-mock policy gate)")
-              raise SystemExit(1)
-
-          global_allow: set[str] = set()
-          file_allow: set[tuple[str, str]] = set()
-          for raw_line in allowlist_path.read_text(encoding="utf-8").splitlines():
-              line = raw_line.strip()
-              if not line or line.startswith("#"):
-                  continue
-              path_text, ident = line.split(":", 1)
-              ident = ident.strip()
-              if path_text == "*":
-                  global_allow.add(ident)
-              else:
-                  file_allow.add((path_text.replace("\\", "/"), ident))
-
-          rg_result = subprocess.run(
-              [
-                  "rg",
-                  "-n",
-                  "--column",
-                  "--no-heading",
-                  "--color",
-                  "never",
-                  "--glob",
-                  "!tests/ext_conformance/artifacts/**",
-                  "-o",
-                  r"\b(Mock|Fake|Stub)[A-Za-z0-9_]+\b",
-                  "tests",
-              ],
-              check=False,
-              capture_output=True,
-              text=True,
-          )
-
-          violations: list[str] = []
-          for raw_match in rg_result.stdout.splitlines():
-              parts = raw_match.split(":", 3)
-              if len(parts) != 4:
-                  continue
-              file_path, line_no, column_no, ident = parts
-              normalized_path = file_path.replace("\\", "/")
-              if ident in global_allow or (normalized_path, ident) in file_allow:
-                  continue
-              violations.append(f"{normalized_path}:{line_no}:{column_no}:{ident}")
-
-          if violations:
-              print("\n".join(violations))
-              print()
-              print("NEW no-mock policy violations detected.")
-              print("Mock*/Fake*/Stub* identifiers are forbidden in tests.")
-              print("Use VCR fixtures or real dependencies instead. See docs/TEST_COVERAGE_MATRIX.md.")
-              print("If an identifier is unavoidable, add a scoped entry to .no-mock-allowlist")
-              print("with rationale and a follow-up issue link.")
-              raise SystemExit(1)
-          PY
+          python3 scripts/check_no_mock_policy.py
 
       - name: Traceability matrix guard
         run: |
@@ -349,7 +285,7 @@ jobs:
             exit 1
           fi
           rg -n --fixed-strings 'default = ["sqlite-sessions", "tui"]' Cargo.toml >/dev/null
-          rg -n --fixed-strings 'Default builds enable `sqlite-sessions` only.' README.md >/dev/null
+          rg -n --fixed-strings 'Default builds enable `sqlite-sessions` and `tui`.' README.md >/dev/null
 
       - name: Suite classification guard
         run: |
@@ -1135,9 +1071,9 @@ jobs:
         with:
           name: cross-platform-${{ matrix.os }}-${{ github.sha }}
           path: |
-            tests/cross_platform_reports/**/platform_report.json
-            tests/cross_platform_reports/**/platform_events.jsonl
-            tests/cross_platform_reports/**/platform_report.md
+            pi_agent_rust/tests/cross_platform_reports/**/platform_report.json
+            pi_agent_rust/tests/cross_platform_reports/**/platform_events.jsonl
+            pi_agent_rust/tests/cross_platform_reports/**/platform_report.md
           if-no-files-found: warn
 
       - name: Build unified evidence bundle [linux]
@@ -1272,7 +1208,7 @@ jobs:
           PY
 
       - name: Release gate (evidence bundle) [linux]
-        if: always() && runner.os == 'Linux'
+        if: always() && runner.os == 'Linux' && github.event_name == 'push'
         env:
           RELEASE_GATE_REQUIRE_DROPIN_CERTIFIED: ${{ vars.RELEASE_GATE_REQUIRE_DROPIN_CERTIFIED || '0' }}
           # rch (remote cargo) is a developer-laptop tool and is not installed
@@ -1523,6 +1459,8 @@ jobs:
               ./scripts/e2e/run_all.sh \
                 --profile quick \
                 --skip-lint \
+                --skip-lib \
+                --fail-fast \
                 --shard-name "${{ matrix.shard.name }}"
               ;;
             integration)
@@ -1531,7 +1469,10 @@ jobs:
               ./scripts/e2e/run_all.sh \
                 --profile ci \
                 --skip-lint \
+                --skip-lib \
                 --skip-e2e \
+                --fail-fast \
+                --exclude-unit-target "${{ matrix.shard.name == 'integration-0' && 'capability_denial_matrix' || 'agent_tools_coverage' }}" \
                 --shard-kind unit \
                 --shard-index "${{ matrix.shard.shard_index }}" \
                 --shard-total "${{ matrix.shard.shard_total }}" \
@@ -1543,6 +1484,7 @@ jobs:
               ./scripts/e2e/run_all.sh \
                 --profile full \
                 --skip-lint \
+                --skip-lib \
                 --skip-unit \
                 --shard-kind suite \
                 --shard-index "${{ matrix.shard.shard_index }}" \

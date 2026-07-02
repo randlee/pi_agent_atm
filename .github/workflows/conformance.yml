@@ -43,22 +43,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # PR: fast conformance (official sample + generated tier 1-2 + negative)
-          - name: fast-official
-            if_event: pull_request
-            test_cmd: cargo test --test ext_conformance_diff --features ext-conformance -- --nocapture
-            env_extra: "PI_OFFICIAL_MAX=5"
-          - name: fast-generated
-            if_event: pull_request
-            test_cmd: cargo test --test ext_conformance_generated --features ext-conformance -- --nocapture
-            env_extra: ""
+          # PR: keep only the bounded negative-policy lane here. Generated
+          # conformance already runs via qa-shard extension jobs, the official
+          # oracle currently depends on upstream mono packaging, and the
+          # capability matrix is currently unbounded in CI.
           - name: fast-negative
             if_event: pull_request
             test_cmd: cargo test --test extensions_policy_negative -- --nocapture
-            env_extra: ""
-          - name: fast-capability-matrix
-            if_event: pull_request
-            test_cmd: cargo test --test capability_denial_matrix -- --nocapture
             env_extra: ""
           # Nightly: full official + all tiers + scenarios + fixture schema + artifacts
           - name: full-official
@@ -76,6 +67,10 @@ jobs:
           - name: full-negative
             if_event: nightly
             test_cmd: cargo test --test extensions_policy_negative -- --nocapture
+            env_extra: ""
+          - name: full-capability-matrix
+            if_event: nightly
+            test_cmd: cargo test --test capability_denial_matrix -- --nocapture
             env_extra: ""
           - name: full-fixture-schema
             if_event: nightly
@@ -107,6 +102,7 @@ jobs:
     steps:
       - name: Skip unmatched profile
         if: env.SHOULD_RUN != 'true'
+        working-directory: /
         run: echo "Skipping ${{ matrix.name }} for event/profile selection"
 
       - name: Free disk space
@@ -163,6 +159,14 @@ jobs:
           path: sqlmodel_rust
           fetch-depth: 1
 
+      - name: Checkout upstream pi-mono
+        if: env.SHOULD_RUN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: badlogic/pi-mono
+          path: pi-mono-upstream
+          fetch-depth: 1
+
       - name: Install system deps (fd, rg, xcb) [linux]
         if: env.SHOULD_RUN == 'true'
         run: |
@@ -197,7 +201,7 @@ jobs:
 
       - name: Install pi-mono dependencies
         if: env.SHOULD_RUN == 'true'
-        working-directory: pi_agent_rust/legacy_pi_mono_code/pi-mono
+        working-directory: pi-mono-upstream
         run: npm ci
 
       - name: Symlink bun for conformance tests
@@ -213,6 +217,7 @@ jobs:
           PI_OFFICIAL_MAX: ${{ matrix.env_extra == 'PI_OFFICIAL_MAX=5' && '5' || '' }}
           PI_CONFORMANCE_MAX_RETRIES: ${{ contains(matrix.if_event, 'nightly') && '2' || '0' }}
           PI_CONFORMANCE_RETRY_DELAY: "10"
+          PI_TS_LOADER_PATH: ${{ github.workspace }}/pi-mono-upstream/packages/coding-agent/src/core/extensions/loader.ts
         run: |
           set -euxo pipefail
           if [[ "${PI_CONFORMANCE_MAX_RETRIES}" -gt 0 ]]; then

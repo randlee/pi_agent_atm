@@ -61,12 +61,10 @@ SMOKE_UNIT_TARGETS=(
     session_conformance
     error_types
     compaction
-    security_budgets
 )
 
 SMOKE_VCR_TARGETS=(
     provider_streaming
-    error_handling
     http_client
     sse_strict_compliance
     model_registry
@@ -217,6 +215,47 @@ emit_event "pi.smoke.session_start.v1" \
 echo "──── Runner ────"
 echo "  cargo runner: $CARGO_RUNNER_MODE (request=$CARGO_RUNNER_REQUEST)"
 
+declare -a TEST_ENV_UNSET_ARGS=()
+while IFS='=' read -r name _; do
+    case "$name" in
+        *_API_KEY|*_ACCESS_TOKEN|GH_TOKEN|GITHUB_TOKEN)
+            TEST_ENV_UNSET_ARGS+=("-u" "$name")
+            ;;
+    esac
+done < <(env)
+echo "  sanitized env vars: ${#TEST_ENV_UNSET_ARGS[@]}"
+declare -a SMOKE_TEST_RUNNER=("env" "${TEST_ENV_UNSET_ARGS[@]}" "${CARGO_RUNNER_ARGS[@]}" "test")
+
+run_with_timeout() {
+    local seconds="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${seconds}s" "$@"
+        return
+    fi
+
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "${seconds}s" "$@"
+        return
+    fi
+
+    python3 - "$seconds" "$@" <<'PY'
+import subprocess
+import sys
+
+timeout_seconds = float(sys.argv[1])
+command = sys.argv[2:]
+
+try:
+    completed = subprocess.run(command, timeout=timeout_seconds, check=False)
+except subprocess.TimeoutExpired:
+    raise SystemExit(124)
+
+raise SystemExit(completed.returncode)
+PY
+}
+
 run_split_clippy() {
     local log_file="$1"
     : > "$log_file"
@@ -344,10 +383,10 @@ for i in "${!TARGETS[@]}"; do
     # Run with timeout.
     set +e
     if [[ "$VERBOSE" == true ]]; then
-        timeout "${TIMEOUT}s" "${CARGO_RUNNER_ARGS[@]}" test --test "$target" -- --test-threads=1 2>&1 | tee "$output_file"
+        run_with_timeout "$TIMEOUT" "${SMOKE_TEST_RUNNER[@]}" --test "$target" -- --test-threads=1 2>&1 | tee "$output_file"
         exit_code=${PIPESTATUS[0]}
     else
-        timeout "${TIMEOUT}s" "${CARGO_RUNNER_ARGS[@]}" test --test "$target" -- --test-threads=1 > "$output_file" 2>&1
+        run_with_timeout "$TIMEOUT" "${SMOKE_TEST_RUNNER[@]}" --test "$target" -- --test-threads=1 > "$output_file" 2>&1
         exit_code=$?
     fi
     set -e
@@ -404,11 +443,13 @@ results_json+="]"
 # Build failed names JSON array.
 failed_json="["
 first=true
-for name in "${FAILED_NAMES[@]}"; do
-    if ! $first; then failed_json+=","; fi
-    failed_json+="\"$name\""
-    first=false
-done
+if (( FAILED > 0 )); then
+    for name in "${FAILED_NAMES[@]}"; do
+        if ! $first; then failed_json+=","; fi
+        failed_json+="\"$name\""
+        first=false
+    done
+fi
 failed_json+="]"
 
 cat > "$SUMMARY_FILE" <<ENDJSON

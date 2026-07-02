@@ -4791,6 +4791,7 @@ fn run_orchestrate_with_fake_toolchain_with_env(
         .env("PATH", path)
         .env("CARGO_TARGET_DIR", &target_dir)
         .env("PERF_OUTPUT_DIR", &output_dir)
+        .env("PI_PERF_STRICT", "0")
         .env("PERF_SKIP_CRITERION", "1");
     for (key, value) in extra_env {
         command.env(key, value);

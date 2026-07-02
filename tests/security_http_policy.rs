@@ -18,13 +18,16 @@ use serde_json::Value;
 use serde_json::json;
 use std::future::Future;
 #[cfg(unix)]
-use std::io::Write;
+use std::io::{Read, Write};
 #[cfg(unix)]
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use std::sync::Arc;
+use std::sync::OnceLock;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(unix)]
+use std::time::Duration;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -33,11 +36,17 @@ where
     Fut: Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
-    let runtime = asupersync::runtime::RuntimeBuilder::current_thread()
-        .build()
-        .expect("build runtime");
+    static RT: OnceLock<asupersync::runtime::Runtime> = OnceLock::new();
+    let runtime = RT.get_or_init(|| {
+        asupersync::runtime::RuntimeBuilder::new()
+            .enable_parking(false)
+            .worker_threads(1)
+            .blocking_threads(1, 8)
+            .build()
+            .expect("build asupersync runtime")
+    });
     let join = runtime.handle().spawn(future);
-    runtime.block_on(join)
+    futures::executor::block_on(join)
 }
 
 fn http_call(url: &str, method: &str) -> HostCallPayload {
@@ -75,6 +84,57 @@ fn http_call_with_timeout(url: &str, timeout_ms: u64) -> HostCallPayload {
         cancel_token: None,
         context: None,
     }
+}
+
+#[cfg(unix)]
+fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+
+    let mut buf = Vec::new();
+    let mut scratch = [0u8; 4096];
+
+    loop {
+        match stream.read(&mut scratch) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&scratch[..n]);
+                if let Some(headers_end) = find_double_crlf(&buf) {
+                    let body_len = parse_content_length(&buf[..headers_end]).unwrap_or(0);
+                    while buf.len() < headers_end + body_len {
+                        match stream.read(&mut scratch) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buf.extend_from_slice(&scratch[..n]),
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    buf
+}
+
+#[cfg(unix)]
+fn parse_content_length(headers: &[u8]) -> Option<usize> {
+    let text = String::from_utf8_lossy(headers);
+    for line in text.split("\r\n") {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            return value.trim().parse::<usize>().ok();
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+fn find_double_crlf(buf: &[u8]) -> Option<usize> {
+    buf.windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|idx| idx + 4)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -136,6 +196,7 @@ fn tls_not_required_allows_http() {
 
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
         stream.write_all(resp.as_bytes()).expect("write");
     });
@@ -252,6 +313,7 @@ fn loopback_http_allowed_when_opt_in_set() {
 
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
         stream.write_all(resp.as_bytes()).expect("write");
     });
@@ -468,6 +530,7 @@ fn allowlist_wildcard_allows_subdomain() {
 
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
         stream.write_all(resp.as_bytes()).expect("write");
     });
@@ -495,6 +558,7 @@ fn empty_allowlist_allows_all_hosts() {
 
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
         stream.write_all(resp.as_bytes()).expect("write");
     });
@@ -724,7 +788,8 @@ fn request_timeout_returns_timeout_error_code() {
 
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
     let server = std::thread::spawn(move || {
-        let (_stream, _) = listener.accept().expect("accept");
+        let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         // Hold connection open without responding
         let _ = shutdown_rx.recv_timeout(std::time::Duration::from_secs(2));
     });
@@ -754,7 +819,8 @@ fn call_level_timeout_used_when_request_omits_it() {
 
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
     let server = std::thread::spawn(move || {
-        let (_stream, _) = listener.accept().expect("accept");
+        let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         let _ = shutdown_rx.recv_timeout(std::time::Duration::from_secs(2));
     });
 
@@ -1093,6 +1159,7 @@ fn zero_timeout_treated_as_no_timeout() {
 
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_http_request(&mut stream);
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
         stream.write_all(resp.as_bytes()).expect("write");
     });

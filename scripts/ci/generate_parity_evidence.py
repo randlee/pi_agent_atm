@@ -58,6 +58,7 @@ def parse_log(log_text: str) -> dict:
     """Parse cargo test output and return per-suite results."""
     suites = {}
     current_suite = None
+    pending_results = []
 
     for line in log_text.splitlines():
         line = ANSI_ESCAPE_RE.sub("", line)
@@ -85,6 +86,25 @@ def parse_log(log_text: str) -> dict:
                 "total": passed + failed + ignored,
             }
             current_suite = None
+        elif result_match:
+            status = result_match.group(1)
+            passed = int(result_match.group(2))
+            failed = int(result_match.group(3))
+            ignored = int(result_match.group(4))
+            pending_results.append(
+                {
+                    "status": "pass" if status == "ok" else "fail",
+                    "passed": passed,
+                    "failed": failed,
+                    "ignored": ignored,
+                    "total": passed + failed + ignored,
+                }
+            )
+
+    if pending_results:
+        remaining = [suite for suite in PARITY_SUITES if suite not in suites]
+        for suite_name, result in zip(remaining, pending_results, strict=False):
+            suites[suite_name] = result
 
     return suites
 

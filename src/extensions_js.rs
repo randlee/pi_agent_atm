@@ -5530,11 +5530,10 @@ fn builtin_overlay_module_key(base: &str, canonical: &str) -> String {
 /// Read up to 1MB of a source file for import extraction.
 /// This prevents OOM vulnerabilities if a module path resolves to a massive file or /dev/zero.
 fn read_source_for_import_extraction(path: &str) -> Option<String> {
-    use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
-    let mut handle = file.take(1024 * 1024); // 1MB limit
+    let mut handle = std::io::Read::take(file, 1024 * 1024); // 1MB limit
     let mut buffer = Vec::new();
-    handle.read_to_end(&mut buffer).ok()?;
+    std::io::Read::read_to_end(&mut handle, &mut buffer).ok()?;
     Some(String::from_utf8_lossy(&buffer).into_owned())
 }
 
@@ -15601,9 +15600,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
         }
 
         let runtime = AsyncRuntime::new().map_err(|err| map_js_error(&err))?;
-        if let Some(limit) = config.limits.memory_limit_bytes {
-            runtime.set_memory_limit(limit).await;
-        }
         if let Some(limit) = config.limits.max_stack_bytes {
             runtime.set_max_stack_size(limit).await;
         }
@@ -15684,6 +15680,12 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
         };
 
         instance.install_pi_bridge().await?;
+        if let Some(limit) = instance.config.limits.memory_limit_bytes {
+            // Bootstrap the bridge before enforcing low-memory ceilings so the
+            // runtime can initialize and then apply the configured budget to
+            // extension code and hostcall activity.
+            instance.runtime.set_memory_limit(limit).await;
+        }
         Ok(instance)
     }
 
@@ -17560,7 +17562,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
 
                             #[cfg(target_os = "linux")]
                             {
-                                use std::io::Read;
                                 use std::os::fd::AsRawFd;
 
                                 // Open first to get a handle, then verify the handle's path.
@@ -17629,9 +17630,9 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                     ));
                                 }
 
-                                let mut reader = file.take(MAX_SYNC_READ_SIZE + 1);
+                                let mut reader = std::io::Read::take(file, MAX_SYNC_READ_SIZE + 1);
                                 let mut buffer = Vec::new();
-                                reader.read_to_end(&mut buffer).map_err(|err| {
+                                std::io::Read::read_to_end(&mut reader, &mut buffer).map_err(|err| {
                                     rquickjs::Error::new_loading_message(
                                         &path,
                                         format!("host read content: {err}"),
@@ -17672,7 +17673,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                     ));
                                 }
 
-                                use std::io::Read;
                                 let file = match std::fs::File::open(&checked_path) {
                                     Ok(file) => file,
                                     Err(err) => {
@@ -17686,9 +17686,9 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                     }
                                 };
 
-                                let mut reader = file.take(MAX_SYNC_READ_SIZE + 1);
+                                let mut reader = std::io::Read::take(file, MAX_SYNC_READ_SIZE + 1);
                                 let mut buffer = Vec::new();
-                                reader.read_to_end(&mut buffer).map_err(|err| {
+                                std::io::Read::read_to_end(&mut reader, &mut buffer).map_err(|err| {
                                     rquickjs::Error::new_loading_message(
                                         &path,
                                         format!("host read content: {err}"),
@@ -17698,7 +17698,9 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
                                 if buffer.len() as u64 > MAX_SYNC_READ_SIZE {
                                     return Err(rquickjs::Error::new_loading_message(
                                         &path,
-                                        format!("host read failed: file exceeds {} bytes", MAX_SYNC_READ_SIZE),
+                                        format!(
+                                            "host read failed: file exceeds {MAX_SYNC_READ_SIZE} bytes"
+                                        ),
                                     ));
                                 }
 

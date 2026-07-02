@@ -19,6 +19,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # File paths.
 LEDGER_FILE="$PROJECT_ROOT/docs/evidence/dropin-parity-gap-ledger.json"
+BEADS_FILE="$PROJECT_ROOT/.beads/issues.jsonl"
 
 # Colors for output
 RED='\033[0;31m'
@@ -51,8 +52,8 @@ check_prerequisites() {
         exit 2
     fi
 
-    if ! command -v br >/dev/null 2>&1; then
-        log_error "br (beads) command is required but not found"
+    if [[ ! -f "$BEADS_FILE" ]]; then
+        log_error "Beads ledger not found: $BEADS_FILE"
         exit 2
     fi
 }
@@ -73,150 +74,112 @@ get_open_ledger_gaps() {
     done
 }
 
-# Get active beads from beads system
+# Get active beads from the checked-in beads ledger
 get_open_beads() {
     log_info "Fetching active beads..."
 
-    # Get open/in-progress beads with their IDs, titles, labels, and external refs.
-    # The exported bead field is external_ref; external_id is kept as a compatibility
-    # fallback for older br versions.
-    br list --json 2>/dev/null | \
-    jq -r '(.issues? // .)[] |
+    jq -r 'select(type == "object") |
         select(.status == "open" or .status == "in_progress") |
         "\(.id)|\(.title // "")|\(.labels // [] | join(","))|\(.external_ref // .external_id // "")"' | \
     while IFS='|' read -r bead_id title labels external_ref; do
         echo "OPEN_BEAD:$bead_id|$title|$labels|$external_ref"
-    done
+    done < <(jq -c '.' "$BEADS_FILE")
 }
 
 # Match ledger gaps with beads
 match_gaps_to_beads() {
-    local ledger_gaps=()
-    local open_beads=()
-    local matched_gaps=()
-    local matched_beads=()
-    local active_gap_ids=()
-
     log_info "Reading gap ledger entries..."
-    while read -r line; do
-        if [[ $line == LEDGER_GAP:* ]]; then
-            ledger_gaps+=("$line")
-        fi
-    done < <(get_open_ledger_gaps)
-
     log_info "Reading active beads..."
-    while read -r line; do
-        if [[ $line == OPEN_BEAD:* ]]; then
-            open_beads+=("$line")
-        fi
-    done < <(get_open_beads)
 
-    for gap_line in "${ledger_gaps[@]}"; do
-        local gap_payload="${gap_line#LEDGER_GAP:}"
-        active_gap_ids+=("${gap_payload%%:*}")
-    done
+    LEDGER_FILE="$LEDGER_FILE" BEADS_FILE="$BEADS_FILE" python3 - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
 
-    log_info "Found ${#ledger_gaps[@]} active ledger gaps and ${#open_beads[@]} active beads"
+ledger_file = Path(os.environ["LEDGER_FILE"])
+beads_file = Path(os.environ["BEADS_FILE"])
 
-    local ledger_orphan_count=0
-    local bead_orphan_count=0
+ledger_payload = json.loads(ledger_file.read_text(encoding="utf-8"))
+ledger_entries = ledger_payload.get("entries", [])
+open_gaps = []
+for entry in ledger_entries:
+    if not isinstance(entry, dict):
+        continue
+    if entry.get("severity") not in {"critical", "high"}:
+        continue
+    status = str(entry.get("status", "open"))
+    mismatch_kind = str(entry.get("mismatch_kind", "open"))
+    if status in {"retired", "resolved", "closed"}:
+        continue
+    if mismatch_kind in {"retired", "resolved", "closed"}:
+        continue
+    open_gaps.append(
+        {
+            "gap_id": str(entry.get("gap_id", "")).strip(),
+            "severity": str(entry.get("severity", "")).strip(),
+            "owner_bead": str(entry.get("owner_issue_primary", "")).strip(),
+            "area": str(entry.get("area", "")).strip(),
+        }
+    )
 
-    # Check for ledger gaps without corresponding beads
-    log_info "Checking for ledger gaps without beads..."
-    for gap_line in "${ledger_gaps[@]}"; do
-        # Parse: LEDGER_GAP:gap_id:severity:owner_bead:area
-        local gap_id="${gap_line#LEDGER_GAP:}"
-        local gap_id_only="${gap_id%%:*}"
-        local rest="${gap_id#*:}"
-        local severity="${rest%%:*}"
-        local rest2="${rest#*:}"
-        local owner_bead="${rest2%%:*}"
-        local area="${rest2#*:}"
+open_beads = []
+for raw_line in beads_file.read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line:
+        continue
+    bead = json.loads(line)
+    if bead.get("status") not in {"open", "in_progress"}:
+        continue
+    open_beads.append(
+        {
+            "id": str(bead.get("id", "")).strip(),
+            "title": str(bead.get("title", "")).strip(),
+            "external_ref": str(bead.get("external_ref") or bead.get("external_id") or "").strip(),
+        }
+    )
 
-        local found_bead=false
+print(f"\033[0;32m[INFO]\033[0m Found {len(open_gaps)} active ledger gaps and {len(open_beads)} active beads")
 
-        # Exact match by active owner_issue_primary.
-        if [[ -n "$owner_bead" ]]; then
-            for bead_line in "${open_beads[@]}"; do
-                local bead_id="${bead_line#OPEN_BEAD:}"
-                local bead_id_only="${bead_id%%|*}"
-                if [[ "$bead_id_only" == "$owner_bead" ]]; then
-                    found_bead=true
-                    matched_gaps+=("$gap_line")
-                    matched_beads+=("$bead_line")
-                    break
-                fi
-            done
-        fi
+matched_bead_ids = set()
+active_gap_ids = {gap["gap_id"] for gap in open_gaps if gap["gap_id"]}
+ledger_orphan_count = 0
+bead_orphan_count = 0
 
-        # Exact match by external_ref=<gap-id>. This is the preferred durable link
-        # because ledger owner_issue_primary can point at an older umbrella bead.
-        if [[ "$found_bead" == false ]]; then
-            for bead_line in "${open_beads[@]}"; do
-                local bead_content="${bead_line#OPEN_BEAD:}"
-                local bead_external_ref="${bead_content##*|}"
-                if [[ "$bead_external_ref" == "$gap_id_only" ]]; then
-                    found_bead=true
-                    matched_gaps+=("$gap_line")
-                    matched_beads+=("$bead_line")
-                    break
-                fi
-            done
-        fi
+print("\033[0;32m[INFO]\033[0m Checking for ledger gaps without beads...")
+for gap in open_gaps:
+    match = None
+    if gap["owner_bead"]:
+        match = next((bead for bead in open_beads if bead["id"] == gap["owner_bead"]), None)
+    if match is None and gap["gap_id"]:
+        match = next((bead for bead in open_beads if bead["external_ref"] == gap["gap_id"]), None)
+    if match is None:
+        print(f"\033[0;31m[ERROR]\033[0m ORPHAN LEDGER GAP: {gap['gap_id']} ({gap['severity']} severity, area: {gap['area']})")
+        if gap["owner_bead"]:
+            print(f"\033[0;31m[ERROR]\033[0m   Expected owner bead: {gap['owner_bead']}")
+        print(f"\033[0;31m[ERROR]\033[0m   Create or reopen a bead with --external-ref {gap['gap_id']}, or update owner_issue_primary to an open bead.")
+        ledger_orphan_count += 1
+    else:
+        matched_bead_ids.add(match["id"])
 
-        if [[ "$found_bead" == false ]]; then
-            log_error "ORPHAN LEDGER GAP: $gap_id_only ($severity severity, area: $area)"
-            if [[ -n "$owner_bead" ]]; then
-                log_error "  Expected owner bead: $owner_bead"
-            fi
-            log_error "  Create or reopen a bead with --external-ref $gap_id_only, or update owner_issue_primary to an open bead."
-            ((ledger_orphan_count += 1))
-        fi
-    done
+print("\033[0;32m[INFO]\033[0m Checking for beads without corresponding ledger gaps...")
+for bead in open_beads:
+    external_ref = bead["external_ref"]
+    if bead["id"] in matched_bead_ids:
+        continue
+    if external_ref.startswith("gap-") and external_ref not in active_gap_ids:
+        print(f"\033[0;31m[ERROR]\033[0m ORPHAN GAP BEAD: {bead['id']} - {bead['title']}")
+        print(f"\033[0;31m[ERROR]\033[0m   external_ref={external_ref} is not an active critical/high ledger gap")
+        print("\033[0;31m[ERROR]\033[0m   Close the bead, clear/update external_ref, or restore the ledger gap if it is still active.")
+        bead_orphan_count += 1
 
-    # Check for active gap-tracking beads that reference closed/non-existent ledger entries.
-    log_info "Checking for beads without corresponding ledger gaps..."
-    for bead_line in "${open_beads[@]}"; do
-        local bead_content="${bead_line#OPEN_BEAD:}"
-        local bead_id="${bead_content%%|*}"
-        local rest="${bead_content#*|}"
-        local title="${rest%%|*}"
-        local external_ref="${bead_content##*|}"
+if ledger_orphan_count == 0 and bead_orphan_count == 0:
+    print("\033[0;32m[INFO]\033[0m SUCCESS: No orphan ledger gaps or gap-tracking beads found")
+    sys.exit(0)
 
-        # Skip if this bead was already matched
-        local already_matched=false
-        for matched in "${matched_beads[@]}"; do
-            if [[ "$matched" == "$bead_line" ]]; then
-                already_matched=true
-                break
-            fi
-        done
-
-        if [[ "$already_matched" == false ]] && [[ "$external_ref" == gap-* ]]; then
-            local gap_is_active=false
-            for active_gap_id in "${active_gap_ids[@]}"; do
-                if [[ "$external_ref" == "$active_gap_id" ]]; then
-                    gap_is_active=true
-                    break
-                fi
-            done
-
-            if [[ "$gap_is_active" == false ]]; then
-                log_error "ORPHAN GAP BEAD: $bead_id - $title"
-                log_error "  external_ref=$external_ref is not an active critical/high ledger gap"
-                log_error "  Close the bead, clear/update external_ref, or restore the ledger gap if it is still active."
-                ((bead_orphan_count += 1))
-            fi
-        fi
-    done
-
-    if [[ $ledger_orphan_count -eq 0 && $bead_orphan_count -eq 0 ]]; then
-        log_info "SUCCESS: No orphan ledger gaps or gap-tracking beads found"
-        return 0
-    else
-        log_error "FAILURE: Found $ledger_orphan_count orphan ledger gaps and $bead_orphan_count orphan gap beads"
-        return 1
-    fi
+print(f"\033[0;31m[ERROR]\033[0m FAILURE: Found {ledger_orphan_count} orphan ledger gaps and {bead_orphan_count} orphan gap beads")
+sys.exit(1)
+PY
 }
 
 # Main function

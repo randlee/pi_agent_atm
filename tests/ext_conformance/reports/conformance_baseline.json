@@ -287,6 +287,17 @@
         "tracking_issue": "bd-k5q5.3.9"
       },
       {
+        "id": "npm/aliou-pi-synthetic",
+        "kind": "extension",
+        "status": "temporary",
+        "cause_code": "runtime_error",
+        "rationale": "Extension load currently aborts with a deterministic JS runtime task cancellation.",
+        "mitigation": "Stabilize the synthetic extension activation path and add a focused load regression test.",
+        "owner": "pi-parity-runtime",
+        "review_by": "2026-09-30",
+        "tracking_issue": "bd-k5q5.3.9"
+      },
+      {
         "id": "npm/aliou-pi-processes",
         "kind": "extension",
         "status": "temporary",
@@ -361,6 +372,17 @@
         "mitigation": "Provide minimal audited `adm-zip` virtual module behavior required by corpus.",
         "owner": "pi-parity-runtime",
         "review_by": "2026-08-31",
+        "tracking_issue": "bd-k5q5.3.9"
+      },
+      {
+        "id": "npm/verioussmith-pi-openrouter",
+        "kind": "extension",
+        "status": "temporary",
+        "cause_code": "runtime_error",
+        "rationale": "Extension load currently aborts with a deterministic JS runtime task cancellation.",
+        "mitigation": "Stabilize the OpenRouter extension activation path and add a focused load regression test.",
+        "owner": "pi-parity-runtime",
+        "review_by": "2026-09-30",
         "tracking_issue": "bd-k5q5.3.9"
       },
       {
