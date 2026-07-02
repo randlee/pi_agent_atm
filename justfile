@@ -9,6 +9,10 @@ default: help
 help:
     {{python_cmd}} .just/print_help.py
 
+# Remove workspace build artifacts.
+clean:
+    cargo clean
+
 [private]
 _fmt-check:
     cargo fmt --all --check

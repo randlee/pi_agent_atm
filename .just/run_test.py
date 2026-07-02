@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 import sys
-import tomllib
 
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+from test_catalog import load_suite_targets
+from test_catalog import repo_root
+from test_catalog import resolve_lane
 
 
 def run(command: list[str]) -> None:
@@ -26,13 +24,8 @@ def cargo_command(*args: str) -> list[str]:
     return command
 
 
-def load_suite_targets(suite: str) -> list[str]:
-    payload = tomllib.loads((repo_root() / "tests/suite_classification.toml").read_text())
-    return list(payload["suite"][suite]["files"])
-
-
-def run_vcr_only() -> None:
-    for target in load_suite_targets("vcr"):
+def run_suite_targets(suite: str) -> None:
+    for target in load_suite_targets(suite):
         run(cargo_command("test", "--test", target, "--", "--nocapture"))
 
 
@@ -44,39 +37,18 @@ def shutil_which(binary: str) -> str | None:
 
 def main() -> int:
     target = sys.argv[1] if len(sys.argv) > 1 else "ci"
-    if target == "ci":
-        run_verify("--profile", "ci", "--skip-lint")
+    lane = resolve_lane(target)
+    if lane.kind == "verify":
+        run_verify(*lane.verify_args)
         return 0
-    if target == "all":
-        run_verify("--profile", "full", "--skip-lint")
+    if lane.kind == "suite":
+        assert lane.suite_name is not None
+        run_suite_targets(lane.suite_name)
         return 0
-    if target == "full":
-        run_verify("--profile", "full", "--skip-lint")
+    if lane.kind == "script":
+        run(list(lane.script_args))
         return 0
-    if target == "unit":
-        run_verify("--profile", "quick", "--skip-lint")
-        return 0
-    if target in {"integration", "integrate"}:
-        run_verify("--profile", "ci", "--skip-lint", "--skip-e2e")
-        return 0
-    if target == "vcr":
-        run_vcr_only()
-        return 0
-    if target == "e2e":
-        run_verify("--profile", "full", "--skip-lint", "--skip-unit")
-        return 0
-    if target == "fuzz":
-        run(["./scripts/fuzz_e2e.sh", "--quick"])
-        return 0
-    if target == "fuzz-full":
-        run(["./scripts/fuzz_e2e.sh"])
-        return 0
-
-    raise SystemExit(
-        "unknown test target: {target}; expected one of: ci, all, full, unit, integration, vcr, e2e, fuzz, fuzz-full".format(
-            target=target
-        )
-    )
+    raise SystemExit(f"unsupported test lane kind: {lane.kind}")
 
 
 if __name__ == "__main__":

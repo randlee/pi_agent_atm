@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from test_catalog import display_targets
+
 
 SECTIONS = (
     (
@@ -10,6 +12,7 @@ SECTIONS = (
         (
             ("help", "Show this help."),
             ("ci", "Run the local CI-equivalent lint + test gate."),
+            ("clean", "Remove workspace build artifacts."),
             ("bench", "Run the Criterion benchmark suite."),
             ("suites", "Print the current classified test-suite taxonomy."),
         ),
@@ -33,16 +36,9 @@ SECTIONS = (
     ),
     (
         "Test",
-        (
-            ("test", "Run the CI-equivalent QA lane without lint."),
-            ("test ci", "Run the CI-equivalent QA lane without lint."),
-            ("test all", "Run the full classified test surface without lint."),
-            ("test unit", "Run inline lib tests plus the classified unit suite."),
-            ("test integration", "Run all non-E2E integration targets."),
-            ("test vcr", "Run only the classified VCR / fixture replay targets."),
-            ("test e2e", "Run only the classified E2E targets."),
-            ("test fuzz", "Run the quick unified fuzz pipeline."),
-            ("test fuzz-full", "Run the full unified fuzz pipeline."),
+        tuple(
+            [("test", "Run the CI-equivalent QA lane without lint.")]
+            + [(f"test {name}", description) for name, description in display_targets()]
         ),
     ),
 )

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from pathlib import Path
-import tomllib
+from test_catalog import load_suite_targets
+from test_catalog import SUITE_ORDER
 
 
 def main() -> int:
-    payload = tomllib.loads((Path(__file__).resolve().parents[1] / "tests/suite_classification.toml").read_text())
-    for suite in ("unit", "vcr", "e2e"):
-        files = payload["suite"][suite]["files"]
+    for suite in SUITE_ORDER:
+        files = load_suite_targets(suite)
         print(f"{suite}: {len(files)} target(s)")
         for name in files:
             print(f"  - {name}")
