@@ -205,56 +205,7 @@ jobs:
       - name: No-mock code guard
         run: |
           set -euo pipefail
-
-          # The allowlist is .no-mock-allowlist at repo root. Each non-blank,
-          # non-# line is "<path>:<identifier>"; path "*" matches anywhere.
-          # Anything not covered is treated as a NEW policy violation and
-          # fails CI. See the allowlist file's header for rationale.
-          allowlist=".no-mock-allowlist"
-          if [ ! -f "$allowlist" ]; then
-            echo "::error::missing $allowlist (required by no-mock policy gate)"
-            exit 1
-          fi
-
-          matches="$(rg -n --column --no-heading --color never --glob '!tests/ext_conformance/artifacts/**' -o '\b(Mock|Fake|Stub)[A-Za-z0-9_]+\b' tests || true)"
-          if [ -z "$matches" ]; then
-            exit 0
-          fi
-
-          # Split allowlist into global (*:Ident) and per-file (path:Ident) sets.
-          global_allow="$(grep -E '^\*:' "$allowlist" | sed 's/^\*://' | sort -u)"
-          file_allow="$(grep -Ev '^\s*(#|$|\*:)' "$allowlist" | sort -u)"
-
-          # rg output: file:line:col:identifier (4 colon-separated fields).
-          violations="$(printf '%s\n' "$matches" | awk -F: \
-            -v global_allow="$global_allow" \
-            -v file_allow="$file_allow" \
-            '
-            BEGIN {
-              n = split(global_allow, ga, "\n")
-              for (i = 1; i <= n; i++) if (ga[i] != "") g[ga[i]] = 1
-              n = split(file_allow, fa, "\n")
-              for (i = 1; i <= n; i++) if (fa[i] != "") f[fa[i]] = 1
-            }
-            {
-              ident = $4
-              file = $1
-              if (ident in g) next
-              key = file ":" ident
-              if (key in f) next
-              print
-            }')"
-
-          if [ -n "$violations" ]; then
-            printf '%s\n' "$violations"
-            echo
-            echo "NEW no-mock policy violations detected."
-            echo "Mock*/Fake*/Stub* identifiers are forbidden in tests."
-            echo "Use VCR fixtures or real deps instead. See docs/TEST_COVERAGE_MATRIX.md."
-            echo "If the identifier is unavoidable, add it to .no-mock-allowlist with"
-            echo "rationale and a follow-up issue link."
-            exit 1
-          fi
+          python3 scripts/check_no_mock_policy.py
 
       - name: Traceability matrix guard
         run: |
