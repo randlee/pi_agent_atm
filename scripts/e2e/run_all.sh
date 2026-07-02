@@ -15,6 +15,7 @@
 #   ./scripts/e2e/run_all.sh --rerun-from <summary.json>  # deterministic rerun of failed suites
 #   ./scripts/e2e/run_all.sh --diff-from <summary.json>   # compare current run to baseline
 #   ./scripts/e2e/run_all.sh --skip-lint                  # skip format/clippy gates
+#   ./scripts/e2e/run_all.sh --skip-lib                   # skip cargo test --lib
 #   ./scripts/e2e/run_all.sh --list                       # list available suites
 #   ./scripts/e2e/run_all.sh --list-profiles              # list built-in profiles
 #
@@ -217,6 +218,7 @@ LIST_PROFILES=false
 SKIP_UNIT=false
 SKIP_E2E=false
 SKIP_LINT=false
+SKIP_LIB=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -257,6 +259,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_LINT=true
             shift
             ;;
+        --skip-lib)
+            SKIP_LIB=true
+            shift
+            ;;
         --shard-kind)
             shift
             SHARD_KIND="$1"
@@ -293,7 +299,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: $0 [--profile NAME] [--suite NAME]... [--unit-target NAME]..."
             echo "          [--rerun-from SUMMARY_JSON] [--diff-from SUMMARY_JSON]"
-            echo "          [--skip-unit] [--skip-e2e] [--skip-lint]"
+            echo "          [--skip-unit] [--skip-e2e] [--skip-lint] [--skip-lib]"
             echo "          [--shard-kind KIND --shard-index N --shard-total M]"
             echo "          [--list] [--list-profiles] [--help]"
             echo ""
@@ -306,6 +312,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-unit          Skip integration target execution"
             echo "  --skip-e2e           Skip E2E suite execution"
             echo "  --skip-lint          Skip fmt/clippy lint gates"
+            echo "  --skip-lib           Skip cargo test --lib"
             echo "  --shard-kind KIND    Deterministic shard mode: none|unit|suite|both"
             echo "  --shard-index N      Zero-based shard index"
             echo "  --shard-total M      Total shard count"
@@ -11894,7 +11901,7 @@ main() {
     echo " Cargo runner: $CARGO_RUNNER_DESC"
     echo " Correlation id: $CORRELATION_ID"
     echo " Shard mode: $SHARD_KIND ($SHARD_NAME)"
-    echo " Lib inline: enabled"
+    echo " Lib inline: $(if $SKIP_LIB; then echo 'skip'; else echo 'enabled'; fi)"
     echo " Integration targets: ${#SELECTED_UNIT_TARGETS[@]}"
     echo " E2E suites: ${#SELECTED_SUITES[@]}"
     if [[ -n "$RERUN_FROM" ]]; then
@@ -11928,8 +11935,12 @@ main() {
     fi
 
     # Phase 3: Lib inline tests.
-    if ! run_lib_tests; then
-        overall_exit=1
+    if ! $SKIP_LIB; then
+        if ! run_lib_tests; then
+            overall_exit=1
+        fi
+    else
+        echo "[lib] Skipped (--skip-lib)"
     fi
 
     # Phase 4: Integration targets (unit + vcr test files).

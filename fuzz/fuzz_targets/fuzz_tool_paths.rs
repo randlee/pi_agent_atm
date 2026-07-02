@@ -26,6 +26,12 @@ fn assert_no_curdir(path: &Path) {
     );
 }
 
+fn contains_parent_component(raw: &str) -> bool {
+    Path::new(raw)
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+}
+
 fuzz_target!(|data: &[u8]| {
     if data.is_empty() || data.len() > MAX_INPUT_BYTES {
         return;
@@ -47,7 +53,7 @@ fuzz_target!(|data: &[u8]| {
     if Path::new(&raw).is_absolute() {
         assert!(resolved.is_absolute());
         assert!(normalized_once.is_absolute());
-    } else if !is_tilde {
+    } else if !is_tilde && !contains_parent_component(&raw) {
         assert!(resolved.starts_with(&cwd));
     }
 

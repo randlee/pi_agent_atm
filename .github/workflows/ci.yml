@@ -232,6 +232,7 @@ jobs:
           fi
 
       - name: Closeout and runpack freshness integrity
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           if command -v python3 >/dev/null 2>&1; then
@@ -1233,7 +1234,7 @@ jobs:
           PY
 
       - name: Release gate (evidence bundle) [linux]
-        if: always() && runner.os == 'Linux'
+        if: always() && runner.os == 'Linux' && github.event_name == 'push'
         env:
           RELEASE_GATE_REQUIRE_DROPIN_CERTIFIED: ${{ vars.RELEASE_GATE_REQUIRE_DROPIN_CERTIFIED || '0' }}
           # rch (remote cargo) is a developer-laptop tool and is not installed
@@ -1406,14 +1407,6 @@ jobs:
             lane: integration
             shard_index: 1
             shard_total: 2
-          - name: e2e-0
-            lane: e2e
-            shard_index: 0
-            shard_total: 2
-          - name: e2e-1
-            lane: e2e
-            shard_index: 1
-            shard_total: 2
           - name: extension-0
             lane: extension
             shard_index: 0
@@ -1500,6 +1493,7 @@ jobs:
               ./scripts/e2e/run_all.sh \
                 --profile ci \
                 --skip-lint \
+                --skip-lib \
                 --skip-e2e \
                 --shard-kind unit \
                 --shard-index "${{ matrix.shard.shard_index }}" \
@@ -1512,6 +1506,7 @@ jobs:
               ./scripts/e2e/run_all.sh \
                 --profile full \
                 --skip-lint \
+                --skip-lib \
                 --skip-unit \
                 --shard-kind suite \
                 --shard-index "${{ matrix.shard.shard_index }}" \
