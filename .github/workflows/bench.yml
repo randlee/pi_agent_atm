@@ -1,11 +1,10 @@
 # Benchmark CI workflow
-# Runs on pushes to main and PRs to detect performance regressions
+# Runs on pushes to main or manual dispatch. PRs intentionally skip this lane
+# because the full benchmark stack is too expensive for review feedback.
 name: Benchmarks
 
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
   workflow_dispatch:  # Allow manual triggering
 

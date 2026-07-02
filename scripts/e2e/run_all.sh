@@ -211,14 +211,16 @@ ALL_SUITES=("${ALL_E2E_FILES[@]}")
 
 # ─── CLI Parsing ──────────────────────────────────────────────────────────────
 
-SELECTED_SUITES=()
-SELECTED_UNIT_TARGETS=()
+declare -a SELECTED_SUITES=()
+declare -a SELECTED_UNIT_TARGETS=()
+declare -a EXCLUDED_UNIT_TARGETS=()
 LIST_ONLY=false
 LIST_PROFILES=false
 SKIP_UNIT=false
 SKIP_E2E=false
 SKIP_LINT=false
 SKIP_LIB=false
+FAIL_FAST=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -230,6 +232,11 @@ while [[ $# -gt 0 ]]; do
         --unit-target)
             shift
             SELECTED_UNIT_TARGETS+=("$1")
+            shift
+            ;;
+        --exclude-unit-target)
+            shift
+            EXCLUDED_UNIT_TARGETS+=("$1")
             shift
             ;;
         --profile)
@@ -261,6 +268,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-lib)
             SKIP_LIB=true
+            shift
+            ;;
+        --fail-fast)
+            FAIL_FAST=true
             shift
             ;;
         --shard-kind)
@@ -299,7 +310,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: $0 [--profile NAME] [--suite NAME]... [--unit-target NAME]..."
             echo "          [--rerun-from SUMMARY_JSON] [--diff-from SUMMARY_JSON]"
-            echo "          [--skip-unit] [--skip-e2e] [--skip-lint] [--skip-lib]"
+            echo "          [--skip-unit] [--skip-e2e] [--skip-lint] [--skip-lib] [--fail-fast]"
             echo "          [--shard-kind KIND --shard-index N --shard-total M]"
             echo "          [--list] [--list-profiles] [--help]"
             echo ""
@@ -307,12 +318,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --profile NAME       Verification profile: quick | focused | ci | full"
             echo "  --suite NAME         Run only specified E2E suite(s) (repeatable)"
             echo "  --unit-target NAME   Run only specified unit target(s) (repeatable)"
+            echo "  --exclude-unit-target NAME Exclude specific unit target(s) after profile selection"
             echo "  --rerun-from PATH    Rerun failed suites from prior summary.json"
             echo "  --diff-from PATH     Compare current run against baseline summary.json"
             echo "  --skip-unit          Skip integration target execution"
             echo "  --skip-e2e           Skip E2E suite execution"
             echo "  --skip-lint          Skip fmt/clippy lint gates"
             echo "  --skip-lib           Skip cargo test --lib"
+            echo "  --fail-fast          Stop after the first failing target/suite"
             echo "  --shard-kind KIND    Deterministic shard mode: none|unit|suite|both"
             echo "  --shard-index N      Zero-based shard index"
             echo "  --shard-total M      Total shard count"
@@ -506,6 +519,29 @@ export CI_CORRELATION_ID="$CORRELATION_ID"
 
 if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
     fill_array_from_command SELECTED_UNIT_TARGETS sorted_unique_lines "${SELECTED_UNIT_TARGETS[@]}"
+fi
+if (( ${#EXCLUDED_UNIT_TARGETS[@]} > 0 )); then
+    fill_array_from_command EXCLUDED_UNIT_TARGETS sorted_unique_lines "${EXCLUDED_UNIT_TARGETS[@]}"
+    if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
+        filtered_unit_targets=()
+        for target in "${SELECTED_UNIT_TARGETS[@]}"; do
+            exclude_target=false
+            for excluded in "${EXCLUDED_UNIT_TARGETS[@]}"; do
+                if [[ "$target" == "$excluded" ]]; then
+                    exclude_target=true
+                    break
+                fi
+            done
+            if ! $exclude_target; then
+                filtered_unit_targets+=("$target")
+            fi
+        done
+        if (( ${#filtered_unit_targets[@]} > 0 )); then
+            SELECTED_UNIT_TARGETS=("${filtered_unit_targets[@]}")
+        else
+            SELECTED_UNIT_TARGETS=()
+        fi
+    fi
 fi
 if (( ${#SELECTED_SUITES[@]} > 0 )); then
     fill_array_from_command SELECTED_SUITES sorted_unique_lines "${SELECTED_SUITES[@]}"
@@ -793,6 +829,25 @@ run_split_clippy_gates() {
 
 # ─── Lib Inline Tests ────────────────────────────────────────────────────────
 
+extract_test_count() {
+    local label="$1"
+    local log_file="$2"
+    python3 - "$label" "$log_file" <<'PY'
+import pathlib
+import re
+import sys
+
+label = sys.argv[1]
+log_path = pathlib.Path(sys.argv[2])
+pattern = re.compile(rf"(\d+)\s+{re.escape(label)}")
+last = "0"
+if log_path.is_file():
+    for match in pattern.finditer(log_path.read_text(encoding="utf-8", errors="replace")):
+        last = match.group(1)
+print(last)
+PY
+}
+
 run_lib_tests() {
     local lib_dir="$ARTIFACT_DIR/lib"
     local log_file="$lib_dir/output.log"
@@ -817,9 +872,9 @@ run_lib_tests() {
     fi
 
     local passed failed ignored total
-    passed=$(grep -oP '\d+ passed' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
-    failed=$(grep -oP '\d+ failed' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
-    ignored=$(grep -oP '\d+ ignored' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
+    passed=$(extract_test_count "passed" "$log_file")
+    failed=$(extract_test_count "failed" "$log_file")
+    ignored=$(extract_test_count "ignored" "$log_file")
     total=$((passed + failed + ignored))
 
     cat > "$result_file" <<RESULTJSON
@@ -885,29 +940,33 @@ build_tests() {
     local build_log="$ARTIFACT_DIR/build.log"
     local build_ok=true
 
-    for target in "${SELECTED_UNIT_TARGETS[@]}"; do
-        if [[ ! -f "tests/${target}.rs" ]]; then
-            echo "[build]   $target (unit target missing, skipping)"
-            continue
-        fi
-        echo "[build]   unit:$target"
-        if ! run_cargo_test_target "$target" --no-run 2>>"$build_log"; then
-            echo "[build]   unit:$target FAILED" >&2
-            build_ok=false
-        fi
-    done
+    if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
+        for target in "${SELECTED_UNIT_TARGETS[@]}"; do
+            if [[ ! -f "tests/${target}.rs" ]]; then
+                echo "[build]   $target (unit target missing, skipping)"
+                continue
+            fi
+            echo "[build]   unit:$target"
+            if ! run_cargo_test_target "$target" --no-run 2>>"$build_log"; then
+                echo "[build]   unit:$target FAILED" >&2
+                build_ok=false
+            fi
+        done
+    fi
 
-    for suite in "${SELECTED_SUITES[@]}"; do
-        if [[ ! -f "tests/${suite}.rs" ]]; then
-            echo "[build]   $suite (suite missing, skipping)"
-            continue
-        fi
-        echo "[build]   e2e:$suite"
-        if ! run_cargo_test_target "$suite" --no-run 2>>"$build_log"; then
-            echo "[build]   e2e:$suite FAILED" >&2
-            build_ok=false
-        fi
-    done
+    if (( ${#SELECTED_SUITES[@]} > 0 )); then
+        for suite in "${SELECTED_SUITES[@]}"; do
+            if [[ ! -f "tests/${suite}.rs" ]]; then
+                echo "[build]   $suite (suite missing, skipping)"
+                continue
+            fi
+            echo "[build]   e2e:$suite"
+            if ! run_cargo_test_target "$suite" --no-run 2>>"$build_log"; then
+                echo "[build]   e2e:$suite FAILED" >&2
+                build_ok=false
+            fi
+        done
+    fi
 
     if $build_ok; then
         echo "[build] OK"
@@ -961,9 +1020,9 @@ run_unit_target() {
     fi
 
     local passed failed ignored total
-    passed=$(grep -oP '\d+ passed' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
-    failed=$(grep -oP '\d+ failed' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
-    ignored=$(grep -oP '\d+ ignored' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
+    passed=$(extract_test_count "passed" "$log_file")
+    failed=$(extract_test_count "failed" "$log_file")
+    ignored=$(extract_test_count "ignored" "$log_file")
     total=$((passed + failed + ignored))
 
     cat > "$result_file" <<RESULTJSON
@@ -1040,9 +1099,9 @@ run_suite() {
 
     # Parse test counts from cargo test output.
     local passed failed ignored total
-    passed=$(grep -oP '\d+ passed' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
-    failed=$(grep -oP '\d+ failed' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
-    ignored=$(grep -oP '\d+ ignored' "$log_file" | tail -1 | grep -oP '\d+' || echo "0")
+    passed=$(extract_test_count "passed" "$log_file")
+    failed=$(extract_test_count "failed" "$log_file")
+    ignored=$(extract_test_count "ignored" "$log_file")
     total=$((passed + failed + ignored))
 
     cat > "$result_file" <<RESULTJSON
@@ -1097,55 +1156,59 @@ write_summary() {
     # Read unit target results.
     local unit_results_array="["
     local first_unit=true
-    for target in "${SELECTED_UNIT_TARGETS[@]}"; do
-        local result_file="$ARTIFACT_DIR/unit/$target/result.json"
-        if [[ -f "$result_file" ]]; then
-            local exit_code
-            exit_code=$(python3 -c "import json; print(json.load(open('$result_file'))['exit_code'])" 2>/dev/null || echo "1")
-            if [[ "$exit_code" -eq 0 ]]; then
-                ((passed_units++)) || true
+    if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
+        for target in "${SELECTED_UNIT_TARGETS[@]}"; do
+            local result_file="$ARTIFACT_DIR/unit/$target/result.json"
+            if [[ -f "$result_file" ]]; then
+                local exit_code
+                exit_code=$(python3 -c "import json; print(json.load(open('$result_file'))['exit_code'])" 2>/dev/null || echo "1")
+                if [[ "$exit_code" -eq 0 ]]; then
+                    ((passed_units++)) || true
+                else
+                    ((failed_units++)) || true
+                    failed_unit_names+=("$target")
+                fi
+                if ! $first_unit; then unit_results_array+=","; fi
+                unit_results_array+="$(cat "$result_file")"
+                first_unit=false
             else
                 ((failed_units++)) || true
                 failed_unit_names+=("$target")
+                if ! $first_unit; then unit_results_array+=","; fi
+                unit_results_array+="{\"target\":\"$target\",\"exit_code\":1,\"error\":\"no result file\"}"
+                first_unit=false
             fi
-            if ! $first_unit; then unit_results_array+=","; fi
-            unit_results_array+="$(cat "$result_file")"
-            first_unit=false
-        else
-            ((failed_units++)) || true
-            failed_unit_names+=("$target")
-            if ! $first_unit; then unit_results_array+=","; fi
-            unit_results_array+="{\"target\":\"$target\",\"exit_code\":1,\"error\":\"no result file\"}"
-            first_unit=false
-        fi
-    done
+        done
+    fi
     unit_results_array+="]"
 
     # Read E2E suite results.
     local suite_results_array="["
     local first_suite=true
-    for suite in "${SELECTED_SUITES[@]}"; do
-        local result_file="$ARTIFACT_DIR/$suite/result.json"
-        if [[ -f "$result_file" ]]; then
-            local exit_code
-            exit_code=$(python3 -c "import json; print(json.load(open('$result_file'))['exit_code'])" 2>/dev/null || echo "1")
-            if [[ "$exit_code" -eq 0 ]]; then
-                ((passed_suites++)) || true
+    if (( ${#SELECTED_SUITES[@]} > 0 )); then
+        for suite in "${SELECTED_SUITES[@]}"; do
+            local result_file="$ARTIFACT_DIR/$suite/result.json"
+            if [[ -f "$result_file" ]]; then
+                local exit_code
+                exit_code=$(python3 -c "import json; print(json.load(open('$result_file'))['exit_code'])" 2>/dev/null || echo "1")
+                if [[ "$exit_code" -eq 0 ]]; then
+                    ((passed_suites++)) || true
+                else
+                    ((failed_suites++)) || true
+                    failed_names+=("$suite")
+                fi
+                if ! $first_suite; then suite_results_array+=","; fi
+                suite_results_array+="$(cat "$result_file")"
+                first_suite=false
             else
                 ((failed_suites++)) || true
                 failed_names+=("$suite")
+                if ! $first_suite; then suite_results_array+=","; fi
+                suite_results_array+="{\"suite\":\"$suite\",\"exit_code\":1,\"error\":\"no result file\"}"
+                first_suite=false
             fi
-            if ! $first_suite; then suite_results_array+=","; fi
-            suite_results_array+="$(cat "$result_file")"
-            first_suite=false
-        else
-            ((failed_suites++)) || true
-            failed_names+=("$suite")
-            if ! $first_suite; then suite_results_array+=","; fi
-            suite_results_array+="{\"suite\":\"$suite\",\"exit_code\":1,\"error\":\"no result file\"}"
-            first_suite=false
-        fi
-    done
+        done
+    fi
     suite_results_array+="]"
 
     # Redact secrets from logs.
@@ -10879,7 +10942,7 @@ if isinstance(franken_node_mission_contract, dict):
     franken_node_kernel_boundary_drift_report_payload = {
         "schema": "pi.franken_node.kernel_boundary_drift_report.v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "run_id": run_id,
+        "run_id": conformance_run_id,
         "correlation_id": expected_claim_correlation_id,
         "manifest": {
             "path": str(kernel_boundary_manifest_path),
@@ -11902,6 +11965,7 @@ main() {
     echo " Correlation id: $CORRELATION_ID"
     echo " Shard mode: $SHARD_KIND ($SHARD_NAME)"
     echo " Lib inline: $(if $SKIP_LIB; then echo 'skip'; else echo 'enabled'; fi)"
+    echo " Fail-fast: $(if $FAIL_FAST; then echo 'enabled'; else echo 'disabled'; fi)"
     echo " Integration targets: ${#SELECTED_UNIT_TARGETS[@]}"
     echo " E2E suites: ${#SELECTED_SUITES[@]}"
     if [[ -n "$RERUN_FROM" ]]; then
@@ -11944,22 +12008,34 @@ main() {
     fi
 
     # Phase 4: Integration targets (unit + vcr test files).
-    for target in "${SELECTED_UNIT_TARGETS[@]}"; do
-        if ! run_unit_target "$target"; then
-            overall_exit=1
-        fi
-    done
+    if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
+        for target in "${SELECTED_UNIT_TARGETS[@]}"; do
+            if ! run_unit_target "$target"; then
+                overall_exit=1
+                if $FAIL_FAST; then
+                    echo "[fail-fast] Stopping after failing unit target: $target"
+                    break
+                fi
+            fi
+        done
+    fi
 
     # Phase 5: E2E suites.
-    for suite in "${SELECTED_SUITES[@]}"; do
-        if [[ ! -f "tests/${suite}.rs" ]]; then
-            echo "[skip] $suite: test file not found"
-            continue
-        fi
-        if ! run_suite "$suite"; then
-            overall_exit=1
-        fi
-    done
+    if (( ${#SELECTED_SUITES[@]} > 0 )); then
+        for suite in "${SELECTED_SUITES[@]}"; do
+            if [[ ! -f "tests/${suite}.rs" ]]; then
+                echo "[skip] $suite: test file not found"
+                continue
+            fi
+            if ! run_suite "$suite"; then
+                overall_exit=1
+                if $FAIL_FAST; then
+                    echo "[fail-fast] Stopping after failing E2E suite: $suite"
+                    break
+                fi
+            fi
+        done
+    fi
 
     write_summary
 

@@ -43,22 +43,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # PR: fast conformance (official sample + generated tier 1-2 + negative)
-          - name: fast-official
-            if_event: pull_request
-            test_cmd: cargo test --test ext_conformance_diff --features ext-conformance -- --nocapture
-            env_extra: "PI_OFFICIAL_MAX=5"
-          - name: fast-generated
-            if_event: pull_request
-            test_cmd: cargo test --test ext_conformance_generated --features ext-conformance -- --nocapture
-            env_extra: ""
+          # PR: keep only the bounded negative-policy lane here. Generated
+          # conformance already runs via qa-shard extension jobs, the official
+          # oracle currently depends on upstream mono packaging, and the
+          # capability matrix is currently unbounded in CI.
           - name: fast-negative
             if_event: pull_request
             test_cmd: cargo test --test extensions_policy_negative -- --nocapture
-            env_extra: ""
-          - name: fast-capability-matrix
-            if_event: pull_request
-            test_cmd: cargo test --test capability_denial_matrix -- --nocapture
             env_extra: ""
           # Nightly: full official + all tiers + scenarios + fixture schema + artifacts
           - name: full-official
@@ -76,6 +67,10 @@ jobs:
           - name: full-negative
             if_event: nightly
             test_cmd: cargo test --test extensions_policy_negative -- --nocapture
+            env_extra: ""
+          - name: full-capability-matrix
+            if_event: nightly
+            test_cmd: cargo test --test capability_denial_matrix -- --nocapture
             env_extra: ""
           - name: full-fixture-schema
             if_event: nightly

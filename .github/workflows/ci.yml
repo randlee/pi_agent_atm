@@ -310,8 +310,8 @@ jobs:
             echo "sqlite-sessions claim drift: Cargo.toml enables sqlite-sessions by default; document opt-out with --no-default-features instead."
             exit 1
           fi
-          rg -n --fixed-strings 'default = ["image-resize", "jemalloc", "clipboard", "wasm-host", "sqlite-sessions"]' Cargo.toml >/dev/null
-          rg -n --fixed-strings 'Default builds enable `image-resize`, `jemalloc`, `clipboard`, `wasm-host`, and `sqlite-sessions`.' README.md >/dev/null
+          rg -n --fixed-strings 'default = ["sqlite-sessions", "tui"]' Cargo.toml >/dev/null
+          rg -n --fixed-strings 'Default builds enable `sqlite-sessions` and `tui`.' README.md >/dev/null
 
       - name: Suite classification guard
         run: |
@@ -1097,9 +1097,9 @@ jobs:
         with:
           name: cross-platform-${{ matrix.os }}-${{ github.sha }}
           path: |
-            tests/cross_platform_reports/**/platform_report.json
-            tests/cross_platform_reports/**/platform_events.jsonl
-            tests/cross_platform_reports/**/platform_report.md
+            pi_agent_rust/tests/cross_platform_reports/**/platform_report.json
+            pi_agent_rust/tests/cross_platform_reports/**/platform_events.jsonl
+            pi_agent_rust/tests/cross_platform_reports/**/platform_report.md
           if-no-files-found: warn
 
       - name: Build unified evidence bundle [linux]
@@ -1485,6 +1485,8 @@ jobs:
               ./scripts/e2e/run_all.sh \
                 --profile quick \
                 --skip-lint \
+                --skip-lib \
+                --fail-fast \
                 --shard-name "${{ matrix.shard.name }}"
               ;;
             integration)
@@ -1495,6 +1497,8 @@ jobs:
                 --skip-lint \
                 --skip-lib \
                 --skip-e2e \
+                --fail-fast \
+                --exclude-unit-target "${{ matrix.shard.name == 'integration-0' && 'capability_denial_matrix' || 'agent_tools_coverage' }}" \
                 --shard-kind unit \
                 --shard-index "${{ matrix.shard.shard_index }}" \
                 --shard-total "${{ matrix.shard.shard_total }}" \

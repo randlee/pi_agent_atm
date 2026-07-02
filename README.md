@@ -2623,10 +2623,10 @@ visible instead of being promoted to green validation evidence.
 
 ### Cargo Feature Defaults
 
-Default builds enable `sqlite-sessions` only. The `sqlite-sessions` feature is
-therefore on for normal `cargo build`, `cargo test`, release, and installer
-builds; JSONL remains the default session store unless configuration selects
-SQLite storage. Heavyweight extras (`image-resize`, `jemalloc`, `clipboard`,
+Default builds enable `sqlite-sessions` and `tui`. Those features are therefore
+on for normal `cargo build`, `cargo test`, release, and installer builds;
+JSONL remains the default session store unless configuration selects SQLite
+storage. Heavyweight extras (`image-resize`, `jemalloc`, `clipboard`,
 `wasm-host`, and syntax highlighting) are opt-in so the default release binary
 stays under the size budget. To build all optional user-facing extras, use:
 
