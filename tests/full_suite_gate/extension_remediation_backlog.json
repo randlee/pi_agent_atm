@@ -46,7 +46,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.2",
       "tracking_issue": "bd-8t27h.14.2",
-      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Required form assets are packaged in tests/ext_conformance/artifacts/community/nicobailon-interview-tool/form and covered by focused ext_conformance_generated validation.",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-09-30 tracking_issue=bd-8t27h.14.2; rationale=Required form assets are packaged in tests/ext_conformance/artifacts/community/nicobailon-interview-tool/form and covered by focused ext_conformance_generated validation.",
       "canonical_failure": false
     },
     {
@@ -75,7 +75,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.2",
       "tracking_issue": "bd-8t27h.14.2",
-      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Focused ignored conformance validation passes for npm/aliou-pi-guardrails under the current runtime shim.",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-09-30 tracking_issue=bd-8t27h.14.2; rationale=Focused ignored conformance validation passes for npm/aliou-pi-guardrails under the current runtime shim.",
       "canonical_failure": false
     },
     {
@@ -104,7 +104,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.2",
       "tracking_issue": "bd-8t27h.14.2",
-      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Focused ignored conformance validation passes for npm/aliou-pi-toolchain under the current runtime shim.",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-09-30 tracking_issue=bd-8t27h.14.2; rationale=Focused ignored conformance validation passes for npm/aliou-pi-toolchain under the current runtime shim.",
       "canonical_failure": false
     },
     {
@@ -133,7 +133,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.2",
       "tracking_issue": "bd-8t27h.14.2",
-      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Virtual module stub for @marckrenn/pi-sub-shared now exposes provider/model detection arrays and the default-load manifest expectation matches conditional tool registration.",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-09-30 tracking_issue=bd-8t27h.14.2; rationale=Virtual module stub for @marckrenn/pi-sub-shared now exposes provider/model detection arrays and the default-load manifest expectation matches conditional tool registration.",
       "canonical_failure": false
     },
     {
@@ -164,7 +164,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.1",
       "tracking_issue": "bd-8t27h.14.1",
-      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `openai` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::openai_imports.",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-09-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `openai` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::openai_imports.",
       "canonical_failure": false
     },
     {
@@ -195,7 +195,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.1",
       "tracking_issue": "bd-8t27h.14.1",
-      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `adm-zip` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::adm_zip_import.",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-09-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `adm-zip` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::adm_zip_import.",
       "canonical_failure": false
     },
     {
@@ -226,7 +226,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.1",
       "tracking_issue": "bd-8t27h.14.1",
-      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `linkedom` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::linkedom_parse_html.",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-09-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `linkedom` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::linkedom_parse_html.",
       "canonical_failure": false
     },
     {
@@ -257,7 +257,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.1",
       "tracking_issue": "bd-8t27h.14.1",
-      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `@sourcegraph/scip-typescript` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::scip_typescript_import.",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-09-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `@sourcegraph/scip-typescript` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::scip_typescript_import.",
       "canonical_failure": false
     },
     {
@@ -289,7 +289,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.1",
       "tracking_issue": "bd-8t27h.14.1",
-      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stubs for `@sourcegraph/scip-typescript` and its dist entrypoints are implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::scip_typescript_subpath_import and ::scip_typescript_main_import.",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-09-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stubs for `@sourcegraph/scip-typescript` and its dist entrypoints are implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::scip_typescript_subpath_import and ::scip_typescript_main_import.",
       "canonical_failure": false
     },
     {
@@ -318,7 +318,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.3",
       "tracking_issue": "bd-8t27h.14.3",
-      "fallback_validation": "exception_policy status=approved cause_code=test_fixture review_by=2026-06-30 tracking_issue=bd-8t27h.14.3; rationale=Fixture-only manifest sentinel; not a user-installable extension.",
+      "fallback_validation": "exception_policy status=approved cause_code=test_fixture review_by=2026-09-30 tracking_issue=bd-8t27h.14.3; rationale=Fixture-only manifest sentinel; not a user-installable extension.",
       "canonical_failure": false
     },
     {
@@ -347,7 +347,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.4",
       "tracking_issue": "bd-8t27h.14.4",
-      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-06-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes index.ts plus shared.ts and focused ignored conformance validation passes for community/qualisero-background-notify under current module resolution.",
+      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-09-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes index.ts plus shared.ts and focused ignored conformance validation passes for community/qualisero-background-notify under current module resolution.",
       "canonical_failure": false
     },
     {
@@ -376,7 +376,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.4",
       "tracking_issue": "bd-8t27h.14.4",
-      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-06-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes the referenced SCIP source graph and focused ignored conformance validation passes for community/qualisero-pi-agent-scip under current module resolution.",
+      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-09-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes the referenced SCIP source graph and focused ignored conformance validation passes for community/qualisero-pi-agent-scip under current module resolution.",
       "canonical_failure": false
     },
     {
@@ -405,7 +405,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.4",
       "tracking_issue": "bd-8t27h.14.4",
-      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-06-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes index.ts plus shared.ts and focused ignored conformance validation passes for community/qualisero-safe-git under current module resolution.",
+      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-09-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes index.ts plus shared.ts and focused ignored conformance validation passes for community/qualisero-safe-git under current module resolution.",
       "canonical_failure": false
     },
     {
@@ -434,7 +434,7 @@
       ],
       "follow_up_bead": "bd-8t27h.14.4",
       "tracking_issue": "bd-8t27h.14.4",
-      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-06-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes the commands/hooks/tools component graph and focused ignored conformance validation passes for npm/aliou-pi-processes under current module resolution.",
+      "fallback_validation": "exception_policy status=approved cause_code=multi_file_dependency review_by=2026-09-30 tracking_issue=bd-8t27h.14.4; rationale=Artifact directory includes the commands/hooks/tools component graph and focused ignored conformance validation passes for npm/aliou-pi-processes under current module resolution.",
       "canonical_failure": false
     }
   ]

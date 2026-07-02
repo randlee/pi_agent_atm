@@ -169,9 +169,26 @@ for name in data.get('suite', {}).get('$suite_name', {}).get('files', []):
 " 2>/dev/null || true
 }
 
-mapfile -t ALL_UNIT_FILES < <(read_toml_array "unit")
-mapfile -t ALL_VCR_FILES < <(read_toml_array "vcr")
-mapfile -t ALL_E2E_FILES < <(read_toml_array "e2e")
+read_stream_into_array() {
+    local array_name="$1"
+    local line
+    local -a quoted_items=()
+
+    while IFS= read -r line; do
+        quoted_items+=("$(printf '%q' "$line")")
+    done
+
+    if (( ${#quoted_items[@]} == 0 )); then
+        eval "$array_name=()"
+        return
+    fi
+
+    eval "$array_name=(${quoted_items[*]})"
+}
+
+read_stream_into_array ALL_UNIT_FILES < <(read_toml_array "unit")
+read_stream_into_array ALL_VCR_FILES < <(read_toml_array "vcr")
+read_stream_into_array ALL_E2E_FILES < <(read_toml_array "e2e")
 
 # Combined non-E2E targets (unit + vcr) for integration test phase.
 ALL_UNIT_TARGETS=("${ALL_UNIT_FILES[@]}" "${ALL_VCR_FILES[@]}")
@@ -401,7 +418,7 @@ if [[ -n "$RERUN_FROM" ]]; then
         echo "Rerun summary not found: $RERUN_FROM" >&2
         exit 1
     fi
-    mapfile -t rerun_suites < <(python3 - "$RERUN_FROM" <<'PY'
+    read_stream_into_array rerun_suites < <(python3 - "$RERUN_FROM" <<'PY'
 import json
 import sys
 
@@ -479,10 +496,10 @@ fi
 export CI_CORRELATION_ID="$CORRELATION_ID"
 
 if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
-    mapfile -t SELECTED_UNIT_TARGETS < <(printf '%s\n' "${SELECTED_UNIT_TARGETS[@]}" | awk 'NF' | LC_ALL=C sort -u)
+    read_stream_into_array SELECTED_UNIT_TARGETS < <(printf '%s\n' "${SELECTED_UNIT_TARGETS[@]}" | awk 'NF' | LC_ALL=C sort -u)
 fi
 if (( ${#SELECTED_SUITES[@]} > 0 )); then
-    mapfile -t SELECTED_SUITES < <(printf '%s\n' "${SELECTED_SUITES[@]}" | awk 'NF' | LC_ALL=C sort -u)
+    read_stream_into_array SELECTED_SUITES < <(printf '%s\n' "${SELECTED_SUITES[@]}" | awk 'NF' | LC_ALL=C sort -u)
 fi
 
 select_shard_items() {
@@ -501,7 +518,7 @@ select_shard_items() {
 
 if [[ "$SHARD_KIND" == "unit" || "$SHARD_KIND" == "both" ]]; then
     if (( ${#SELECTED_UNIT_TARGETS[@]} > 0 )); then
-        mapfile -t SELECTED_UNIT_TARGETS < <(
+        read_stream_into_array SELECTED_UNIT_TARGETS < <(
             select_shard_items "$SHARD_INDEX" "$SHARD_TOTAL" "${SELECTED_UNIT_TARGETS[@]}"
         )
     fi
@@ -509,7 +526,7 @@ fi
 
 if [[ "$SHARD_KIND" == "suite" || "$SHARD_KIND" == "both" ]]; then
     if (( ${#SELECTED_SUITES[@]} > 0 )); then
-        mapfile -t SELECTED_SUITES < <(
+        read_stream_into_array SELECTED_SUITES < <(
             select_shard_items "$SHARD_INDEX" "$SHARD_TOTAL" "${SELECTED_SUITES[@]}"
         )
     fi
@@ -837,7 +854,7 @@ build_tests() {
             continue
         fi
         echo "[build]   unit:$target"
-        if ! run_cargo test --test "$target" --no-run 2>>"$build_log"; then
+        if ! run_named_test_target "$target" --no-run 2>>"$build_log"; then
             echo "[build]   unit:$target FAILED" >&2
             build_ok=false
         fi
@@ -849,7 +866,7 @@ build_tests() {
             continue
         fi
         echo "[build]   e2e:$suite"
-        if ! run_cargo test --test "$suite" --no-run 2>>"$build_log"; then
+        if ! run_named_test_target "$suite" --no-run 2>>"$build_log"; then
             echo "[build]   e2e:$suite FAILED" >&2
             build_ok=false
         fi
@@ -865,6 +882,48 @@ build_tests() {
 }
 
 # ─── Run a Single Suite ──────────────────────────────────────────────────────
+
+test_required_features() {
+    local target="$1"
+    python3 - "$target" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+target = sys.argv[1]
+payload = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))
+for entry in payload.get("test", []):
+    if entry.get("name") != target:
+        continue
+    for feature in entry.get("required-features", []):
+        if isinstance(feature, str) and feature.strip():
+            print(feature.strip())
+    break
+PY
+}
+
+run_named_test_target() {
+    local target="$1"
+    shift
+
+    local -a cargo_args=(test)
+    local -a required_features=()
+    while IFS= read -r feature; do
+        [[ -n "$feature" ]] && required_features+=("$feature")
+    done < <(test_required_features "$target")
+
+    local feature
+    if ((${#required_features[@]} > 0)); then
+        for feature in "${required_features[@]}"; do
+            cargo_args+=(--features "$feature")
+        done
+    fi
+
+    cargo_args+=(--test "$target")
+    cargo_args+=("$@")
+
+    run_cargo "${cargo_args[@]}"
+}
 
 run_unit_target() {
     local target="$1"
@@ -891,8 +950,7 @@ run_unit_target() {
     export RUST_LOG="$LOG_LEVEL"
 
     set +e
-    run_cargo test \
-        --test "$target" \
+    run_named_test_target "$target" \
         -- \
         --test-threads="$PARALLELISM" \
         2>&1 | tee "$log_file"
@@ -968,8 +1026,7 @@ run_suite() {
     export RUST_LOG="$LOG_LEVEL"
 
     set +e
-    run_cargo test \
-        --test "$suite" \
+    run_named_test_target "$suite" \
         -- \
         --test-threads="$PARALLELISM" \
         2>&1 | tee "$log_file"
