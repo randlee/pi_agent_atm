@@ -154,6 +154,19 @@ Safe reuse candidates from exploratory work:
 - `feature/just-integration:.github/workflows/baseline.yml`
 - `feature/just-integration:scripts/smoke.sh`
 
+Exact on-disk source paths for those candidates:
+
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/justfile`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/print_help.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_fmt.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_lint.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/lint_catalog.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/test_catalog.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/explain.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/show_suites.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.github/workflows/baseline.yml`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/scripts/smoke.sh`
+
 Reuse only after revalidation:
 
 - `feature/just-integration:.just/run_test.py`
@@ -166,6 +179,15 @@ Do not reuse directly:
 - exploratory `src/**` changes
 - broad test rewrites done only to chase green CI
 - monolithic workflow edits without a minimal target-state design
+
+Reference-only current on-disk files from the unauthorized direct-to-main
+commit range:
+
+- `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
+- `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/semver.yml`
+- `/Volumes/Extreme Pro/github/pi_agent_atm/.gitignore`
+- `/Volumes/Extreme Pro/github/pi_agent_atm/fuzz/fuzz_targets/fuzz_tool_paths.rs`
+- `/Volumes/Extreme Pro/github/pi_agent_atm/tests/suite_classification.toml`
 
 ## Reverted Main Commit Restoration Ledger
 
@@ -193,6 +215,8 @@ Current disposition:
 - `tests/suite_classification.toml`
   - candidate for restoration review during Sprint A3 if the exploratory
     reclassification is still correct
+  - current on-disk reference:
+    `/Volumes/Extreme Pro/github/pi_agent_atm/tests/suite_classification.toml`
 - `tests/ext_conformance/reports/conformance_baseline.json`
   - not automatically part of Phase A baseline; restore only if later workflow
     classification proves it necessary
@@ -219,6 +243,8 @@ Current disposition:
 
 - `.github/workflows/ci.yml`
   - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
+  - current on-disk reference:
+    `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
 - `.github/workflows/bench.yml`
   - review in Sprint A6 when classifying long-running workflows
 - `scripts/e2e/run_all.sh`
@@ -253,6 +279,8 @@ Current disposition:
 - do not restore as a direct revert of the revert
 - decide classification in Sprint A6
 - if semver remains out of required PR CI, update it there intentionally
+- current on-disk reference:
+  `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/semver.yml`
 
 ### `5fe05e11` Trim baseline CI and ignore local artifacts
 
@@ -265,11 +293,15 @@ Current disposition:
 
 - `.github/workflows/ci.yml`
   - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
+  - current on-disk reference:
+    `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
 - `.gitignore`
   - candidate for explicit restoration if the ignored local-only artifacts are
     still required:
     - `.DS_Store`
     - `.sc/`
+  - current on-disk reference:
+    `/Volumes/Extreme Pro/github/pi_agent_atm/.gitignore`
 
 ### `392b209f` Fix SQLite claim guard and fuzz path invariant
 
@@ -282,8 +314,12 @@ Current disposition:
 
 - `.github/workflows/ci.yml`
   - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
+  - current on-disk reference:
+    `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
 - `fuzz/fuzz_targets/fuzz_tool_paths.rs`
   - review only if fuzz remains a retained workflow after Sprint A6
+  - current on-disk reference:
+    `/Volumes/Extreme Pro/github/pi_agent_atm/fuzz/fuzz_targets/fuzz_tool_paths.rs`
 
 ## Testing Strategy Summary
 
