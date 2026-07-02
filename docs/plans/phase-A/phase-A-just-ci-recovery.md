@@ -167,6 +167,124 @@ Do not reuse directly:
 - broad test rewrites done only to chase green CI
 - monolithic workflow edits without a minimal target-state design
 
+## Reverted Main Commit Restoration Ledger
+
+No reverted direct-to-main commit is automatically restored as part of the
+revert itself.
+
+Restoration rule:
+
+- revert first
+- review each reverted commit as salvage inventory
+- reintroduce only the narrow pieces that still make sense
+- reintroduce them on the correct Phase A sprint branch, never by reverting the
+  revert
+
+### `9203d7df` Fix VCR suite classification and refresh review dates
+
+Files:
+
+- `tests/ext_conformance/reports/conformance_baseline.json`
+- `tests/qa_certification_dossier.rs`
+- `tests/suite_classification.toml`
+
+Current disposition:
+
+- `tests/suite_classification.toml`
+  - candidate for restoration review during Sprint A3 if the exploratory
+    reclassification is still correct
+- `tests/ext_conformance/reports/conformance_baseline.json`
+  - not automatically part of Phase A baseline; restore only if later workflow
+    classification proves it necessary
+- `tests/qa_certification_dossier.rs`
+  - not automatically part of Phase A baseline; review separately if date-based
+    failures remain relevant after revert
+
+### `425e7a05` Fix baseline CI and verification regressions
+
+Files:
+
+- `.github/workflows/bench.yml`
+- `.github/workflows/ci.yml`
+- `Cargo.toml`
+- `README.md`
+- `fuzz/Cargo.lock`
+- `fuzz/Cargo.toml`
+- `scripts/ci/generate_parity_evidence.py`
+- `scripts/e2e/run_all.sh`
+- `tests/full_suite_gate/extension_remediation_backlog.json`
+- `tests/security_budgets.rs`
+
+Current disposition:
+
+- `.github/workflows/ci.yml`
+  - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
+- `.github/workflows/bench.yml`
+  - review in Sprint A6 when classifying long-running workflows
+- `scripts/e2e/run_all.sh`
+  - candidate for narrow salvage only if `verify` remains in use and the
+    fail-fast/shard behavior is still required after Sprint A4 review
+- `Cargo.toml`
+  - do not restore blindly; any dependency or feature changes require separate
+    justification
+- `README.md`
+  - out of scope for Phase A unless command-surface docs must be updated after
+    implementation
+- `fuzz/Cargo.toml`
+  - review only when fuzz classification is revisited in Sprint A6
+- `fuzz/Cargo.lock`
+  - never restore independently of an intentional `fuzz/Cargo.toml` change
+- `scripts/ci/generate_parity_evidence.py`
+  - outside initial baseline scope; review only if retained CI still needs it
+- `tests/full_suite_gate/extension_remediation_backlog.json`
+  - outside initial baseline scope
+- `tests/security_budgets.rs`
+  - outside initial baseline scope unless later retained workflow review
+    requires it
+
+### `4b762a59` Disable semver in baseline CI
+
+Files:
+
+- `.github/workflows/semver.yml`
+
+Current disposition:
+
+- do not restore as a direct revert of the revert
+- decide classification in Sprint A6
+- if semver remains out of required PR CI, update it there intentionally
+
+### `5fe05e11` Trim baseline CI and ignore local artifacts
+
+Files:
+
+- `.github/workflows/ci.yml`
+- `.gitignore`
+
+Current disposition:
+
+- `.github/workflows/ci.yml`
+  - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
+- `.gitignore`
+  - candidate for explicit restoration if the ignored local-only artifacts are
+    still required:
+    - `.DS_Store`
+    - `.sc/`
+
+### `392b209f` Fix SQLite claim guard and fuzz path invariant
+
+Files:
+
+- `.github/workflows/ci.yml`
+- `fuzz/fuzz_targets/fuzz_tool_paths.rs`
+
+Current disposition:
+
+- `.github/workflows/ci.yml`
+  - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
+- `fuzz/fuzz_targets/fuzz_tool_paths.rs`
+  - review only if fuzz remains a retained workflow after Sprint A6
+
 ## Testing Strategy Summary
 
 Phase A includes a testing strategy as part of the plan, not as an afterthought.
