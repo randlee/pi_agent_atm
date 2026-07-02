@@ -20,6 +20,12 @@ class TestLane:
 
 
 LANES = {
+    "baseline": TestLane(
+        name="baseline",
+        description="Run the fast non-destructive smoke baseline without lint.",
+        kind="script",
+        script_args=("./scripts/smoke.sh", "--skip-lint", "--no-rch"),
+    ),
     "ci": TestLane(
         name="ci",
         description="Run the CI-equivalent QA lane without lint.",
@@ -75,7 +81,7 @@ ALIASES = {
     "integrate": "integration",
 }
 
-DISPLAY_ORDER = ("ci", "all", "unit", "integration", "vcr", "e2e", "fuzz", "fuzz-full")
+DISPLAY_ORDER = ("baseline", "ci", "all", "unit", "integration", "vcr", "e2e", "fuzz", "fuzz-full")
 
 
 def repo_root() -> Path:

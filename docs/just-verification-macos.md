@@ -26,6 +26,7 @@ These completed successfully on this macOS host:
 | `just fmt check` | PASS | Direct format gate works | `12.46s` |
 | `just lint clippy-lib` | PASS | Local library Clippy slice passes | `50.66s` |
 | `just lint clippy-bins` | PASS | Local binary Clippy slice passes | `2.87s` |
+| `just test baseline` | PASS | Fast smoke baseline with temp artifacts and sanitized provider env | `10.59s` |
 
 Observed lint timings from isolated serial runs:
 
@@ -58,6 +59,25 @@ Observed bounded timings from isolated runs:
 | `just test all` | `120.02s` | timed out while still building |
 
 These are lower bounds, not completion times.
+
+## Baseline Test Lane
+
+The repo now has an explicit non-destructive baseline lane:
+
+| Command | Result | Notes |
+|---|---|---|
+| `just test baseline` | PASS | Runs `scripts/smoke.sh --skip-lint --no-rch` via the shared `just` test catalog |
+
+Current curated baseline target set:
+
+- unit-style: `model_serialization`, `config_precedence`, `session_conformance`, `error_types`, `compaction`
+- VCR-style: `provider_streaming`, `http_client`, `sse_strict_compliance`, `model_registry`, `provider_factory`
+
+Current baseline behavior:
+
+- uses a temp artifact directory instead of tracked CI evidence paths
+- sanitizes provider credential environment variables before running tests
+- no longer depends on GNU `timeout`; macOS now falls back to `gtimeout` or a Python timeout wrapper
 
 ## Timing Estimates
 
