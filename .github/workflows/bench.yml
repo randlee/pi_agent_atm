@@ -1,8 +1,12 @@
-# Benchmark workflow
-# Manual-only: baseline CI should stay bounded; long-running perf coverage is opt-in.
+# Benchmark CI workflow
+# Runs on pushes to main and PRs to detect performance regressions
 name: Benchmarks
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:  # Allow manual triggering
 
 env:
@@ -115,8 +119,8 @@ jobs:
           set -euxo pipefail
           PERF_PROFILE=perf
           mkdir -p "target/perf/${PERF_PROFILE}"
-          PI_BENCH_BUILD_PROFILE="${PERF_PROFILE}" cargo run --profile "${PERF_PROFILE}" --example pijs_workload -- --iterations 2000 --tool-calls 1 > "target/perf/${PERF_PROFILE}/pijs_workload_${PERF_PROFILE}.jsonl"
-          PI_BENCH_BUILD_PROFILE="${PERF_PROFILE}" cargo run --profile "${PERF_PROFILE}" --example pijs_workload -- --iterations 2000 --tool-calls 10 >> "target/perf/${PERF_PROFILE}/pijs_workload_${PERF_PROFILE}.jsonl"
+          PI_BENCH_BUILD_PROFILE="${PERF_PROFILE}" cargo run --profile "${PERF_PROFILE}" --bin pijs_workload -- --iterations 2000 --tool-calls 1 > "target/perf/${PERF_PROFILE}/pijs_workload_${PERF_PROFILE}.jsonl"
+          PI_BENCH_BUILD_PROFILE="${PERF_PROFILE}" cargo run --profile "${PERF_PROFILE}" --bin pijs_workload -- --iterations 2000 --tool-calls 10 >> "target/perf/${PERF_PROFILE}/pijs_workload_${PERF_PROFILE}.jsonl"
 
       - name: Generate benchmark summary
         run: |
