@@ -4252,6 +4252,7 @@ validate_evidence_contract() {
     local all_unit_targets_json all_suites_json
     local perf_baseline_confidence_json perf_extension_stratification_json
     local claim_integrity_required_json franken_node_claim_tier_json
+    local fail_fast_enabled_json
 
     selected_units_json="$(
         printf '%s\n' "${SELECTED_UNIT_TARGETS[@]:-}" | \
@@ -4274,6 +4275,7 @@ validate_evidence_contract() {
     perf_phase1_matrix_validation_json="${PERF_PHASE1_MATRIX_VALIDATION_JSON:-}"
     claim_integrity_required_json="${CLAIM_INTEGRITY_REQUIRED:-}"
     franken_node_claim_tier_json="${FRANKEN_NODE_CLAIM_TIER:-}"
+    fail_fast_enabled_json="$($FAIL_FAST && echo 1 || echo 0)"
 
     if ARTIFACT_DIR="$ARTIFACT_DIR" \
         PROJECT_ROOT="$PROJECT_ROOT" \
@@ -4290,6 +4292,7 @@ validate_evidence_contract() {
         PERF_EVIDENCE_DIR="${PERF_EVIDENCE_DIR:-}" \
         CLAIM_INTEGRITY_REQUIRED="$claim_integrity_required_json" \
         FRANKEN_NODE_CLAIM_TIER="$franken_node_claim_tier_json" \
+        FAIL_FAST_ENABLED="$fail_fast_enabled_json" \
         CI_ENV="${CI:-}" \
         python3 - <<'PY'
 import json
@@ -4321,6 +4324,7 @@ try:
     all_suites = json.loads(os.environ.get("ALL_SUITES_JSON", "[]"))
 except json.JSONDecodeError:
     all_suites = []
+fail_fast_enabled = os.environ.get("FAIL_FAST_ENABLED", "0") == "1"
 try:
     rerun_from = json.loads(os.environ.get("RERUN_FROM_JSON", "null"))
 except json.JSONDecodeError:
@@ -5576,25 +5580,59 @@ def validate_failure_timeline_file(
         records.append(payload)
     return records
 
+prior_unit_failure_seen = False
 for target in selected_units:
+    result_path = artifact_dir / "unit" / target / "result.json"
+    if (
+        fail_fast_enabled
+        and prior_unit_failure_seen
+        and not result_path.exists()
+    ):
+        warnings.append(
+            f"unit:{target}: skipped after earlier fail-fast stop; result.json not expected"
+        )
+        continue
     validate_result_contract(
         kind="unit",
         name=target,
-        result_path=artifact_dir / "unit" / target / "result.json",
+        result_path=result_path,
         expected_log_path=artifact_dir / "unit" / target / "output.log",
         expected_test_log_path=artifact_dir / "unit" / target / "test-log.jsonl",
         expected_artifact_index_path=artifact_dir / "unit" / target / "artifact-index.jsonl",
     )
+    result_payload = load_json(result_path)
+    if isinstance(result_payload, dict):
+        try:
+            prior_unit_failure_seen = int(result_payload.get("exit_code", 0)) != 0
+        except (TypeError, ValueError):
+            prior_unit_failure_seen = True
 
+prior_suite_failure_seen = False
 for suite in selected_suites:
+    result_path = artifact_dir / suite / "result.json"
+    if (
+        fail_fast_enabled
+        and prior_suite_failure_seen
+        and not result_path.exists()
+    ):
+        warnings.append(
+            f"suite:{suite}: skipped after earlier fail-fast stop; result.json not expected"
+        )
+        continue
     validate_result_contract(
         kind="suite",
         name=suite,
-        result_path=artifact_dir / suite / "result.json",
+        result_path=result_path,
         expected_log_path=artifact_dir / suite / "output.log",
         expected_test_log_path=artifact_dir / suite / "test-log.jsonl",
         expected_artifact_index_path=artifact_dir / suite / "artifact-index.jsonl",
     )
+    result_payload = load_json(result_path)
+    if isinstance(result_payload, dict):
+        try:
+            prior_suite_failure_seen = int(result_payload.get("exit_code", 0)) != 0
+        except (TypeError, ValueError):
+            prior_suite_failure_seen = True
 
 
 # 1b) Failure diagnostics artifacts (bd-1f42.8.6.4)

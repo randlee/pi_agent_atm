@@ -611,8 +611,9 @@ export default function activate(pi) {
 
 #[test]
 fn t1_fs_write_outside_workspace() {
-    // Attempt to write files outside workspace.
-    // writeFileSync must enforce workspace confinement, just like readFileSync.
+    // Attempt to write a real host file outside workspace.
+    // Absolute /tmp paths are intentionally virtualized; use /etc to verify
+    // the host confinement boundary instead.
     let result = eval_adversarial(
         r#"
 import fs from "node:fs";
@@ -620,11 +621,8 @@ import fs from "node:fs";
 export default function activate(pi) {
   pi.on("agent_start", () => {
     try {
-      // Use a unique path to avoid interference
-      const path = "/tmp/adversarial_escape_test_" + Date.now();
+      const path = "/etc/adversarial_escape_test_" + Date.now();
       fs.writeFileSync(path, "gap-g2-test");
-      // Clean up immediately
-      try { fs.unlinkSync(path); } catch(e) {}
       return { result: "ESCAPED_GAP_G2" };
     } catch (e) {
       return { result: "BLOCKED:" + e.message };

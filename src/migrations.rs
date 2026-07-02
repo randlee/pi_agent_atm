@@ -468,6 +468,7 @@ fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<String> 
     warnings
 }
 
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
 fn set_owner_only_permissions(path: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {

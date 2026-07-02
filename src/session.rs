@@ -107,6 +107,7 @@ fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
 fn sync_parent_dir(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
@@ -11493,6 +11494,7 @@ mod tests {
         assert_eq!(session.appends_since_checkpoint, 0);
     }
 
+    #[cfg(unix)]
     #[test]
     fn crash_persisted_count_unchanged_on_append_failure() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -11516,11 +11518,6 @@ mod tests {
                 return;
             }
         }
-        #[cfg(not(unix))]
-        {
-            return;
-        }
-
         let result = run_async(async { session.save().await });
 
         #[cfg(unix)]
@@ -11657,6 +11654,7 @@ mod tests {
         assert_eq!(value, 7);
     }
 
+    #[cfg(unix)]
     #[test]
     fn crash_entries_survive_failed_full_rewrite() {
         // Entries are cloned during full rewrite to avoid losing them if the async future drops.
@@ -11683,11 +11681,6 @@ mod tests {
                 return;
             }
         }
-        #[cfg(not(unix))]
-        {
-            return;
-        }
-
         let result = run_async(async { session.save().await });
         assert!(result.is_err());
 
@@ -11706,6 +11699,7 @@ mod tests {
         assert!(!session.header_dirty);
     }
 
+    #[cfg(unix)]
     #[test]
     fn crash_metrics_accumulate_across_failure_recovery() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -11730,11 +11724,6 @@ mod tests {
                 return;
             }
         }
-        #[cfg(not(unix))]
-        {
-            return;
-        }
-
         session.append_message(make_test_message("msg B"));
         let _ = run_async(async { session.save().await });
 
@@ -11826,6 +11815,7 @@ mod tests {
         assert_eq!(session.persisted_entry_count.load(Ordering::SeqCst), 20);
     }
 
+    #[cfg(unix)]
     #[test]
     fn crash_append_retry_after_transient_failure() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -11848,11 +11838,6 @@ mod tests {
                 return;
             }
         }
-        #[cfg(not(unix))]
-        {
-            return;
-        }
-
         let result = run_async(async { session.save().await });
         assert!(result.is_err());
         assert_eq!(session.persisted_entry_count.load(Ordering::SeqCst), 1);
