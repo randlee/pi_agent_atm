@@ -1435,7 +1435,6 @@ async fn run(
     };
 
     let tools = ToolRegistry::new(&enabled_tools, &cwd, Some(&config));
-    let atm_advisory_session_id = session.header.id.clone();
     let session_arc = Arc::new(Mutex::new(session));
     let compaction_settings = ResolvedCompactionSettings {
         enabled: config.compaction_enabled(),
@@ -1451,7 +1450,6 @@ async fn run(
     )
     .with_runtime_handle(runtime_handle.clone());
     agent_session.set_api_key_override(cli.api_key.clone());
-    agent_session.try_enable_atm_graft(&cwd, Some(&atm_advisory_session_id));
     let mut extension_model_entries = Vec::new();
 
     if !resources.extensions().is_empty() {

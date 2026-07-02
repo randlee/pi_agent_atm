@@ -1763,14 +1763,6 @@ pub async fn create_agent_session(options: SessionOptions) -> Result<AgentSessio
         keep_recent_tokens: config.compaction_keep_recent_tokens(),
         context_window_tokens,
     };
-    let atm_advisory_session_id = {
-        let cx = crate::agent_cx::AgentCx::for_request();
-        let guard = session_arc
-            .lock(cx.cx())
-            .await
-            .map_err(|e| Error::session(e.to_string()))?;
-        guard.header.id.clone()
-    };
 
     let mut agent_session = AgentSession::new(
         Agent::new(provider, tools, agent_config),
@@ -1779,7 +1771,6 @@ pub async fn create_agent_session(options: SessionOptions) -> Result<AgentSessio
         compaction_settings,
     );
     agent_session.set_api_key_override(options.api_key.clone());
-    agent_session.try_enable_atm_graft(&cwd, Some(&atm_advisory_session_id));
 
     if !options.extension_paths.is_empty() {
         let extension_paths = options
