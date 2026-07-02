@@ -15600,9 +15600,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
         }
 
         let runtime = AsyncRuntime::new().map_err(|err| map_js_error(&err))?;
-        if let Some(limit) = config.limits.memory_limit_bytes {
-            runtime.set_memory_limit(limit).await;
-        }
         if let Some(limit) = config.limits.max_stack_bytes {
             runtime.set_max_stack_size(limit).await;
         }
@@ -15683,6 +15680,12 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
         };
 
         instance.install_pi_bridge().await?;
+        if let Some(limit) = instance.config.limits.memory_limit_bytes {
+            // Bootstrap the bridge before enforcing low-memory ceilings so the
+            // runtime can initialize and then apply the configured budget to
+            // extension code and hostcall activity.
+            instance.runtime.set_memory_limit(limit).await;
+        }
         Ok(instance)
     }
 

@@ -164,6 +164,14 @@ jobs:
           path: sqlmodel_rust
           fetch-depth: 1
 
+      - name: Checkout upstream pi-mono
+        if: env.SHOULD_RUN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: badlogic/pi-mono
+          path: pi-mono-upstream
+          fetch-depth: 1
+
       - name: Install system deps (fd, rg, xcb) [linux]
         if: env.SHOULD_RUN == 'true'
         run: |
@@ -198,7 +206,7 @@ jobs:
 
       - name: Install pi-mono dependencies
         if: env.SHOULD_RUN == 'true'
-        working-directory: pi_agent_rust/legacy_pi_mono_code/pi-mono
+        working-directory: pi-mono-upstream
         run: npm ci
 
       - name: Symlink bun for conformance tests
@@ -214,6 +222,7 @@ jobs:
           PI_OFFICIAL_MAX: ${{ matrix.env_extra == 'PI_OFFICIAL_MAX=5' && '5' || '' }}
           PI_CONFORMANCE_MAX_RETRIES: ${{ contains(matrix.if_event, 'nightly') && '2' || '0' }}
           PI_CONFORMANCE_RETRY_DELAY: "10"
+          PI_TS_LOADER_PATH: ${{ github.workspace }}/pi-mono-upstream/packages/coding-agent/src/core/extensions/loader.ts
         run: |
           set -euxo pipefail
           if [[ "${PI_CONFORMANCE_MAX_RETRIES}" -gt 0 ]]; then

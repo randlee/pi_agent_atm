@@ -843,6 +843,36 @@ RESULTJSON
 
 # ─── Build First ──────────────────────────────────────────────────────────────
 
+required_features_for_test_target() {
+    local target="$1"
+    python3 - "$target" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+target = sys.argv[1]
+payload = tomllib.loads(pathlib.Path("Cargo.toml").read_text(encoding="utf-8"))
+for entry in payload.get("test", []):
+    if entry.get("name") == target:
+        features = entry.get("required-features", [])
+        if features:
+            print(",".join(features))
+        break
+PY
+}
+
+run_cargo_test_target() {
+    local target="$1"
+    shift
+    local required_features
+    required_features="$(required_features_for_test_target "$target")"
+    if [[ -n "$required_features" ]]; then
+        run_cargo test --test "$target" --features "$required_features" "$@"
+    else
+        run_cargo test --test "$target" "$@"
+    fi
+}
+
 build_tests() {
     echo "[build] Compiling selected verification targets..."
     local build_log="$ARTIFACT_DIR/build.log"
@@ -854,7 +884,7 @@ build_tests() {
             continue
         fi
         echo "[build]   unit:$target"
-        if ! run_cargo test --test "$target" --no-run 2>>"$build_log"; then
+        if ! run_cargo_test_target "$target" --no-run 2>>"$build_log"; then
             echo "[build]   unit:$target FAILED" >&2
             build_ok=false
         fi
@@ -866,7 +896,7 @@ build_tests() {
             continue
         fi
         echo "[build]   e2e:$suite"
-        if ! run_cargo test --test "$suite" --no-run 2>>"$build_log"; then
+        if ! run_cargo_test_target "$suite" --no-run 2>>"$build_log"; then
             echo "[build]   e2e:$suite FAILED" >&2
             build_ok=false
         fi
@@ -908,8 +938,7 @@ run_unit_target() {
     export RUST_LOG="$LOG_LEVEL"
 
     set +e
-    run_cargo test \
-        --test "$target" \
+    run_cargo_test_target "$target" \
         -- \
         --test-threads="$PARALLELISM" \
         2>&1 | tee "$log_file"
@@ -985,8 +1014,7 @@ run_suite() {
     export RUST_LOG="$LOG_LEVEL"
 
     set +e
-    run_cargo test \
-        --test "$suite" \
+    run_cargo_test_target "$suite" \
         -- \
         --test-threads="$PARALLELISM" \
         2>&1 | tee "$log_file"

@@ -16,9 +16,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PI_MONO_ROOT = path.resolve(__dirname, "../../../legacy_pi_mono_code/pi-mono");
 
-// Import directly from the built loader to avoid pulling in the full package
-// (which transitively requires AWS/Smithy/etc)
-const loaderPath = path.join(PI_MONO_ROOT, "packages/coding-agent/dist/core/extensions/loader.js");
+function resolveLoaderPath() {
+	const distPath = path.join(PI_MONO_ROOT, "packages/coding-agent/dist/core/extensions/loader.js");
+	const installedDistPath = path.join(
+		PI_MONO_ROOT,
+		"node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js",
+	);
+	if (process.env.PI_TS_LOADER_PATH) {
+		return process.env.PI_TS_LOADER_PATH;
+	}
+	if (Bun.file(distPath).exists()) {
+		return distPath;
+	}
+	if (Bun.file(installedDistPath).exists()) {
+		return installedDistPath;
+	}
+	return path.join(PI_MONO_ROOT, "packages/coding-agent/src/core/extensions/loader.ts");
+}
+
+// Prefer compiled output when present, but fall back to source so CI can run
+// conformance without a separate pi-mono build.
+const loaderPath = resolveLoaderPath();
 const { loadExtensions } = await import(loaderPath);
 
 function applyDeterministicGlobals() {
