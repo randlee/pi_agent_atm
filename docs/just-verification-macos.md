@@ -23,17 +23,19 @@ These completed successfully on this macOS host:
 |---|---|---|---:|
 | `just help` | PASS | Help surface renders correctly from `.just/print_help.py` | `<1s` |
 | `just suites` | PASS | Suite taxonomy renders correctly from shared catalog-backed loader | `<1s` |
-| `just lint fmt` | PASS | Full lint subtarget dispatch works for the format lane | `61.79s` |
-| `just fmt check` | PASS | Direct format gate works | `13.32s` |
+| `just lint fmt` | PASS | Full lint subtarget dispatch works for the format lane | `25.68s` |
+| `just fmt check` | PASS | Direct format gate works | `25.70s` |
+| `just lint check` | PASS | Shared lint dispatch for Cargo check works | `0.98s` |
+| `cargo check --all-targets` | PASS | Warm-tree baseline for the check lane | `4.95s` |
 
-Observed bounded timings from isolated lint runs:
+Observed lint timings from isolated serial runs:
 
 | Command | Observed wall time | End state |
 |---|---:|---|
-| `just lint fmt` | `61.79s` | completed successfully |
-| `just lint check` | `120.03s` | timed out while still compiling/checking |
-| `just lint clippy` | `120.02s` | timed out while still compiling/checking |
-| `just lint` | `120.06s` | timed out after format lane passed and while clippy/check work was still running |
+| `just lint fmt` | `25.68s` | completed successfully |
+| `just lint check` | `0.98s` | completed successfully |
+| `cargo clippy --all-targets -- -D warnings` | `1:51.99` | failed on current Clippy errors after substantial analysis/compile work |
+| `just lint` | `1:29.17` | ran `fmt`, then failed in `clippy`; `check` was not reached because `clippy` failed first |
 
 ## Commands That Currently Reach Real Work
 
@@ -64,17 +66,40 @@ Current estimates on this macOS host:
 
 | Command | Estimate |
 |---|---|
+| `just lint` | Roughly 90-120 seconds on a warm tree, dominated by the Clippy lane |
 | `just test` | More than 2 minutes even before the current build blocker is resolved |
 | `just test all` | More than 2 minutes to get through startup/build phase; likely much longer once the full 262 non-E2E targets plus 39 E2E suites run to completion |
 
 Notes:
 
+- The earlier `>120s` lint placeholders were invalid for diagnosis because they
+  came from cold or concurrently contended runs. The serial reruns above are the
+  numbers that should be used instead.
 - The only prior in-tree suite duration artifact that was easy to reuse here was
   one historical summary with `duration_ms = 47863` for a single suite, which
   is roughly `47.86s` for that one suite.
 - That is not enough to produce a trustworthy full-suite completion forecast, so
   the current estimate for `just test all` is intentionally conservative rather
   than pretending to be precise.
+
+## Why Lint Takes So Long
+
+The expensive part is not the `just` wrapper. The expensive part is the lint
+payload that `just` is intentionally dispatching:
+
+- `cargo metadata` reports `336` Rust targets in this package
+- target mix: `301` integration-test targets, `23` examples, `8` benches,
+  `2` bins, `1` lib, and `1` build script
+- `cargo check --all-targets` is fast on a warm tree (`4.95s`)
+- `cargo clippy --all-targets -- -D warnings` is the dominant cost
+
+Interpretation:
+
+- The repo has an unusually large `--all-targets` surface because each file in
+  `tests/` is its own integration-test crate.
+- As a result, Clippy has to analyze a very large number of test/example/bench
+  targets even before the current lint errors stop the run.
+- This is a repo-shape cost, not evidence of a loop or bug in the `just` layer.
 
 ## Confirmed macOS-Specific Portability Bug
 
