@@ -20,12 +20,12 @@ and local commands and CI share one source of truth.
 7. Broad tests, fuzz, semver, benchmarks, and evidence refresh remain outside
    required PR CI.
 8. Do not invent new top-level `just` commands for Phase A. Use the established
-   `just fmt`, `just lint`, `just test`, `just explain`, and `just suites`
-   surfaces only.
+   `just help`, `just fmt`, `just lint`, `just test`, `just explain`, and
+   `just suites` surfaces only.
 
-## Final Required PR Baseline
+## Steady-State Required PR Baseline
 
-Steady-state `baseline` contents after Sprint A4:
+Steady-state `baseline` contents from Sprint A3 onward:
 
 1. `just fmt check`
 2. `just lint clippy-bins`
@@ -99,7 +99,6 @@ After Sprint A1, these workflows may remain as:
 
 - `workflow_dispatch`
 - `schedule`
-- `push` to protected branches where explicitly justified
 
 They must not run on ordinary feature PRs.
 
@@ -108,10 +107,13 @@ Workflow classification target after Sprint A1:
 | Workflow | Ordinary PRs | Allowed remaining triggers |
 |---|---|---|
 | `baseline.yml` | yes | `pull_request`, optionally protected-branch `push` |
-| `ci.yml` | no | `workflow_dispatch`, optional protected-branch `push` only if separately justified |
-| `fuzz.yml` | no | `workflow_dispatch`, `schedule`, optional protected-branch `push` only if separately justified |
-| `bench.yml` | no | `workflow_dispatch`, optional protected-branch `push` only if separately justified |
-| `semver.yml` | no | `workflow_dispatch`, optional protected-branch `push` only if separately justified |
+| `ci.yml` | no | `workflow_dispatch` |
+| `fuzz.yml` | no | `workflow_dispatch`, `schedule` |
+| `bench.yml` | no | `workflow_dispatch` |
+| `semver.yml` | no | `workflow_dispatch` |
+
+Protected-branch `push` triggers for heavyweight workflows are out of scope for
+Phase A unless team-lead explicitly revises this strategy later.
 
 ## Lint Policy
 
@@ -182,7 +184,8 @@ Phase A should prefer these reuse sources before inventing new implementation:
 
 Phase A should not invent new top-level commands to avoid confusion around the
 established operator surface. Narrow helper scripts are allowed only when they
-remain behind `just fmt`, `just lint`, `just test`, `just explain`, or `just suites`.
+remain behind `just help`, `just fmt`, `just lint`, `just test`, `just explain`,
+or `just suites`.
 
 ## Failure Reporting Rules
 

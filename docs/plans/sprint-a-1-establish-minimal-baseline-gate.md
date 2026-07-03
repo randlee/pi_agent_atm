@@ -45,9 +45,17 @@ silently dropped or partially deferred.
 - add thin root `justfile`
 - reuse `print_help.py` and `run_fmt.py`
 - add `baseline.yml` with only `just help` and `just fmt check`
-- remove ordinary `pull_request` triggering from heavyweight workflow files
-- keep `fuzz`, `bench`, and `semver` available only through non-PR trigger
-  paths
+- remove ordinary `pull_request` triggering from these heavyweight workflow
+  files:
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/fuzz.yml`
+  - `.github/workflows/bench.yml`
+  - `.github/workflows/semver.yml`
+- set the exact retained trigger policy:
+  - `.github/workflows/ci.yml`: `workflow_dispatch` only
+  - `.github/workflows/fuzz.yml`: `workflow_dispatch` and `schedule` only
+  - `.github/workflows/bench.yml`: `workflow_dispatch` only
+  - `.github/workflows/semver.yml`: `workflow_dispatch` only
 - preserve current branch protection semantics by changing triggers rather than
   deleting whole workflow files
 
@@ -83,9 +91,17 @@ jobs:
 ```
 
 ```yaml
+# retained trigger shape for `.github/workflows/fuzz.yml`
 on:
   workflow_dispatch:
   schedule:
+```
+
+```yaml
+# retained trigger shape for `.github/workflows/ci.yml`,
+# `.github/workflows/bench.yml`, and `.github/workflows/semver.yml`
+on:
+  workflow_dispatch:
 ```
 
 ## This Sprint Does Not Close
@@ -100,7 +116,13 @@ on:
 - `just help` works
 - `just fmt check` works
 - one workflow named `baseline` runs on ordinary PRs
-- old heavyweight workflows do not run on ordinary PRs
+- `.github/workflows/ci.yml`, `.github/workflows/fuzz.yml`,
+  `.github/workflows/bench.yml`, and `.github/workflows/semver.yml` do not run
+  on ordinary PRs
+- `.github/workflows/ci.yml` retains `workflow_dispatch` only
+- `.github/workflows/fuzz.yml` retains `workflow_dispatch` and `schedule` only
+- `.github/workflows/bench.yml` retains `workflow_dispatch` only
+- `.github/workflows/semver.yml` retains `workflow_dispatch` only
 - the new `baseline` workflow does not call any raw cargo command directly
 - required PR CI is green and comfortably under 10 minutes
 
