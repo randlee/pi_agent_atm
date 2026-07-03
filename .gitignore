@@ -134,16 +134,6 @@ __pycache__/
 # Ephemeral agent progress trackers
 claude-upgrade-progress.json
 
-# Claude Code IDE config
-# Ignore contents of .claude/ (not the dir itself) so we can un-ignore the
-# installer-managed skill below — `.claude/` would prevent re-inclusion.
-.claude/*
-# …but track the installer-managed skill tree (referenced by
-# scripts/skill-smoke.sh and tests/installer_regression.sh — must exist in
-# clean CI checkouts so the release workflow's installer regression passes).
-!.claude/skills/
-!.claude/skills/**
-
 # Clippy/lint output logs
 clippy.log
 
