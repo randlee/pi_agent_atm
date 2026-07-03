@@ -205,71 +205,56 @@ jobs:
       - name: No-mock code guard
         run: |
           set -euo pipefail
-          python3 - ".no-mock-allowlist" <<'PY'
-          from __future__ import annotations
 
-          import pathlib
-          import subprocess
-          import sys
+          # The allowlist is .no-mock-allowlist at repo root. Each non-blank,
+          # non-# line is "<path>:<identifier>"; path "*" matches anywhere.
+          # Anything not covered is treated as a NEW policy violation and
+          # fails CI. See the allowlist file's header for rationale.
+          allowlist=".no-mock-allowlist"
+          if [ ! -f "$allowlist" ]; then
+            echo "::error::missing $allowlist (required by no-mock policy gate)"
+            exit 1
+          fi
 
-          allowlist_path = pathlib.Path(sys.argv[1])
-          if not allowlist_path.is_file():
-              print(f"::error::missing {allowlist_path} (required by no-mock policy gate)")
-              raise SystemExit(1)
+          matches="$(rg -n --column --no-heading --color never --glob '!tests/ext_conformance/artifacts/**' -o '\b(Mock|Fake|Stub)[A-Za-z0-9_]+\b' tests || true)"
+          if [ -z "$matches" ]; then
+            exit 0
+          fi
 
-          global_allow: set[str] = set()
-          file_allow: set[tuple[str, str]] = set()
-          for raw_line in allowlist_path.read_text(encoding="utf-8").splitlines():
-              line = raw_line.strip()
-              if not line or line.startswith("#"):
-                  continue
-              path_text, ident = line.split(":", 1)
-              ident = ident.strip()
-              if path_text == "*":
-                  global_allow.add(ident)
-              else:
-                  file_allow.add((path_text.replace("\\", "/"), ident))
+          # Split allowlist into global (*:Ident) and per-file (path:Ident) sets.
+          global_allow="$(grep -E '^\*:' "$allowlist" | sed 's/^\*://' | sort -u)"
+          file_allow="$(grep -Ev '^\s*(#|$|\*:)' "$allowlist" | sort -u)"
 
-          rg_result = subprocess.run(
-              [
-                  "rg",
-                  "-n",
-                  "--column",
-                  "--no-heading",
-                  "--color",
-                  "never",
-                  "--glob",
-                  "!tests/ext_conformance/artifacts/**",
-                  "-o",
-                  r"\b(Mock|Fake|Stub)[A-Za-z0-9_]+\b",
-                  "tests",
-              ],
-              check=False,
-              capture_output=True,
-              text=True,
-          )
+          # rg output: file:line:col:identifier (4 colon-separated fields).
+          violations="$(printf '%s\n' "$matches" | awk -F: \
+            -v global_allow="$global_allow" \
+            -v file_allow="$file_allow" \
+            '
+            BEGIN {
+              n = split(global_allow, ga, "\n")
+              for (i = 1; i <= n; i++) if (ga[i] != "") g[ga[i]] = 1
+              n = split(file_allow, fa, "\n")
+              for (i = 1; i <= n; i++) if (fa[i] != "") f[fa[i]] = 1
+            }
+            {
+              ident = $4
+              file = $1
+              if (ident in g) next
+              key = file ":" ident
+              if (key in f) next
+              print
+            }')"
 
-          violations: list[str] = []
-          for raw_match in rg_result.stdout.splitlines():
-              parts = raw_match.split(":", 3)
-              if len(parts) != 4:
-                  continue
-              file_path, line_no, column_no, ident = parts
-              normalized_path = file_path.replace("\\", "/")
-              if ident in global_allow or (normalized_path, ident) in file_allow:
-                  continue
-              violations.append(f"{normalized_path}:{line_no}:{column_no}:{ident}")
-
-          if violations:
-              print("\n".join(violations))
-              print()
-              print("NEW no-mock policy violations detected.")
-              print("Mock*/Fake*/Stub* identifiers are forbidden in tests.")
-              print("Use VCR fixtures or real dependencies instead. See docs/TEST_COVERAGE_MATRIX.md.")
-              print("If an identifier is unavoidable, add a scoped entry to .no-mock-allowlist")
-              print("with rationale and a follow-up issue link.")
-              raise SystemExit(1)
-          PY
+          if [ -n "$violations" ]; then
+            printf '%s\n' "$violations"
+            echo
+            echo "NEW no-mock policy violations detected."
+            echo "Mock*/Fake*/Stub* identifiers are forbidden in tests."
+            echo "Use VCR fixtures or real deps instead. See docs/TEST_COVERAGE_MATRIX.md."
+            echo "If the identifier is unavoidable, add it to .no-mock-allowlist with"
+            echo "rationale and a follow-up issue link."
+            exit 1
+          fi
 
       - name: Traceability matrix guard
         run: |
@@ -294,6 +279,31 @@ jobs:
             echo "python interpreter not found"
             exit 1
           fi
+
+      - name: Closeout and runpack freshness integrity
+        run: |
+          set -euo pipefail
+          if command -v python3 >/dev/null 2>&1; then
+            PYTHON=python3
+          elif command -v python >/dev/null 2>&1; then
+            PYTHON=python
+          else
+            echo "python interpreter not found"
+            exit 1
+          fi
+
+          closeout_report="$(mktemp)"
+          if ! "$PYTHON" scripts/check_closeout_gate_freshness.py --compact > "$closeout_report"; then
+            echo "Closeout freshness audit failed:"
+            "$PYTHON" -m json.tool "$closeout_report" || cat "$closeout_report"
+            exit 1
+          fi
+          "$PYTHON" -m json.tool "$closeout_report" >/dev/null
+
+          # Keep --run-runpack-smoke out of PR CI: it exercises the broader
+          # runpack builder. The self-test is the bounded freshness-guard
+          # contract proof; live closeout artifacts are audited above.
+          "$PYTHON" scripts/check_swarm_runpack_freshness.py --self-test
 
       - name: Built-in tool count claim guard
         run: |
@@ -348,8 +358,8 @@ jobs:
             echo "sqlite-sessions claim drift: Cargo.toml enables sqlite-sessions by default; document opt-out with --no-default-features instead."
             exit 1
           fi
-          rg -n --fixed-strings 'default = ["sqlite-sessions", "tui"]' Cargo.toml >/dev/null
-          rg -n --fixed-strings 'Default builds enable `sqlite-sessions` only.' README.md >/dev/null
+          rg -n --fixed-strings 'default = ["image-resize", "jemalloc", "clipboard", "wasm-host", "sqlite-sessions"]' Cargo.toml >/dev/null
+          rg -n --fixed-strings 'Default builds enable `image-resize`, `jemalloc`, `clipboard`, `wasm-host`, and `sqlite-sessions`.' README.md >/dev/null
 
       - name: Suite classification guard
         run: |
@@ -1443,6 +1453,14 @@ jobs:
             shard_total: 2
           - name: integration-1
             lane: integration
+            shard_index: 1
+            shard_total: 2
+          - name: e2e-0
+            lane: e2e
+            shard_index: 0
+            shard_total: 2
+          - name: e2e-1
+            lane: e2e
             shard_index: 1
             shard_total: 2
           - name: extension-0

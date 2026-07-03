@@ -47,7 +47,6 @@ RESULT_RE = re.compile(
     r"(\d+) failed;\s+"
     r"(\d+) ignored"
 )
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 # Matches running line like:
 #   Running tests/json_mode_parity.rs (target/debug/deps/json_mode_parity-abc123)
@@ -60,7 +59,6 @@ def parse_log(log_text: str) -> dict:
     current_suite = None
 
     for line in log_text.splitlines():
-        line = ANSI_ESCAPE_RE.sub("", line)
         running_match = RUNNING_RE.search(line)
         if running_match:
             raw = running_match.group(1)
