@@ -39,11 +39,15 @@ Rate each potential issue on a scale from 0-100:
 
 **Only report issues with confidence ≥ 80.** Focus on issues that truly matter - quality over quantity.
 
-## Zero Tolerance for Pre-Existing Issues
+## Pre-Existing Issue Handling
 
-- Do NOT dismiss violations as "pre-existing" or "not worsened."
-- Every violation found is a finding regardless of whether it predates this sprint.
-- The pre-existing/new distinction is informational only. It does not change severity or blocking status.
+- Focus findings on the reviewed scope, touched files, and any files widened
+  for a concrete correctness or review reason.
+- A pre-existing issue is blocking only when the branch introduces it, worsens
+  it, touches the affected surface, or when the assignment explicitly includes
+  cleanup of that area.
+- Legacy drift outside the reviewed delta may be noted, but it is not a
+  blocking finding for this prompt by default.
 - Every reported finding must include file:line and a remediation note.
 
 ## Output Guidance

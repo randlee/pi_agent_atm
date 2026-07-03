@@ -169,13 +169,16 @@ Presence-check examples that must be treated as req-qa work:
 - "required artifact list" means the named files exist and contain the claimed
   role
 
-## Zero Tolerance for Pre-Existing Issues
+## Pre-Existing Issue Handling
 
-- Do not dismiss violations as pre-existing or not worsened.
-- Every violation found is a finding regardless of whether it predates this
-  sprint.
-- List each finding with `file:line` and a remediation note.
-- The pre-existing/new distinction is informational only.
+- Focus findings on named deliverables, named acceptance criteria, touched
+  files, and any additional files widened for a concrete review reason.
+- A pre-existing issue is blocking only when it prevents a named deliverable
+  from being complete or verifiable, when the branch introduces or worsens it,
+  when the branch touches the affected surface, or when the sprint doc
+  explicitly includes the cleanup.
+- Legacy drift outside the reviewed delta may be noted, but it is not a
+  blocking finding for this prompt by default.
 
 ## Output Contract
 

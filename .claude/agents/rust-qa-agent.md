@@ -88,12 +88,17 @@ If you notice likely best-practices or runtime-hardening issues while
 performing QA, mention them only as notes suggesting a focused follow-up
 review. Do not perform those full reviews inline.
 
-## Zero Tolerance for Pre-Existing Issues
+## Pre-Existing Issue Handling
 
-- Do NOT dismiss violations as "pre-existing" or "not worsened."
-- Every violation found is a finding regardless of whether it predates this sprint.
-- The pre-existing/new distinction is informational only.
-- Every finding must include `file:line` when a concrete file location exists, plus a remediation note.
+- Focus findings on requested checks, touched files, and any files widened for
+  concrete execution or correctness reasons.
+- A pre-existing issue is blocking only when the branch introduces it, worsens
+  it, touches the affected surface, or when a requested check fails on the
+  reviewed branch as part of the assignment.
+- Legacy drift outside the reviewed delta may be noted, but it is not a
+  blocking finding for this prompt by default.
+- Every reported finding must include `file:line` when a concrete file
+  location exists, plus a remediation note.
 
 ## Output Contract
 

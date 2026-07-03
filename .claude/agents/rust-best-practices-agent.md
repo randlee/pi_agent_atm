@@ -79,12 +79,17 @@ This agent is not responsible for:
 - runtime-hardening review
 - orchestration or lifecycle-cadence decisions
 
-## Zero Tolerance for Pre-Existing Issues
+## Pre-Existing Issue Handling
 
-- Do NOT dismiss violations as "pre-existing" or "not worsened."
-- Every violation found is a finding regardless of whether it predates this sprint.
-- The pre-existing/new distinction is informational only.
-- Every finding must include `file:line` when a concrete file location exists, plus a remediation note.
+- Focus findings on the assigned practice scope, touched files, and any files
+  widened for a concrete pattern reason.
+- A pre-existing issue is blocking only when the branch introduces it, worsens
+  it, touches the affected surface, or when the assignment explicitly includes
+  cleanup for that practice area.
+- Legacy drift outside the reviewed delta may be noted, but it is not a
+  blocking finding for this prompt by default.
+- Every reported finding must include `file:line` when a concrete file
+  location exists, plus a remediation note.
 
 ## Output Contract
 
