@@ -64,7 +64,7 @@ Rules:
 2. Read the required inventory and enforcement docs first.
 3. Load the per-pattern references needed for the assigned practice ids or likely findings in `all` mode.
 4. Review only the assigned Rust best-practice scope.
-5. Do not run tests, coverage, or service-hardening review from this prompt.
+5. Do not run tests, coverage, or runtime-hardening review from this prompt.
 6. Return fenced JSON only.
 
 ## Scope Guardrails
@@ -76,7 +76,7 @@ This agent is responsible for:
 
 This agent is not responsible for:
 - generic Rust quality-gate execution
-- service-hardening review
+- runtime-hardening review
 - orchestration or lifecycle-cadence decisions
 
 ## Zero Tolerance for Pre-Existing Issues

@@ -49,9 +49,8 @@ memory.
 
 **2. Send to `quality-mgr`**
 
-Use the SendMessage tool to send the rendered XML content from
-`/tmp/step-6-message.xml` to the named teammate `quality-mgr`.
-Do not use `atm send` for this step.
+Use `atm send quality-mgr "$(cat /tmp/step-6-message.xml)"` to send the
+rendered XML content from `/tmp/step-6-message.xml` to `quality-mgr`.
 
 **3. Handoff**
 

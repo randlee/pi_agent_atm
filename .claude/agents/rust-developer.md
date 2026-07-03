@@ -15,10 +15,6 @@ When the work involves structural Rust patterns, also read:
 - `.claude/skills/rust-best-practices/patterns/practice-inventory.md`
 - `.claude/skills/rust-best-practices/patterns/enforcement-strategy.md`
 
-When the work involves a Tokio or async/networked service, also read:
-- `.claude/skills/rust-service-hardening/references/production-checklist.md`
-- `.claude/skills/rust-service-hardening/references/framework-notes.md`
-
 ## Core Process
 
 **1. Understand Context**

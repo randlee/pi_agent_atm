@@ -8,6 +8,9 @@ agents:
   arch-qa:
     version: 0.1.0
     path: .claude/agents/arch-qa.md
+  upstream-merge-qa:
+    version: 0.1.0
+    path: .claude/agents/upstream-merge-qa.md
   flaky-test-qa:
     version: 0.1.0
     path: .claude/agents/flaky-test-qa.md
@@ -50,12 +53,10 @@ skills:
       quality-mgr: 0.x
       req-qa: 0.x
       arch-qa: 0.x
+      upstream-merge-qa: 0.x
       flaky-test-qa: 0.x
       rust-qa-agent: 0.x
       rust-best-practices-agent: 0.x
-      # rust-service-hardening-agent intentionally omitted: that skill
-      # (rust-service-hardening) is not imported into this repo; the
-      # workflow treats it as optional (see SKILL.md caveat).
   quality-management-gh:
     version: 1.0.0
     path: .claude/skills/quality-management-gh/SKILL.md

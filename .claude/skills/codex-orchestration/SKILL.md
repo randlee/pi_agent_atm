@@ -7,6 +7,7 @@ depends_on:
   quality-mgr: 0.x
   req-qa: 0.x
   arch-qa: 0.x
+  upstream-merge-qa: 0.x
   flaky-test-qa: 0.x
   rust-qa-agent: 0.x
   rust-best-practices-agent: 0.x
@@ -23,6 +24,11 @@ This skill defines the repo-local orchestration workflow for `pi_agent_atm`.
   the same role atm-core calls `arch-ctm`; this repo's ATM identity for it is
   `cpi`, per `.atm.toml`)
 - `quality-mgr` runs the QA gate after each delivery
+
+## Messaging Rule
+
+- Use `atm send <agent> <message>` for every orchestration message to `cpi`
+  and `quality-mgr`
 
 ## Preconditions
 
@@ -41,25 +47,18 @@ Before starting a sprint:
    - `quality-mgr.md`
    - `req-qa.md`
    - `arch-qa.md`
+   - `upstream-merge-qa.md`
    - `flaky-test-qa.md`
-   - installed Rust reviewers (`rust-qa-agent`, `rust-best-practices-agent`,
-     and optionally `rust-service-hardening-agent` — see the caveat below)
+   - installed Rust reviewers (`rust-qa-agent`; `rust-best-practices-agent`
+     when requested by the QA policy)
 5. The following QA reporting skill exists in `.claude/skills/`:
    - `quality-management-gh/`
 6. `sc-compose` is available for rendering the JSON and markdown templates.
 
-## Optional Reviewer Caveat: `rust-service-hardening-agent`
-
-`rust-service-hardening-agent` belongs to the `rust-service-hardening` skill,
-which is **not** imported into this repo. Every step below that lists it as
-part of a reviewer set must degrade gracefully when it is absent:
-`quality-mgr` skips it and proceeds with the remaining reviewers rather than
-blocking the QA gate on a missing agent. If `rust-service-hardening` is
-imported later, re-add it to the mandatory sets below.
-
 ## Sprint Flow
 
-1. `team-lead` assigns development to `cpi` using `dev-template.xml.j2`.
+1. `team-lead` assigns development to `cpi` using `dev-template.xml.j2` and
+   sends the rendered payload with `atm send cpi "<message>"`.
    Every dev assignment must include the sprint-plan document path as
    `sprint_doc`, and that sprint document is the authoritative source for the
    task. Assignment prose may summarize, but it must not replace or weaken the
@@ -70,44 +69,43 @@ imported later, re-add it to the mandatory sets below.
    fixes all RBP findings found there. This is a developer cleanup step, not a
    QA surprise.
 4. `team-lead` opens or updates the PR.
-5. `team-lead` assigns QA to `quality-mgr` using `qa-template.xml.j2`.
+5. `team-lead` assigns QA to `quality-mgr` using `qa-template.xml.j2` and
+   sends the rendered payload with `atm send quality-mgr "<message>"`.
    Every QA assignment must include `sprint_doc`, and `quality-mgr` must treat
    that sprint document as the authoritative QA scope source.
 6. `quality-mgr` launches the reviewer set:
    - `req-qa`
    - `arch-qa`
+   - `upstream-merge-qa`
    - `rust-qa-agent`
-   - `rust-best-practices-agent`
-   - `rust-service-hardening-agent` (if installed — see caveat above)
+   - `rust-best-practices-agent` on QA-1 only
    - `flaky-test-qa` when test instability risk is present
-7. QA-2 and later rounds must omit `rust-best-practices-agent` and
-   `rust-service-hardening-agent` (if installed). All RBP and
-   service-hardening findings from QA-1 must be fixed before merge — merge
-   gate is 0B+0I+0m with no exceptions and no backlog deferral. QA-1 findings
-   route back to `cpi` via `fix-assignment.xml.j2` before QA-2, following the
-   standard triage-and-fix path.
+7. QA-2 and later rounds must omit `rust-best-practices-agent`. All QA-1
+   findings must be fixed before merge. QA-1 findings route back to `cpi` via
+   `fix-assignment.xml.j2` before QA-2, following the standard triage-and-fix
+   path.
 8. If QA passes and CI is green, merge may proceed.
 9. If QA fails, `team-lead` first runs `/triaging-findings` (if available) to
    correlate the findings across worktrees and determine the promoted fix
    branch.
 10. After triage completes, `team-lead` routes concrete fixes back to
-    `cpi` using `fix-assignment.xml.j2`. Fix assignments must also include
-    `sprint_doc`, and the sprint document remains authoritative if the task
-    summary omits or compresses details.
+    `cpi` using `fix-assignment.xml.j2` and `atm send cpi "<message>"`.
+    Fix assignments must also include `sprint_doc`, and the sprint document
+    remains authoritative if the task summary omits or compresses details.
 
 ## Plan Review Flow
 
 1. `team-lead` completes `/plan-hardening` (or `plan-hardening-basic`) steps.
 2. `team-lead` assigns plan QA to `quality-mgr` using `qa-template.xml.j2`
-   with `review_mode: plan`.
+   with `review_mode: plan`, then sends it with
+   `atm send quality-mgr "<message>"`.
 3. The QA assignment must include the phase-plan document (e.g. a doc under
    `docs/plans/phase-A/`) as `sprint_doc`, and that plan document is the
    authoritative scope source for plan QA.
 4. `quality-mgr` treats `review_mode: plan` as docs-only review and launches:
    - `req-qa`
    - `arch-qa`
-   - `rust-best-practices-agent`
-   - `rust-service-hardening-agent` (if installed — see caveat above)
+   - `upstream-merge-qa`
 5. If plan QA passes, the hardened plan is ready for implementation dispatch.
 6. If plan QA fails, `team-lead` uses the normal codex-orchestration
    triage-and-fix loop to route concrete fixes back to `cpi`.
@@ -133,9 +131,9 @@ For phase-ending QA routed through `quality-mgr`, the reviewer set is
 mandatory:
 - `req-qa`
 - `arch-qa`
+- `upstream-merge-qa`
 - `rust-qa-agent`
-- `rust-best-practices-agent`
-- `rust-service-hardening-agent` (if installed — see caveat above)
+- `rust-best-practices-agent` when the assignment requests a fresh structural sweep
 - `flaky-test-qa`
 
 ## CI
@@ -165,3 +163,6 @@ Every ATM task message must follow:
 2. Work
 3. Completion summary
 4. Completion ACK by receiver
+
+All orchestrator-to-agent task delivery for `cpi` and `quality-mgr` must use
+`atm send <agent> <message>`.
