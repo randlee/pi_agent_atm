@@ -1,28 +1,34 @@
 # Phase A Plan Superseded
 
 The prior Phase A planning set merged by PR #5 and commit range
-`fbcc8346..a689e86c` is invalid and superseded.
+`fbcc8346..a689e86c` is superseded.
 
-Superseded material:
+Why it was superseded:
+
+- it delayed the first shipped `just` + CI baseline until too late in the
+  sequence
+- it kept the heavyweight PR workflow surface alive while intermediate sprints
+  were landing
+- it used an integration-branch rollout that added planning complexity before
+  the minimal baseline existed
+
+What remains valid from the prior plan:
+
+- timing evidence gathered from `feature/just-integration`
+- safe reuse inventory from `feature/just-integration`
+- known failure notes around macOS, workflow paths, and heavyweight CI lanes
+
+Authoritative replacement docs in this branch:
 
 - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-- `docs/plans/sprint-a-1-stage-revert-pr.md`
-- `docs/plans/sprint-a-2-install-minimal-sc-just-skeleton.md`
-- `docs/plans/sprint-a-3-establish-lane-ssot.md`
-- `docs/plans/sprint-a-4-add-fast-test-baseline.md`
-- `docs/plans/sprint-a-5-reduce-required-pr-ci-to-baseline.md`
-- `docs/plans/sprint-a-6-classify-long-running-workflows.md`
-- `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
+- `docs/plans/sprint-a-1-establish-minimal-baseline-gate.md`
+- `docs/plans/sprint-a-2-add-compile-gate.md`
+- `docs/plans/sprint-a-3-add-smoke-baseline.md`
+- `docs/plans/sprint-a-4-add-optional-local-lanes.md`
+- `docs/plans/sprint-a-5-refresh-ssot-and-timing.md`
+- `docs/plans/sprint-a-6-merge-baseline-into-atm-graft.md`
 
-Why this was superseded:
-
-- it proposed a seven-sprint rollout with an `integrate/phase-A` branch and six
-  sprint worktrees before any shipped code landed
-- it consumed dozens of development cycles without producing a minimal shipped
-  `just` + CI baseline
-- CI kept re-triggering full `ci`, `fuzz`, `bench`, and `semver` workflows on
-  routine branch and push activity while the plan remained unexecuted
-
-This corrective change retracts the prior multi-sprint Phase A plan only. It
-does not introduce a replacement plan in this PR.
+The corrected plan starts from zero, reuses only narrow proven pieces from
+`feature/just-integration`, and requires required PR CI to stay under 10
+minutes at every implementation sprint.

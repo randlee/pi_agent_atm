@@ -1,0 +1,73 @@
+---
+id: A6
+title: Merge Baseline Into Atm-Graft
+status: planned
+branch: sprint-a-6-merge-baseline-into-atm-graft
+worktree: ../pi_agent_atm-worktrees/sprint-a-6-merge-baseline-into-atm-graft
+target: feature/atm-graft-integration
+---
+
+# Sprint A6 — Merge Baseline Into Atm-Graft
+
+## Goal
+
+- move the verified `just` + CI baseline into the active `atm-graft`
+  integration work without reintroducing abandoned exploratory code
+
+## Hard Dependencies
+
+- Sprint A5 merged into `develop`
+- `feature/atm-graft-integration` is the active integration branch
+
+## Exact Targets
+
+- `feature/atm-graft-integration`
+- conflict-resolution surfaces required by the merge
+
+## Deliverables
+
+Every listed deliverable is expected to land at a production-ready level for
+the scope this sprint claims. If that cannot be done cleanly in one sprint, the
+sprint must be split before implementation begins. No deliverable may be
+silently dropped or partially deferred.
+
+- verified baseline merges into `feature/atm-graft-integration` and stays green
+
+## Required Work
+
+- merge the corrected Phase A baseline forward from `develop`
+- resolve conflicts without pulling exploratory `feature/just-integration`
+  source churn back in
+- keep `baseline` as the required PR workflow on the merged branch
+
+## Explicit Code Samples
+
+```text
+develop
+  -> sprint-a-1
+  -> sprint-a-2
+  -> sprint-a-3
+  -> sprint-a-4
+  -> sprint-a-5
+  -> feature/atm-graft-integration
+```
+
+## This Sprint Does Not Close
+
+- it does not add new `atm-graft`-specific test lanes
+- it does not expand required PR CI beyond the established `baseline`
+
+## Acceptance Criteria
+
+- `feature/atm-graft-integration` contains the verified `just` + CI baseline
+- merge resolution does not restore abandoned exploratory `src/**` changes
+- `baseline` remains the required PR workflow
+- `baseline` remains green and under 10 minutes
+
+## Required Validation
+
+- `just fmt check`
+- `just lint clippy-bins`
+- `just lint clippy-lib`
+- `just test baseline`
+- `gh run list --workflow baseline --limit 5`
