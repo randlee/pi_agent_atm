@@ -23,7 +23,7 @@ Authoritative replacement docs in this branch:
 - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
 - `docs/plans/sprint-a-1-establish-minimal-baseline-gate.md`
-- `docs/plans/sprint-a-2-add-compile-gate.md`
+- `docs/plans/sprint-a-2-add-local-code-lint.md`
 - `docs/plans/sprint-a-3-add-smoke-baseline.md`
 - `docs/plans/sprint-a-4-add-optional-local-lanes.md`
 - `docs/plans/sprint-a-5-refresh-ssot-and-timing.md`
