@@ -6,6 +6,12 @@ a.out
 rustc-ice-*.txt
 *.snap.new
 
+# macOS Finder metadata
+**/.DS_Store
+
+# sc-* local tooling state
+.sc/
+
 # bv (beads viewer) local config and caches
 .bv/
 
