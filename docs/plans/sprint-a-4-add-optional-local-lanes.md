@@ -43,6 +43,13 @@ silently dropped or partially deferred.
   and `just lint all-local`
 - keep required `baseline` contents exactly as Sprint A3 defined them
 
+Reuse sources:
+
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/explain.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/show_suites.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/lint_catalog.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/test_catalog.py`
+
 ## Explicit Code Samples
 
 ```just
@@ -68,6 +75,7 @@ DISPLAY_ORDER = ("baseline", "unit", "integration")
 - `just explain` works
 - `just suites` works
 - optional local lanes are documented and callable
+- optional local lanes are clearly marked as non-required in docs and lane help
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
 

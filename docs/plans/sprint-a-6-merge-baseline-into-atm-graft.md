@@ -39,6 +39,7 @@ silently dropped or partially deferred.
 - resolve conflicts without pulling exploratory `feature/just-integration`
   source churn back in
 - keep `baseline` as the required PR workflow on the merged branch
+- preserve the same lane names and SSOT ownership on the merged branch
 
 ## Explicit Code Samples
 
@@ -62,6 +63,8 @@ develop
 - `feature/atm-graft-integration` contains the verified `just` + CI baseline
 - merge resolution does not restore abandoned exploratory `src/**` changes
 - `baseline` remains the required PR workflow
+- the merged branch keeps the same `just fmt`, `just lint`, and `just test baseline`
+  surface defined in Phase A
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation

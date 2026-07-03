@@ -43,6 +43,12 @@ silently dropped or partially deferred.
 - ensure the smoke lane does not expand into broad `cargo test`, VCR, or E2E
   work
 
+Reuse sources:
+
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_test.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/test_catalog.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/scripts/smoke.sh`
+
 ## Explicit Code Samples
 
 ```python
@@ -76,6 +82,7 @@ steps:
 - required PR CI runs the smoke lane through the established `just test`
   surface
 - smoke failures report lane name, command, SSOT file, and next action
+- smoke coverage remains materially smaller than `just test unit` and `just test integration`
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation

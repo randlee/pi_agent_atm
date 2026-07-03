@@ -159,6 +159,15 @@ These notes remain valid even though the old rollout plan was superseded.
 
 ## Corrected Sprint Sequence
 
+| Sprint | Branch | Worktree | Single deliverable | Required PR CI after merge |
+|---|---|---|---|---|
+| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | minimal `just` + tiny `baseline` workflow | `just help`, `just fmt check` |
+| A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
+| A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | smoke regression lane through `just test` | A2 + `just test baseline` |
+| A4 | `sprint-a-4-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-4-add-optional-local-lanes` | optional local lanes only | unchanged from A3 |
+| A5 | `sprint-a-5-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-5-refresh-ssot-and-timing` | freeze SSOT and refresh timing evidence | unchanged from A3 |
+| A6 | `sprint-a-6-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-6-merge-baseline-into-atm-graft` | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 |
+
 ### Sprint A1
 
 Deliverable:
@@ -238,6 +247,7 @@ No implementation sprint begins until team-lead reviews:
 Phase A is complete when:
 
 - `baseline` is the only required PR workflow
+- required PR CI on ordinary PRs is limited to the `baseline` workflow surface
 - `baseline` stays below 10 minutes
 - local `just` commands and required PR CI share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs

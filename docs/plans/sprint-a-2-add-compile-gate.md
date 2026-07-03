@@ -42,6 +42,13 @@ silently dropped or partially deferred.
 - define only the required local-code lint lanes first
 - update `baseline.yml` to run the lint lanes after formatting
 - keep dependency lint and test-target lint out of required PR CI
+- keep lint ordering cheap-to-expensive: bins before lib
+
+Reuse sources:
+
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_cargo.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_lint.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/lint_catalog.py`
 
 ## Explicit Code Samples
 
@@ -71,6 +78,8 @@ steps:
 - `just lint clippy-bins` works
 - `just lint clippy-lib` works
 - required `baseline` workflow runs only the established lint surface
+- required PR CI does not add `clippy --tests`, `clippy --benches`, or
+  `clippy --examples`
 - `baseline` remains green and under 10 minutes
 - no new PR-required workflow is introduced
 

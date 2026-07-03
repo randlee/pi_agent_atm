@@ -42,6 +42,7 @@ silently dropped or partially deferred.
 - update the testing strategy doc with refreshed numbers
 - confirm workflow YAML calls only established `just` commands
 - confirm no new top-level `just` commands were introduced during A1-A4
+- confirm the sprint docs still match the actual lane names and workflow names
 
 ## Explicit Code Samples
 
@@ -64,6 +65,7 @@ baseline workflow
 - refreshed timing evidence is recorded in the testing strategy doc
 - team-lead can review SSOT ownership directly from the docs
 - required `baseline` workflow is unchanged from Sprint A3
+- sprint docs and testing strategy remain internally consistent after the timing refresh
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation

@@ -103,6 +103,16 @@ After Sprint A1, these workflows may remain as:
 
 They must not run on ordinary feature PRs.
 
+Workflow classification target after Sprint A1:
+
+| Workflow | Ordinary PRs | Allowed remaining triggers |
+|---|---|---|
+| `baseline.yml` | yes | `pull_request`, optionally protected-branch `push` |
+| `ci.yml` | no | `workflow_dispatch`, optional protected-branch `push` only if separately justified |
+| `fuzz.yml` | no | `workflow_dispatch`, `schedule`, optional protected-branch `push` only if separately justified |
+| `bench.yml` | no | `workflow_dispatch`, optional protected-branch `push` only if separately justified |
+| `semver.yml` | no | `workflow_dispatch`, optional protected-branch `push` only if separately justified |
+
 ## Lint Policy
 
 Required PR CI lint rules:
@@ -147,9 +157,32 @@ Local-only optional test lanes may include:
 - `just test unit`
 - `just test integration`
 - `just test all`
+- `just test vcr`
+- `just test e2e`
 
 These remain outside required PR CI unless separately re-approved with timing
 evidence.
+
+## Reuse Policy
+
+Phase A should prefer these reuse sources before inventing new implementation:
+
+- `justfile`
+- `.just/print_help.py`
+- `.just/run_fmt.py`
+- `.just/run_cargo.py`
+- `.just/run_lint.py`
+- `.just/lint_catalog.py`
+- `.just/run_test.py`
+- `.just/test_catalog.py`
+- `.just/explain.py`
+- `.just/show_suites.py`
+- `.github/workflows/baseline.yml`
+- `scripts/smoke.sh`
+
+Phase A should not invent new top-level commands to avoid confusion around the
+established operator surface. Narrow helper scripts are allowed only when they
+remain behind `just fmt`, `just lint`, `just test`, `just explain`, or `just suites`.
 
 ## Failure Reporting Rules
 

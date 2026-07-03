@@ -48,6 +48,15 @@ silently dropped or partially deferred.
 - remove ordinary `pull_request` triggering from heavyweight workflow files
 - keep `fuzz`, `bench`, and `semver` available only through non-PR trigger
   paths
+- preserve current branch protection semantics by changing triggers rather than
+  deleting whole workflow files
+
+Reuse sources:
+
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/justfile`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/print_help.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_fmt.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.github/workflows/baseline.yml`
 
 ## Explicit Code Samples
 
@@ -73,6 +82,12 @@ jobs:
       - run: just fmt check
 ```
 
+```yaml
+on:
+  workflow_dispatch:
+  schedule:
+```
+
 ## This Sprint Does Not Close
 
 - it does not add compile checking
@@ -86,6 +101,7 @@ jobs:
 - `just fmt check` works
 - one workflow named `baseline` runs on ordinary PRs
 - old heavyweight workflows do not run on ordinary PRs
+- the new `baseline` workflow does not call any raw cargo command directly
 - required PR CI is green and comfortably under 10 minutes
 
 ## Required Validation
