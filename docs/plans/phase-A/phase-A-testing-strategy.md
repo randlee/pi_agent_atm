@@ -57,7 +57,8 @@ Required PR CI contents per sprint:
 | A3 | A2 + `just test baseline` |
 | A4 | same as A3 |
 | A5 | same as A3 |
-| A6 | same as A3 on merge PRs |
+| A6 | same as A3 |
+| A7 | same as A3 on merge PRs |
 
 This table is the controlling rollout rule. If a sprint would require more
 than the listed contents, the plan is being violated.

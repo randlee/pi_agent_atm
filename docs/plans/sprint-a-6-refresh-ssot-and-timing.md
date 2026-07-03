@@ -1,13 +1,13 @@
 ---
-id: A5
+id: A6
 title: Refresh SSOT And Timing
 status: planned
-branch: sprint-a-5-refresh-ssot-and-timing
-worktree: ../pi_agent_atm-worktrees/sprint-a-5-refresh-ssot-and-timing
+branch: sprint-a-6-refresh-ssot-and-timing
+worktree: ../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing
 target: develop
 ---
 
-# Sprint A5 — Refresh SSOT And Timing
+# Sprint A6 — Refresh SSOT And Timing
 
 ## Goal
 
@@ -17,7 +17,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A4 merged into `develop`
+- Sprint A5 merged into `develop`
 
 ## Exact Targets
 
@@ -26,9 +26,10 @@ target: develop
 - `docs/plans/sprint-a-1-establish-minimal-baseline-gate.md`
 - `docs/plans/sprint-a-2-add-local-code-lint.md`
 - `docs/plans/sprint-a-3-add-smoke-baseline.md`
-- `docs/plans/sprint-a-4-add-optional-local-lanes.md`
-- `docs/plans/sprint-a-5-refresh-ssot-and-timing.md`
-- `docs/plans/sprint-a-6-merge-baseline-into-atm-graft.md`
+- `docs/plans/sprint-a-4-add-taxonomy-helpers.md`
+- `docs/plans/sprint-a-5-add-optional-local-lanes.md`
+- `docs/plans/sprint-a-6-refresh-ssot-and-timing.md`
+- `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
 - `justfile`
 - `.just/lint_catalog.py`
 - `.just/test_catalog.py`
@@ -49,9 +50,9 @@ silently dropped or partially deferred.
 - measure actual `baseline` step timings from current green runs
 - update the testing strategy doc with refreshed numbers
 - update the phase doc and sprint docs if any lane names, workflow names, or
-  ownership statements drifted during A1-A4
+  ownership statements drifted during A1-A5
 - confirm workflow YAML calls only established `just` commands
-- confirm no new top-level `just` commands were introduced during A1-A4
+- confirm no new top-level `just` commands were introduced during A1-A5
 - confirm the sprint docs still match the actual lane names and workflow names
 
 ## Explicit Code Samples

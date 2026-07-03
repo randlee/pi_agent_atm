@@ -23,9 +23,10 @@ This phase uses:
   - `docs/plans/sprint-a-1-establish-minimal-baseline-gate.md`
   - `docs/plans/sprint-a-2-add-local-code-lint.md`
   - `docs/plans/sprint-a-3-add-smoke-baseline.md`
-  - `docs/plans/sprint-a-4-add-optional-local-lanes.md`
-  - `docs/plans/sprint-a-5-refresh-ssot-and-timing.md`
-  - `docs/plans/sprint-a-6-merge-baseline-into-atm-graft.md`
+  - `docs/plans/sprint-a-4-add-taxonomy-helpers.md`
+  - `docs/plans/sprint-a-5-add-optional-local-lanes.md`
+  - `docs/plans/sprint-a-6-refresh-ssot-and-timing.md`
+  - `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
 
 Only these docs are authoritative for corrected Phase A.
 
@@ -65,7 +66,7 @@ Execution model:
 2. Sprint A1 branches from `develop`
 3. Sprint A1 merges back to `develop` only after green `baseline` CI
 4. Sprint A2 branches from updated `develop`
-5. repeat through Sprint A6
+5. repeat through Sprint A7
 
 This branch model is required because the first shipped baseline must land
 immediately, not after an integration branch has accumulated multiple sprints.
@@ -164,9 +165,10 @@ These notes remain valid even though the old rollout plan was superseded.
 | A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | minimal `just` + tiny `baseline` workflow | `just help`, `just fmt check` |
 | A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
 | A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | smoke regression lane through `just test` | A2 + `just test baseline` |
-| A4 | `sprint-a-4-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-4-add-optional-local-lanes` | optional local lanes only | unchanged from A3 |
-| A5 | `sprint-a-5-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-5-refresh-ssot-and-timing` | freeze SSOT and refresh timing evidence | unchanged from A3 |
-| A6 | `sprint-a-6-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-6-merge-baseline-into-atm-graft` | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 |
+| A4 | `sprint-a-4-add-taxonomy-helpers` | `../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers` | taxonomy helpers only | unchanged from A3 |
+| A5 | `sprint-a-5-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes` | optional local lanes only | unchanged from A3 |
+| A6 | `sprint-a-6-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing` | freeze SSOT and refresh timing evidence | unchanged from A3 |
+| A7 | `sprint-a-7-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft` | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 on merge PRs |
 
 ### Sprint A1
 
@@ -204,13 +206,24 @@ Outcome:
 
 Deliverable:
 
-- add optional local lanes and operator taxonomy without changing required PR CI
+- add taxonomy helpers only without changing required PR CI
+
+Outcome:
+
+- operators can inspect lane semantics and suite taxonomy without changing the
+  required PR gate
+
+### Sprint A5
+
+Deliverable:
+
+- add optional local lanes without changing required PR CI
 
 Outcome:
 
 - agents get richer local commands without changing the required PR gate
 
-### Sprint A5
+### Sprint A6
 
 Deliverable:
 
@@ -222,7 +235,7 @@ Outcome:
 - team-lead gets a reviewed timing-backed strategy before the baseline merges
   into `atm-graft`
 
-### Sprint A6
+### Sprint A7
 
 Deliverable:
 
@@ -241,6 +254,7 @@ No implementation sprint begins until team-lead reviews:
 - the exact baseline command list
 - the workflow files removed from ordinary PR gating
 - the sprint ordering that makes Sprint A1 establish the required PR gate
+- the A4 / A5 split between taxonomy helpers and optional local lanes
 
 ## Exit Criteria
 

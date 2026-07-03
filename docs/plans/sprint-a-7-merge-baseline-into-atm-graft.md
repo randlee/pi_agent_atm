@@ -1,13 +1,13 @@
 ---
-id: A6
+id: A7
 title: Merge Baseline Into Atm-Graft
 status: planned
-branch: sprint-a-6-merge-baseline-into-atm-graft
-worktree: ../pi_agent_atm-worktrees/sprint-a-6-merge-baseline-into-atm-graft
+branch: sprint-a-7-merge-baseline-into-atm-graft
+worktree: ../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft
 target: feature/atm-graft-integration
 ---
 
-# Sprint A6 — Merge Baseline Into Atm-Graft
+# Sprint A7 — Merge Baseline Into Atm-Graft
 
 ## Goal
 
@@ -16,7 +16,7 @@ target: feature/atm-graft-integration
 
 ## Hard Dependencies
 
-- Sprint A5 merged into `develop`
+- Sprint A6 merged into `develop`
 - `feature/atm-graft-integration` is the active integration branch
 
 ## Exact Targets
@@ -50,6 +50,7 @@ develop
   -> sprint-a-3
   -> sprint-a-4
   -> sprint-a-5
+  -> sprint-a-6
   -> feature/atm-graft-integration
 ```
 

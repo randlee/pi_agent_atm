@@ -1,17 +1,17 @@
 ---
 id: A4
-title: Add Optional Local Lanes
+title: Add Taxonomy Helpers
 status: planned
-branch: sprint-a-4-add-optional-local-lanes
-worktree: ../pi_agent_atm-worktrees/sprint-a-4-add-optional-local-lanes
+branch: sprint-a-4-add-taxonomy-helpers
+worktree: ../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers
 target: develop
 ---
 
-# Sprint A4 — Add Optional Local Lanes
+# Sprint A4 — Add Taxonomy Helpers
 
 ## Goal
 
-- expose richer local-only operator lanes while freezing required PR CI
+- expose taxonomy helpers while freezing required PR CI
 
 ## Hard Dependencies
 
@@ -20,8 +20,6 @@ target: develop
 ## Exact Targets
 
 - `justfile`
-- `.just/lint_catalog.py`
-- `.just/test_catalog.py`
 - `.just/explain.py`
 - `.just/show_suites.py`
 
@@ -32,23 +30,18 @@ the scope this sprint claims. If that cannot be done cleanly in one sprint, the
 sprint must be split before implementation begins. No deliverable may be
 silently dropped or partially deferred.
 
-- optional local lanes and taxonomy helpers exist without changing required PR
-  CI
+- taxonomy helpers exist without changing required PR CI
 
 ## Required Work
 
 - add `just explain`
 - add `just suites`
-- add optional local lanes such as `just test unit`, `just test integration`,
-  and `just lint all-local`
 - keep required `baseline` contents exactly as Sprint A3 defined them
 
 Reuse sources:
 
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/explain.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/show_suites.py`
-- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/lint_catalog.py`
-- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/test_catalog.py`
 
 ## Explicit Code Samples
 
@@ -60,22 +53,18 @@ suites:
     {{python_cmd}} .just/show_suites.py
 ```
 
-```python
-DISPLAY_ORDER = ("baseline", "unit", "integration")
-```
-
 ## This Sprint Does Not Close
 
 - it does not change required PR CI contents
 - it does not reintroduce heavyweight PR workflows
 - it does not invent a new top-level `just` command
+- it does not add optional local lanes
 
 ## Acceptance Criteria
 
 - `just explain` works
 - `just suites` works
-- optional local lanes are documented and callable
-- optional local lanes are clearly marked as non-required in docs and lane help
+- taxonomy helper output points operators to the SSOT lane and suite surfaces
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
 
@@ -83,7 +72,5 @@ DISPLAY_ORDER = ("baseline", "unit", "integration")
 
 - `just explain lint clippy-lib`
 - `just suites`
-- `just test unit`
-- `just test integration`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
