@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from unit_basic_audit import UNIT_BASIC_INCLUDE_PREFIXES
+from unit_basic_audit import UNIT_BASIC_SKIP_FILTERS_BY_PREFIX
 
 
 @dataclass(frozen=True)
@@ -27,11 +29,17 @@ def cargo_test(
     return tuple(command)
 
 
-UNIT_BASIC_SKIP_FILTERS = (
-    # Documented category: subsystem stress/endurance tests. This case
-    # intentionally waits on a timeout path and is the approved A1 exclusion.
-    "permission_request_times_out_fail_closed",
-)
+def unit_basic_inline_commands() -> tuple[tuple[str, ...], ...]:
+    commands: list[tuple[str, ...]] = []
+    for prefix in UNIT_BASIC_INCLUDE_PREFIXES:
+        commands.append(
+            cargo_test(
+                "--lib",
+                prefix,
+                skip_filters=UNIT_BASIC_SKIP_FILTERS_BY_PREFIX.get(prefix, ()),
+            )
+        )
+    return tuple(commands)
 
 
 LANES = {
@@ -42,17 +50,9 @@ LANES = {
     ),
     "unit-basic": TestLane(
         name="unit-basic",
-        description="Run the documented unit-basic base plus strict add-on tests.",
+        description="Run the audited inline allowlist plus strict add-on tests.",
         commands=(
-            # The sprint docs say "cargo test --all-targets --lib", but Cargo
-            # forwards harness flags like `--skip` into benchmark/example
-            # binaries under `--all-targets`; those harnesses reject `--skip`,
-            # so the documented exclusion mechanism is only implementable
-            # against the full library test sweep.
-            cargo_test(
-                "--lib",
-                skip_filters=UNIT_BASIC_SKIP_FILTERS,
-            ),
+            *unit_basic_inline_commands(),
             cargo_test("--test", "capability_policy_model", nocapture=True),
             cargo_test("--test", "policy_profile_hardening", nocapture=True),
             cargo_test("--test", "extension_flag_passthrough", nocapture=True),

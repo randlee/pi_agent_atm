@@ -70,8 +70,23 @@ silently dropped or partially deferred.
   - `just test unit-basic`
 - define `just test compile` as `cargo check --all-targets`
 - define `just test unit-basic` as:
-  - `cargo test --all-targets --lib`
-  - plus the explicit strict add-on allowlist from the testing strategy
+  - the audited inline allowlist from
+    `docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
+  - implemented as one `cargo test --lib <prefix>` command per audited
+    included inline prefix
+  - with exactly one retained exact skip inside an included prefix:
+    `acp::tests::permission_request_times_out_fail_closed`
+  - plus the explicit strict add-on integration targets from the testing
+    strategy
+- document the reconciliation for the current inline audit:
+  - `6651` total inline lib tests
+  - `1797` included in `unit-basic`
+  - `4854` excluded by documented categories
+- document why `unit-basic` cannot use `cargo test --all-targets --lib`:
+  benchmark/example harnesses reject forwarded `--skip` flags under
+  `--all-targets`
+- do not treat a broad `cargo test --lib` minus a growing skip list as the
+  first baseline unit lane
 - do not treat all of `[suite.unit]` as the first baseline unit lane
 - confirm the testing strategy already inventories every currently PR-triggered
   upstream workflow before any trigger changes land
@@ -195,6 +210,7 @@ on:
   the Sprint A1 operational update lands
 - the new `baseline` workflow does not call any raw cargo command directly
 - `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
+- `unit-basic` is traceable to the checked-in audited inline taxonomy artifact
 - required PR CI is green and comfortably under 10 minutes
 
 ## Required Validation
@@ -203,6 +219,7 @@ on:
 - `just fmt check`
 - `just test compile`
 - `just test unit-basic`
+- `python3 .just/unit_basic_audit.py summary`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
 - `gh workflow view ci`
