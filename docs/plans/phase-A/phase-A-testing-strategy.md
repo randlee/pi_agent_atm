@@ -484,16 +484,16 @@ on 2026-07-04:
 | `just test compile` | pass | `1.41s` |
 | `just test unit-basic` | pass | `37.50s` |
 
-Observed GitHub Actions timings from baseline run `28721139199` on
-2026-07-04:
+Observed GitHub Actions timings from baseline run `28721756193` for head SHA
+`4e28691b49c6bc28954f639ab36ca3dcf9c5b911` on 2026-07-04:
 
 | Workflow / Step | Result | Approximate wall time |
 |---|---|---:|
-| `baseline` total | success | `~5m46s` |
+| `baseline` total | success | `~6m09s` |
 | `Just help` | success | `<1s` |
-| `Format gate` | success | `~16s` |
-| `Compile gate` | success | `~1m44s` |
-| `Basic unit gate` | success | `~2m58s` |
+| `Format gate` | success | `~17s` |
+| `Compile gate` | success | `~1m55s` |
+| `Basic unit gate` | success | `~3m07s` |
 
 `just test unit-basic` currently reconciles as:
 

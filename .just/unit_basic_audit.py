@@ -17,49 +17,6 @@ class TaxonomyRule:
     rationale: str
 
 
-CATEGORY_DEFINITIONS = {
-    "unit_basic_fast_deterministic": (
-        "Fast deterministic core-unit coverage retained in the first required gate."
-    ),
-    "async_timing_dependent_flow_tests": (
-        "Real wall-clock timeout, retry, cooldown, abort, or completion timing paths "
-        "that do not stay within a fast required gate."
-    ),
-    "fixture_vcr_inventory_audits": (
-        "Fixture, VCR, conformance, or replay inventory audits that validate broader "
-        "upstream contracts rather than the first PR gate."
-    ),
-    "network_http_streaming_dependent_tests": (
-        "Credential, HTTP, streaming, local test-server, or provider request-capture "
-        "tests that depend on network-style flows outside the early baseline."
-    ),
-    "extension_runtime_policy_integration_tests": (
-        "Extension runtime, hostcall, policy, ledger, and dispatcher integration "
-        "matrices that are broader than the first compile/basic-unit gate."
-    ),
-    "interactive_tui_workflow_tests": (
-        "Interactive TUI, rendering, keybinding, and operator workflow tests that "
-        "exercise higher-level UI behavior outside the first PR gate."
-    ),
-    "subprocess_bash_tool_execution_tests": (
-        "Subprocess, bash-tool, grep-tool, package-manager, or doctor command-surface "
-        "tests that are not part of the first strict unit gate."
-    ),
-    "rpc_command_queue_integration_tests": (
-        "RPC retry, queue, bridge, and extension-command integration tests that are "
-        "broader than the first required unit lane."
-    ),
-    "persistence_index_sqlite_artifact_tests": (
-        "Session index, sqlite, storage, and persistence artifact verification tests "
-        "that belong to broader persistence coverage."
-    ),
-    "subsystem_stress_or_endurance_tests": (
-        "Stress, endurance, or broader system-behavior tests intentionally kept out "
-        "of the first required gate."
-    ),
-}
-
-
 INCLUDE_RULES = (
     TaxonomyRule(
         "prefix",
@@ -747,19 +704,13 @@ UNIT_BASIC_SKIP_FILTERS_BY_PREFIX = {
 }
 
 
-def exact_prefix_match(test_name: str, prefix: str) -> bool:
-    test_parts = test_name.split("::")
-    prefix_parts = prefix.split("::")
-    return len(test_parts) > len(prefix_parts) and test_parts[: len(prefix_parts)] == prefix_parts
-
-
 def boundary_path_contains(test_name: str, prefix: str) -> bool:
     test_parts = test_name.split("::")
     prefix_parts = prefix.split("::")
     window = len(prefix_parts)
-    if window == 0 or len(test_parts) <= window:
+    if window == 0 or len(test_parts) < window:
         return False
-    for index in range(len(test_parts) - window):
+    for index in range(len(test_parts) - window + 1):
         if test_parts[index : index + window] == prefix_parts:
             return True
     return False
@@ -877,6 +828,13 @@ def emit_tsv() -> str:
     return "\n".join(rows) + "\n"
 
 
+def run_selftest() -> int:
+    assert boundary_path_contains("foo::session::tests", "session::tests")
+    assert boundary_path_contains("session::tests::test_tail_case", "session::tests")
+    assert not boundary_path_contains("session::other::tests", "session::tests")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 1 or argv[1] == "summary":
         sys.stdout.write(emit_summary())
@@ -888,7 +846,9 @@ def main(argv: list[str]) -> int:
         for prefix, skip_filters in unit_basic_inline_commands():
             print(f"{prefix}\t{','.join(skip_filters)}")
         return 0
-    raise SystemExit("usage: unit_basic_audit.py [summary|tsv|commands]")
+    if argv[1] == "selftest":
+        return run_selftest()
+    raise SystemExit("usage: unit_basic_audit.py [summary|tsv|commands|selftest]")
 
 
 if __name__ == "__main__":
