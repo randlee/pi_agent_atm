@@ -60,6 +60,13 @@ silently dropped or partially deferred.
   only required PR gate
 - the first required gate proves compile health and strict basic-unit health
   before lint or smoke expansion
+- the Sprint A1 PR notes include a timing table with local wall-clock and CI
+  wall-clock measurements for:
+  - `just help`
+  - `just fmt check`
+  - `just test compile`
+  - `just test unit-basic`
+  - total `baseline` workflow duration
 
 ## Required Work
 
@@ -199,6 +206,10 @@ on:
 - the new `baseline` workflow does not call any raw cargo command directly
 - `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
 - required PR CI is green and comfortably under 10 minutes
+- the Sprint A1 PR notes record local and CI timings for every A1 baseline
+  command plus total workflow duration
+- the Sprint A1 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -221,6 +232,9 @@ on:
 - `gh workflow run semver --ref <sprint-branch>`
 - `gh workflow run model-catalog-drift --ref <sprint-branch>`
 - `./scripts/check_branch_protection.sh --report`
+- record local timings for `just help`, `just fmt check`, `just test compile`,
+  and `just test unit-basic`
+- record CI step timings and total `baseline` workflow duration from the A1 run
 - verify ordinary-PR required status checks are reduced to `baseline` only
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,
   `semver`, or `Model Catalog Drift`

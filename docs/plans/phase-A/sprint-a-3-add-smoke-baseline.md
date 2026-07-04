@@ -45,6 +45,9 @@ silently dropped or partially deferred.
 - `just test baseline` exists and is wired into required PR CI
 - the initial smoke scope is explicit and excludes these broader local test
   surfaces: `just test unit`, `just test integration`, VCR, and E2E
+- the Sprint A3 PR notes include a timing table with local wall-clock and CI
+  wall-clock measurements for the full A3 baseline command set and total
+  `baseline` workflow duration
 
 ## Required Work
 
@@ -116,6 +119,9 @@ steps:
 - smoke coverage excludes `just test unit`, `just test integration`, VCR, and
   E2E coverage
 - `baseline` remains green and under 10 minutes
+- the Sprint A3 PR notes record local and CI timings for the A3 baseline stage
+- the Sprint A3 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -128,3 +134,6 @@ steps:
 - verify `scripts/smoke.sh` still excludes VCR and E2E coverage from the
   required PR lane
 - `gh run list --workflow baseline --limit 5`
+- record local timings for the full A3 baseline command set through
+  `just test baseline`
+- record CI step timings and total `baseline` workflow duration from the A3 run

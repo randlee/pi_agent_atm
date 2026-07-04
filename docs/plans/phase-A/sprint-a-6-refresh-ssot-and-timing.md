@@ -60,6 +60,8 @@ silently dropped or partially deferred.
   - refreshed timing table in `phase-A-testing-strategy.md`
   - refreshed Phase A overview and sprint docs if names or ownership drifted
   - current ATM layering report for `feature/atm-graft-integration`
+- the review pack includes a consolidated A1-A6 timing ledger with links back
+  to each sprint PR's local and CI timing table
 
 ## Required Work
 
@@ -78,6 +80,7 @@ silently dropped or partially deferred.
 - confirm the upstream ordinary-PR workflow classification still matches the
   testing strategy after A1 trigger changes
 - record the exact review-pack artifact list in the sprint PR notes
+- record the consolidated A1-A6 timing ledger in the sprint PR notes
 
 ## Explicit Code Samples
 
@@ -113,6 +116,10 @@ review pack
   pack
 - the sprint PR notes name the exact review-pack artifacts and confirm no lane
   names or workflow names drifted unexpectedly
+- the review pack and sprint PR notes include a consolidated A1-A6 local and
+  CI timing ledger
+- the review pack and sprint PR notes record the exact CI run URL/ID used for
+  each timing measurement in that ledger
 - required `baseline` workflow is unchanged from Sprint A3
 - sprint docs and testing strategy remain internally consistent after the timing refresh
 - `baseline` remains green and under 10 minutes
@@ -127,3 +134,4 @@ review pack
 - `just lint clippy-lib`
 - `just test baseline`
 - verify the review-pack artifact list matches the final changed docs/report set
+- verify the consolidated A1-A6 timing ledger matches the per-sprint PR notes

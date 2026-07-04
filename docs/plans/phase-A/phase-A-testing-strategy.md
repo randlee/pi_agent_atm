@@ -34,6 +34,9 @@ git/GitHub evidence before implementation claims are treated as complete.
 11. Future ATM-owned integration in this repo should follow the actual
     `feature/atm-graft-integration` dependency model and bounded seam files
     rather than broad rewrites across upstream-owned files.
+12. Every sprint PR must include a timing table for local runs and equivalent
+    CI runs for that sprint's stage, and the phase conclusion must roll those
+    timings up across all sprints.
 
 ## Fork And Upstream Audit Baseline
 
@@ -69,6 +72,11 @@ Mandatory A1 precondition:
 - before ordinary-PR triggers are removed, this strategy document must already
   describe every currently PR-triggered workflow, why it is leaving the
   required gate, and what trigger path remains for it afterward
+
+Trigger-file edits are required instead of branch-protection-only narrowing
+because branch protection changes which checks block merges, but it does not
+stop heavyweight `pull_request` workflows from still registering and running on
+ordinary PRs.
 
 ## Evidence Reports
 
@@ -132,6 +140,27 @@ Important interpretation:
   basic-unit health first.
 - A1 is a gate-reduction sprint, not a claim that the fork's broader testing
   unknowns have been solved.
+
+## Timing Capture Contract
+
+Each sprint PR must record, at minimum:
+
+- local wall-clock timing for every command added or re-validated in that
+  sprint
+- CI step timing for the equivalent `baseline` workflow steps
+- total `baseline` workflow wall time for that sprint stage
+
+When a sprint adds local-only commands without putting them into required PR CI:
+
+- the PR must still refresh the unchanged baseline CI timing table for that
+  sprint
+- local-only commands must be timed locally and marked `no ci equivalent by
+  design`
+
+Rollup ownership:
+
+- A6 must assemble an A1-A6 timing ledger in the review pack
+- A7 must publish the final A1-A7 timing ledger at phase conclusion
 
 ## Source Of Truth Policy
 
@@ -487,29 +516,29 @@ git/GitHub evidence on `2026-07-04`.
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `compile` lane definition
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `unit-basic` allowlist and exclusion list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the steady-state `baseline` command list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the per-sprint rollout table
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the SSOT owner files for lint and test lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the list of local-only and manual-only lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 
 ## Exit Criteria
 

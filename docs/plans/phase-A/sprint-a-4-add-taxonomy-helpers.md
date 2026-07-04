@@ -40,6 +40,10 @@ sprint must be split before implementation begins. No deliverable may be
 silently dropped or partially deferred.
 
 - taxonomy helpers exist without changing required PR CI
+- the Sprint A4 PR notes include:
+  - refreshed local and CI timing for the unchanged A3 baseline stage
+  - local timings for `just explain` and `just suites`
+  - an explicit `no ci equivalent by design` note for the helper commands
 
 ## Required Work
 
@@ -91,6 +95,10 @@ command=./scripts/smoke.sh --skip-lint --no-rch
   command for the requested lane
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
+- the Sprint A4 PR notes record local and CI timings exactly as the sprint
+  timing contract requires
+- the Sprint A4 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -99,3 +107,7 @@ command=./scripts/smoke.sh --skip-lint --no-rch
 - `just suites`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
+- record local timings for `just explain lint clippy-lib`, `just explain test baseline`,
+  and `just suites`
+- record refreshed CI step timings and total `baseline` workflow duration for
+  the unchanged A3 baseline stage

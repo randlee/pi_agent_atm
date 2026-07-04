@@ -2,8 +2,9 @@
 
 Date: 2026-07-04
 Status: blocked pending branch-and-ci reconciliation
-Branch: `plan/phase-A`
-Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
+Branch: `docs/phase-a-plan-updates`
+Worktree: `../pi_agent_atm-worktrees/docs/phase-a-plan-updates`
+PR target: `develop`
 Authoritative scope: corrected Phase A planning
 
 ## Purpose
@@ -56,6 +57,10 @@ Applied interpretation for this phase:
   salvage chain is proven
 - no sprint should merge into `integrate/phase-A` without a recorded evidence
   package that includes registration, execution, and timing proof
+- every sprint PR must record both:
+  - local wall-clock timings for the sprint's in-scope commands
+  - equivalent CI step and total workflow timings for the same stage, or an
+    explicit `no ci equivalent by design` note for local-only lanes
 
 ## Branch And Worktree Model
 
@@ -151,6 +156,56 @@ What the evidence does not yet explain:
 The plan must therefore preserve this as an open incident rather than papering
 it over with a single-cause theory.
 
+## Remediation Tasks
+
+Before Phase A can be considered back on track, these live PRs must each carry
+their own evidence package or be reset and re-cut:
+
+- PR #11 `sprint-a-2-add-local-code-lint`
+- PR #12 `sprint-a-1-establish-minimal-baseline-gate`
+- PR #13 `sprint-a-3-add-smoke-baseline`
+- PR #14 `sprint-a-4-add-taxonomy-helpers`
+- PR #15 `sprint-a-5-add-optional-local-lanes`
+- PR #16 `sprint-a-6-refresh-ssot-and-timing`
+- PR #17 `sprint-a-7-merge-baseline-into-atm-graft`
+
+Required backfill for each PR:
+
+- workflow registration proof for the exact head SHA
+- workflow execution proof, including failed-log review if red
+- timing tables that follow the Sprint Timing Deliverable Contract:
+  - local wall-clock measurements for the sprint's in-scope commands
+  - CI step and total workflow measurements
+  - exact CI run URL/ID recorded for each timing measurement
+- confirmation that the PR base branch actually contains the expected baseline
+  substrate after merge-forward
+
+If any PR cannot supply that evidence cleanly, it should be reset or re-cut
+from the last proven state instead of being treated as implicitly valid.
+
+## Sprint Timing Deliverable Contract
+
+Quality-mgr timing capture is a required artifact for every Phase A sprint PR.
+
+Each sprint PR must include:
+
+- a local timing table for every command added or validated in that sprint
+- a CI timing table for the equivalent `baseline` step set and total workflow
+  duration
+- an explicit `no ci equivalent by design` note for local-only helper or
+  optional lanes
+- links or identifiers for the exact CI runs used for timing capture
+
+CI timing must come from reading existing GitHub Actions run and job data for
+the sprint branch; Phase A should not add timing-only instrumentation steps to
+`baseline.yml`.
+
+Rollup requirements:
+
+- Sprint A6 review-pack materials must consolidate the timing tables for A1-A6
+- Sprint A7 phase conclusion materials must consolidate the timing tables for
+  A1-A7 and report the final progression of required baseline cost by sprint
+
 ## Ground Rules
 
 - do not work on `main`
@@ -167,6 +222,7 @@ it over with a single-cause theory.
 - every sprint evidence package must include:
   - workflow registration proof
   - workflow execution proof
+  - local timings
   - CI timings
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
 - the Phase A baseline lanes become the stable upstream-regression contract
@@ -412,25 +468,25 @@ branch model and CI-registration gap are reviewed again.
 Review-item record:
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the exact baseline command list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the workflow files removed from ordinary PR gating
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the upstream PR-workflow inventory and its post-A1 trigger classification
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `unit-basic` allowlist and exclusion rationale
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the sprint ordering that makes Sprint A1 establish the required PR gate
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the A4 / A5 split between taxonomy helpers and optional local lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 
 Implementation-start rule:
 
@@ -469,5 +525,6 @@ Phase A is complete when:
 - the sprint docs and live PR bases agree
 - the unresolved A3-A6 zero-run registration gap is either fixed or
   independently explained with evidence
+- the phase conclusion report includes the A1-A7 local and CI timing ledger
 - the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
   crates without broad upstream churn

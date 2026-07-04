@@ -46,6 +46,9 @@ silently dropped or partially deferred.
   is wired into `baseline`
 - `just lint clippy-lib` exists with an exact local-code command contract and
   is wired into `baseline`
+- the Sprint A2 PR notes include a timing table with local wall-clock and CI
+  wall-clock measurements for the full A2 baseline command set and total
+  `baseline` workflow duration
 
 ## Required Work
 
@@ -109,6 +112,9 @@ steps:
   `clippy --examples`
 - `baseline` remains green and under 10 minutes
 - no new PR-required workflow is introduced
+- the Sprint A2 PR notes record local and CI timings for the A2 baseline stage
+- the Sprint A2 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -121,3 +127,6 @@ steps:
 - verify `baseline.yml` orders the lint lanes after `just test unit-basic`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
+- record local timings for the full A2 baseline command set through
+  `just lint clippy-lib`
+- record CI step timings and total `baseline` workflow duration from the A2 run
