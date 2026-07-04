@@ -1,7 +1,7 @@
 # Phase A - Testing Strategy
 
 Date: 2026-07-03
-Status: proposed for team-lead review
+Status: approved
 
 ## Purpose
 
@@ -44,6 +44,7 @@ and what they prove are:
 | `ci.yml` | all PRs | cross-OS compile/test/policy guard with DoD evidence checks | remove from ordinary PRs in A1, retain manual trigger |
 | `conformance.yml` | all PRs | extension/runtime compatibility matrix, sibling-repo checkout health, Bun/npm legacy compatibility | remove from ordinary PRs in A1, retain manual and scheduled triggers |
 | `fuzz.yml` | PRs targeting `main` | Linux fuzz smoke across selected targets | remove from ordinary PRs in A1, retain manual and scheduled triggers |
+| `bench.yml` | all PRs | benchmark execution surface kept outside required gating | remove from ordinary PRs in A1, retain manual trigger |
 | `semver.yml` | path-filtered PRs touching Rust/API surfaces | public API SemVer compatibility | remove from ordinary PRs in A1, retain manual trigger |
 | `model-catalog-drift.yml` | path-filtered PRs touching generator/catalog inputs | Node-based catalog drift detection, advisory today | remove from ordinary PRs in A1, retain manual and scheduled triggers |
 
@@ -474,35 +475,35 @@ Team-lead approval should explicitly confirm:
 
 Reviewer: `team-lead`
 Review date: `2026-07-04`
-Approval state: pending final sign-off; this strategy remains blocked on the
-current plan-QA correction loop.
+Approval state: team-lead approved this testing strategy on `2026-07-04`; the
+strategy is the approved control document for Phase A implementation.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the `compile` lane definition
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the `unit-basic` allowlist and exclusion list
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the steady-state `baseline` command list
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the per-sprint rollout table
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the SSOT owner files for lint and test lanes
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the list of local-only and manual-only lanes
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 
 ## Exit Criteria
 

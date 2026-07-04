@@ -96,9 +96,17 @@ silently dropped or partially deferred.
   PRs so `baseline` is the only required workflow after the Sprint A1 trigger
   reduction lands
 - update `docs/BRANCH_PROTECTION.md` so the checked-in required-status-check
-  policy matches the reduced Sprint A1 ordinary-PR gate
+  policy matches the reduced Sprint A1 ordinary-PR gate by replacing the
+  current seven-row table entry set with this literal row:
+  - `| baseline | baseline.yml | Yes | Yes |`
+- update the GitHub CLI example in `docs/BRANCH_PROTECTION.md` so the
+  `required_status_checks.contexts` payload is reduced to this literal baseline
+  context string:
+  - `"contexts":["baseline"]`
 - update `scripts/check_branch_protection.sh` so the checked-in enforcement
-  artifact validates the reduced Sprint A1 Required Status Checks set
+  artifact validates the reduced Sprint A1 Required Status Checks set using
+  this exact replacement:
+  - `REQUIRED_CHECKS=("baseline")`
 - prove each displaced upstream workflow is still manually runnable after the
   trigger edits and record that proof in the Sprint A1 PR notes
 - keep the Phase A baseline lane names stable so later ATM-owned lanes can

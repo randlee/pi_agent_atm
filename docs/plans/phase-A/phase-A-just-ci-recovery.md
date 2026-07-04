@@ -1,7 +1,7 @@
 # Phase A - Minimal Just / CI Recovery
 
 Date: 2026-07-03
-Status: planning
+Status: complete
 Branch: `plan/phase-A`
 Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
 Authoritative scope: corrected Phase A planning
@@ -323,36 +323,37 @@ No implementation sprint begins until team-lead reviews:
 
 Reviewer: `team-lead`
 Review date: `2026-07-04`
-Confirmation: pending final sign-off; QA-1 reported blocking findings and
-implementation remains blocked until the review gate is explicitly approved.
+Confirmation: team-lead reviewed and approved this Phase A plan on
+`2026-07-04`; the review gate is closed and implementation may begin from this
+approved planning baseline.
 
 Review-item record:
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the exact baseline command list
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the workflow files removed from ordinary PR gating
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the upstream PR-workflow inventory and its post-A1 trigger classification
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the `unit-basic` allowlist and exclusion rationale
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the sprint ordering that makes Sprint A1 establish the required PR gate
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the A4 / A5 split between taxonomy helpers and optional local lanes
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-  - status: pending recheck after QA-1 fix round
+  - status: approved by team-lead, 2026-07-04
 
 Implementation-start rule:
 
-- `Status: complete` is reserved for the point when team-lead explicitly closes
-  every review item above and the review gate is satisfied
+- `Status: complete` now applies because team-lead explicitly closed every
+  review item above on `2026-07-04` and the review gate is satisfied
 
 ## Upstream Workflow Trigger Reconciliation
 
