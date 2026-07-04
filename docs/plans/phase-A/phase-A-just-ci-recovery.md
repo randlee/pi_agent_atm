@@ -55,6 +55,17 @@ Applied interpretation for this phase:
 
 ## Branch And Worktree Model
 
+> **2026-07-04 correction**: the branch model below (direct-to-`develop`
+> sprint branches, no integration branch) was never actually followed in
+> practice -- Sprints A1-A7 were all built stacked on `integrate/phase-A`,
+> culminating in a merge PR into `feature/atm-graft-integration`. Team-lead
+> and randlee reconfirmed on 2026-07-04 that an integration branch is the
+> correct model going forward: it consolidates small changes one at a time
+> and lets each be QA/CI-verified before anything lands on `develop`. This
+> section is retained for historical record of the original (superseded)
+> intent; see "Integration Branch Model (reconfirmed 2026-07-04)" below for
+> the model actually in force.
+
 Corrected Phase A does not use an `integrate/phase-A` merge-forward branch.
 
 Instead:
@@ -78,6 +89,33 @@ Execution model:
 
 This branch model is required because the first shipped baseline must land
 immediately, not after an integration branch has accumulated multiple sprints.
+
+## Integration Branch Model (reconfirmed 2026-07-04)
+
+`integrate/phase-A` is the consolidation branch for all Phase A sprint work.
+Sprint branches target `integrate/phase-A` (directly or via the existing
+stacked chain); `integrate/phase-A` only advances toward `develop` once its
+own CI is real and green. Rationale: an integration branch lets small changes
+be approved and consolidated one at a time, and no unverified code should land
+on `develop` directly.
+
+Known gap being remediated as of 2026-07-04: `integrate/phase-A` (and
+`develop`) lack the `justfile` / `.just/**` operator surface that
+`.github/workflows/baseline.yml` depends on for 6 of its 7 steps, and GitHub's
+own Actions API shows several Phase A sprint PRs (A3-A5) never triggered a
+single workflow run at all -- not merely a missing-tool failure, but no run
+recorded by GitHub for those PRs' head SHAs. Remediation:
+
+1. land `justfile`, `.just/**`, and `.github/workflows/baseline.yml` together
+   onto `integrate/phase-A` in one PR, so the integration branch is fully
+   self-sufficient (this supersedes attempting to register `baseline.yml`
+   alone, which is necessary but not sufficient)
+2. after that lands, verify -- per sprint PR, via `gh pr checks` against a
+   freshly pushed commit -- that a real workflow run starts and completes;
+   do not assume registration alone fixed the silent-no-run PRs
+3. only after the full stacked chain shows real, green, individually-verified
+   CI does `integrate/phase-A` proceed to its own gated PR into `develop`,
+   which must itself show green CI before merge
 
 ## Ground Rules
 
