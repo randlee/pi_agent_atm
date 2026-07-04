@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from unit_basic_audit import UNIT_BASIC_INCLUDE_PREFIXES
 
+from lint_catalog import OPTIONAL_LANES as OPTIONAL_LINT_LANES
 from test_catalog import LANES
+from test_catalog import OPTIONAL_LANES as OPTIONAL_TEST_LANES
 from test_catalog import SUITE_ORDER
 from test_catalog import load_suite_targets
 
@@ -33,15 +35,29 @@ def main() -> int:
     )
     emit_record(
         [
+            ("lane_group", "local-optional"),
+            ("source", ".just/lint_catalog.py,.just/test_catalog.py"),
+            (
+                "members",
+                ",".join(
+                    [*(f"lint.{name}" for name in OPTIONAL_LINT_LANES), *(f"test.{name}" for name in OPTIONAL_TEST_LANES)]
+                ),
+            ),
+        ]
+    )
+    emit_record(
+        [
             ("lane_group", "atm-owned"),
-            ("source", "reserved"),
+            ("source", "reserved-prefix"),
+            ("prefix", "atm-"),
             ("members", "(none)"),
         ]
     )
     emit_record(
         [
-            ("lane_group", "integration"),
-            ("source", "reserved"),
+            ("lane_group", "integration-owned"),
+            ("source", "reserved-prefix"),
+            ("prefix", "integration-"),
             ("members", "(none)"),
         ]
     )

@@ -17,6 +17,15 @@ def run_lane(target: str) -> int:
         for child in lane.children:
             run(["just", "lint", child])
         return 0
+    if lane.steps:
+        print(
+            f"lane={lane.name}\n"
+            f"command={' && '.join(' '.join(step) for step in lane.steps)}\n"
+            f"ssot=.just/lint_catalog.py"
+        )
+        for step in lane.steps:
+            run(list(step))
+        return 0
     if lane.recipe is not None:
         print(
             f"lane={lane.name}\n"
