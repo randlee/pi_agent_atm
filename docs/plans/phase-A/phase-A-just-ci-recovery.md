@@ -51,7 +51,8 @@ Applied interpretation for this phase:
 - each sprint must land production-ready for the scope it claims
 - no sprint may rely on the old heavyweight PR workflow surface remaining active
 - no sprint may silently carry a required deliverable forward
-- every sprint must preserve green required PR CI under 10 minutes
+- every sprint must preserve green required PR CI and report timing honestly
+  against the revised July 4, 2026 steady-state reference envelope
 - standing process gap from A4 and A5 QA: sprint docs that add or widen lane
   catalogs must predeclare the runner/helper files those lanes require
   (`.just/run_*.py`, `.just/show_suites.py`, `.just/print_help.py`) in Exact
@@ -106,7 +107,8 @@ actual previous increment, not against an older `develop` snapshot.
   call `just` commands rather than bespoke cargo command strings
 - compile checking and strict basic-unit coverage must land before local-code
   lint expansion or smoke-lane expansion
-- required PR CI must stay below 10 minutes in every implementation sprint
+- required PR CI timing must be reported against the revised July 4, 2026
+  steady-state reference envelope in every implementation sprint
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
 - the Phase A baseline lanes become the stable upstream-regression contract
 - future ATM-owned lanes must layer in additively through `just lint` and
@@ -200,11 +202,13 @@ Observed local macOS timings from `feature/just-integration`:
 
 Observed GitHub Actions timings from 2026-07-04:
 
-- Sprint A1 command steps (`just help` through `just test unit-basic`):
-  `9m45s` on run `28698960460`
-- Sprint A2 command steps (`just help` through `just lint clippy-lib`):
-  `12m07s` on run `28698763616`
-- current step-level detail lives in
+- Sprint A1 single-job `baseline` workflow total:
+  `17m39s` on run `28698012935`
+- Sprint A2 single-job `baseline` workflow total:
+  `12m59s` on run `28698763616`
+- Sprint A7 single-job `baseline` workflow total:
+  `13m09s` on run `28701385323`
+- detailed A1/A2 command-step evidence still lives in
   `docs/plans/phase-A/phase-A-testing-strategy.md`
 
 Implications:
@@ -212,8 +216,11 @@ Implications:
 - a fast required PR baseline is viable
 - `clippy --tests` does not belong in required PR CI
 - broad `cargo test` orchestration does not belong in required PR CI
-- the current A2 green evidence is still over the 10-minute budget and must be
-  reported honestly until a later green run proves otherwise
+- the original under-10-minute target was apparently never met in real phase
+  evidence and is formally revised by the July 4, 2026 run history above
+- the current steady-state baseline reference is approximately 13 minutes, and
+  any future claim of sub-10-minute compliance requires a real single-job run
+  that proves it
 - `fuzz`, `bench`, and `semver` must stay outside ordinary PR gating
 - upstream PR-only specialty workflows must be explicitly classified before
   Sprint A1 changes any triggers

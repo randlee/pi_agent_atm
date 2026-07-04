@@ -105,7 +105,7 @@ A6 review are:
 - `Cargo.toml`
 - `src/lib.rs`
 - `src/main.rs`
-- `src/cli.rs`
+- `src/agent.rs`
 - `src/atm_graft.rs`
 - `vendor/atm-daemon-bootstrap-shim/Cargo.toml`
 - `vendor/atm-daemon-bootstrap-shim/src/lib.rs`
