@@ -470,11 +470,47 @@ Team-lead approval should explicitly confirm:
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
 - the intended repository layering surfaces for ATM-owned crates and glue code
 
+### Team-Lead Approval Record
+
+Reviewer: `team-lead`
+Review date: `2026-07-04`
+Approval state: pending final sign-off; this strategy remains blocked on the
+current plan-QA correction loop.
+
+Checklist record:
+
+- the upstream ordinary-PR workflow inventory and post-A1 trigger plan
+  - status: pending recheck after QA-1 fix round
+- the `compile` lane definition
+  - status: pending recheck after QA-1 fix round
+- the `unit-basic` allowlist and exclusion list
+  - status: pending recheck after QA-1 fix round
+- the steady-state `baseline` command list
+  - status: pending recheck after QA-1 fix round
+- the per-sprint rollout table
+  - status: pending recheck after QA-1 fix round
+- the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
+  - status: pending recheck after QA-1 fix round
+- the rule that required PR CI stays under 10 minutes in every sprint
+  - status: pending recheck after QA-1 fix round
+- the SSOT owner files for lint and test lanes
+  - status: pending recheck after QA-1 fix round
+- the list of local-only and manual-only lanes
+  - status: pending recheck after QA-1 fix round
+- the rule that Phase A does not invent new top-level `just` commands
+  - status: pending recheck after QA-1 fix round
+- the future lane taxonomy for `upstream`, `atm`, and `integration`
+  - status: pending recheck after QA-1 fix round
+- the intended repository layering surfaces for ATM-owned crates and glue code
+  - status: pending recheck after QA-1 fix round
+
 ## Exit Criteria
 
 The strategy is implemented when:
 
 - required PR CI is exactly one workflow named `baseline`
+- `baseline` is the only required branch-protection status check for ordinary
+  PRs once the Sprint A1 operational branch-protection update lands
 - `baseline` stays under 10 minutes
 - CI and local execution share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs

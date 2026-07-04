@@ -30,19 +30,19 @@ target: develop
 
 ## Exact Targets
 
-- `justfile`
-- `.just/print_help.py`
-- `.just/run_fmt.py`
-- `.just/run_cargo.py`
-- `.just/run_test.py`
-- `.just/test_catalog.py`
-- `.github/workflows/baseline.yml`
-- `.github/workflows/ci.yml`
-- `.github/workflows/conformance.yml`
-- `.github/workflows/fuzz.yml`
-- `.github/workflows/bench.yml`
-- `.github/workflows/semver.yml`
-- `.github/workflows/model-catalog-drift.yml`
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/print_help.py` (`isolation: reused-helper-surface`)
+- `.just/run_fmt.py` (`isolation: reused-helper-surface`)
+- `.just/run_cargo.py` (`isolation: reused-helper-surface`)
+- `.just/run_test.py` (`isolation: reused-helper-surface`)
+- `.just/test_catalog.py` (`isolation: required-test-lane-surface`)
+- `.github/workflows/baseline.yml` (`isolation: new-required-pr-workflow`)
+- `.github/workflows/ci.yml` (`isolation: trigger-only-edit`)
+- `.github/workflows/conformance.yml` (`isolation: trigger-only-edit`)
+- `.github/workflows/fuzz.yml` (`isolation: trigger-only-edit`)
+- `.github/workflows/bench.yml` (`isolation: trigger-only-edit`)
+- `.github/workflows/semver.yml` (`isolation: trigger-only-edit`)
+- `.github/workflows/model-catalog-drift.yml` (`isolation: trigger-only-edit`)
 
 ## Deliverables
 
@@ -90,6 +90,9 @@ silently dropped or partially deferred.
   - `.github/workflows/model-catalog-drift.yml`: `workflow_dispatch` and `schedule` only
 - preserve current branch protection semantics by changing triggers rather than
   deleting whole workflow files
+- update the repository's required branch-protection status checks for ordinary
+  PRs so `baseline` is the only required workflow after the Sprint A1 trigger
+  reduction lands
 - prove each displaced upstream workflow is still manually runnable after the
   trigger edits and record that proof in the Sprint A1 PR notes
 - keep the Phase A baseline lane names stable so later ATM-owned lanes can
@@ -174,6 +177,8 @@ on:
   `schedule` only
 - each displaced workflow still has a verified manual or scheduled execution
   path after the trigger edits
+- branch protection for ordinary PRs requires only the `baseline` workflow once
+  the Sprint A1 operational update lands
 - the new `baseline` workflow does not call any raw cargo command directly
 - `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
 - required PR CI is green and comfortably under 10 minutes
@@ -198,5 +203,6 @@ on:
 - `gh workflow run bench --ref <sprint-branch>`
 - `gh workflow run semver --ref <sprint-branch>`
 - `gh workflow run model-catalog-drift --ref <sprint-branch>`
+- verify ordinary-PR required status checks are reduced to `baseline` only
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,
   `semver`, or `Model Catalog Drift`

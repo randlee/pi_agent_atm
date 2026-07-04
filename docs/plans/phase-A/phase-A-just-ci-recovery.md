@@ -2,6 +2,8 @@
 
 Date: 2026-07-03
 Status: planning
+Branch: `plan/phase-A`
+Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
 Authoritative scope: corrected Phase A planning
 
 ## Purpose
@@ -40,8 +42,8 @@ Only these docs are authoritative for corrected Phase A.
 
 This phase follows:
 
-- `/Volumes/Extreme Pro/github/atm-core/.claude/skills/plan-hardening/sprint-planning-guidelines.md`
-- `/Volumes/Extreme Pro/github/atm-core/.claude/skills/codex-orchestration/sprint-plan.md.j2`
+- `.claude/skills/plan-hardening/sprint-planning-guidelines.md`
+- `.claude/skills/codex-orchestration/sprint-plan.md.j2`
 
 Applied interpretation for this phase:
 
@@ -315,11 +317,62 @@ No implementation sprint begins until team-lead reviews:
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
 
+### Team-Lead Review Record
+
+Reviewer: `team-lead`
+Review date: `2026-07-04`
+Confirmation: pending final sign-off; QA-1 reported blocking findings and
+implementation remains blocked until the review gate is explicitly approved.
+
+Review-item record:
+
+- `docs/plans/phase-A/phase-A-testing-strategy.md`
+  - status: pending recheck after QA-1 fix round
+- the exact baseline command list
+  - status: pending recheck after QA-1 fix round
+- the workflow files removed from ordinary PR gating
+  - status: pending recheck after QA-1 fix round
+- the upstream PR-workflow inventory and its post-A1 trigger classification
+  - status: pending recheck after QA-1 fix round
+- the `unit-basic` allowlist and exclusion rationale
+  - status: pending recheck after QA-1 fix round
+- the sprint ordering that makes Sprint A1 establish the required PR gate
+  - status: pending recheck after QA-1 fix round
+- the A4 / A5 split between taxonomy helpers and optional local lanes
+  - status: pending recheck after QA-1 fix round
+- the future `just` lane taxonomy for upstream, ATM-owned, and integration
+  lanes
+  - status: pending recheck after QA-1 fix round
+- the planned dependency and glue surfaces already present on
+  `feature/atm-graft-integration`
+  - status: pending recheck after QA-1 fix round
+
+Implementation-start rule:
+
+- `Status: complete` is reserved for the point when team-lead explicitly closes
+  every review item above and the review gate is satisfied
+
+## Upstream Workflow Trigger Reconciliation
+
+Recurring upstream merges may reintroduce ordinary-PR triggers on heavyweight
+workflow files. When that happens, Phase A must reconcile the conflict this way:
+
+1. preserve the strategy rule that only `baseline` remains required on ordinary
+   PRs
+2. reapply the documented retained triggers for `ci`, `conformance`, `fuzz`,
+   `bench`, `semver`, and `model-catalog-drift`
+3. treat trigger-only workflow edits as isolated reconciliations unless the
+   underlying workflow contract is intentionally being re-scoped
+4. rerun the A1 workflow-view validation and record the reconciliation result in
+   the sprint PR notes
+
 ## Exit Criteria
 
 Phase A is complete when:
 
 - `baseline` is the only required PR workflow
+- `baseline` is the only required branch-protection status check for ordinary
+  PRs once the Sprint A1 operational branch-protection update lands
 - required PR CI on ordinary PRs is limited to the `baseline` workflow surface
 - `baseline` stays below 10 minutes
 - local `just` commands and required PR CI share the same lane definitions
