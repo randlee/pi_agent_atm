@@ -1,21 +1,6 @@
 name: semver
 
 "on":
-  pull_request:
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "src/**"
-      - "docs/sdk.md"
-      - ".github/workflows/semver.yml"
-  push:
-    branches: [main]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "src/**"
-      - "docs/sdk.md"
-      - ".github/workflows/semver.yml"
   workflow_dispatch:
     inputs:
       baseline_rev:

@@ -72,6 +72,7 @@ Supporting evidence for this strategy lives in:
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
 - `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
+- `docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
 
 ## Steady-State Required PR Baseline
 
@@ -242,10 +243,11 @@ Required rule:
 - `unit-basic` must not blindly expand to all of `[suite.unit]`
 - `compile` is an explicit lane that runs `cargo check --all-targets`
 
-Required `unit-basic` starting point:
+Required `unit-basic` structure:
 
-1. `cargo test --all-targets --lib`
-2. Small curated deterministic add-on targets:
+1. an audited inline-test allowlist derived from the full `cargo test --lib
+   -- --list` surface
+2. small curated deterministic add-on targets:
    - `capability_policy_model`
    - `policy_profile_hardening`
    - `extension_flag_passthrough`
@@ -253,27 +255,52 @@ Required `unit-basic` starting point:
    - `redaction_test`
    - `extension_scoring_ope`
 
-Explicit early exclusions from `unit-basic`:
+Audited inline-test source of truth:
 
-- process-launching tests
-- fixture/VCR inventory audits
-- benchmark/perf harness tests
-- docs/script audit tests
-- artifact/regeneration audits
-- subsystem stress or endurance tests
+- checked-in artifact: `docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
+- reproducible generator: `.just/unit_basic_audit.py`
+- reproduction commands:
+  - `cargo test --lib -- --list`
+  - `python3 .just/unit_basic_audit.py summary`
+  - `python3 .just/unit_basic_audit.py tsv > docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
 
-Named current examples that must stay out of `unit-basic` until separately
-reclassified or split:
+Current inline-test reconciliation from that audit:
 
-- `bench_schema`
-- `perf_regression`
-- `franken_node_compat_harness`
-- `qa_docs_policy_validation`
-- `rch_artifact_sync_preflight`
-- `vcr_parity_validation`
-- `provider_closure_truth_table`
-- `mock_spec_schema`
-- `e2e_replay_bundle_validation`
+- total inline lib tests enumerated: `6651`
+- inline tests included in `unit-basic`: `1797`
+- inline tests excluded from `unit-basic`: `4854`
+- audited included inline prefixes: `32`
+- exact per-test skip retained inside an included prefix: `1`
+  - `acp::tests::permission_request_times_out_fail_closed`
+
+Excluded inline categories and current counts:
+
+| Category | Count | Why excluded from A1 `unit-basic` |
+|---|---:|---|
+| `async_timing_dependent_flow_tests` | 20 | real waits, retries, cooldowns, or timeout-path coverage that does not fit a fast required gate |
+| `fixture_vcr_inventory_audits` | 451 | conformance, replay, and inventory audits that validate broader upstream compatibility |
+| `network_http_streaming_dependent_tests` | 713 | auth/provider/HTTP/streaming flows that rely on transport-style behavior rather than the first unit gate |
+| `extension_runtime_policy_integration_tests` | 2178 | extension runtime, hostcall, dispatcher, policy, and scheduler matrices broader than A1 |
+| `interactive_tui_workflow_tests` | 493 | higher-level TUI/operator workflow coverage outside the first required gate |
+| `subprocess_bash_tool_execution_tests` | 492 | doctor, package-manager, bash-tool, grep-tool, and process-surface execution tests |
+| `rpc_command_queue_integration_tests` | 149 | RPC queue, retry, bridge, and extension-session integration flows |
+| `persistence_index_sqlite_artifact_tests` | 258 | index/sqlite/storage/reporting persistence verification |
+| `subsystem_stress_or_endurance_tests` | 100 | stress, endurance, and broader system-behavior harnesses |
+
+Implementation rule:
+
+- `.just/test_catalog.py` must run one `cargo test --lib <prefix>` command per
+  audited included prefix, not one broad `cargo test --lib` command with a
+  growing skip list
+- the checked-in taxonomy artifact is the reviewable accounting surface for the
+  full inline test inventory
+- the six add-on integration targets above remain explicit and separate from
+  the inline reconciliation
+
+`unit-basic` must not use `cargo test --all-targets --lib` because Cargo
+forwards harness flags into benchmark/example binaries under `--all-targets`,
+and those binaries reject the `--skip` mechanism required for the one exact
+timeout exclusion retained inside the audited inline allowlist.
 
 ## Required PR Exclusions
 
@@ -460,7 +487,7 @@ Team-lead approval should explicitly confirm:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
 - the `compile` lane definition
-- the `unit-basic` allowlist and exclusion list
+- the `unit-basic` audited taxonomy, allowlist, and add-on set
 - the steady-state `baseline` command list
 - the per-sprint rollout table
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
@@ -484,7 +511,7 @@ Checklist record:
   - status: approved by team-lead, 2026-07-03
 - the `compile` lane definition
   - status: approved by team-lead, 2026-07-03
-- the `unit-basic` allowlist and exclusion list
+- the `unit-basic` audited taxonomy, allowlist, and add-on set
   - status: approved by team-lead, 2026-07-03
 - the steady-state `baseline` command list
   - status: approved by team-lead, 2026-07-03
