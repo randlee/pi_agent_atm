@@ -27,32 +27,10 @@ def cargo_test(
     return tuple(command)
 
 
-UNIT_BASIC_LIB_COMMANDS = (
-    cargo_test(
-        "--lib",
-        "acp::tests",
-        skip_filters=("permission_request_times_out_fail_closed",),
-    ),
-    cargo_test("--lib", "agent::compatible_tool_parallelism_tests"),
-    cargo_test("--lib", "agent::message_queue_tests"),
-    cargo_test("--lib", "agent::tests"),
-    cargo_test("--lib", "agent::tool_effect_batch_planning_tests"),
-    cargo_test("--lib", "agent::turn_event_tests"),
-    cargo_test("--lib", "agent_cx::tests"),
-    cargo_test("--lib", "app::tests"),
-    cargo_test("--lib", "cli::tests"),
-    cargo_test("--lib", "compaction::tests"),
-    cargo_test("--lib", "config::tests"),
-    cargo_test("--lib", "flake_classifier::tests"),
-    cargo_test("--lib", "model::tests"),
-    cargo_test("--lib", "models::tests"),
-    cargo_test("--lib", "permissions::tests"),
-    cargo_test("--lib", "platform::tests"),
-    cargo_test("--lib", "provider::tests"),
-    cargo_test("--lib", "provider_metadata::tests"),
-    cargo_test("--lib", "resources::tests"),
-    cargo_test("--lib", "session::tests"),
-    cargo_test("--lib", "sse::tests"),
+UNIT_BASIC_SKIP_FILTERS = (
+    # Documented category: subsystem stress/endurance tests. This case
+    # intentionally waits on a timeout path and is the approved A1 exclusion.
+    "permission_request_times_out_fail_closed",
 )
 
 
@@ -64,9 +42,17 @@ LANES = {
     ),
     "unit-basic": TestLane(
         name="unit-basic",
-        description="Run lib tests plus the strict basic-unit allowlist.",
+        description="Run the documented unit-basic base plus strict add-on tests.",
         commands=(
-            *UNIT_BASIC_LIB_COMMANDS,
+            # The sprint docs say "cargo test --all-targets --lib", but Cargo
+            # forwards harness flags like `--skip` into benchmark/example
+            # binaries under `--all-targets`; those harnesses reject `--skip`,
+            # so the documented exclusion mechanism is only implementable
+            # against the full library test sweep.
+            cargo_test(
+                "--lib",
+                skip_filters=UNIT_BASIC_SKIP_FILTERS,
+            ),
             cargo_test("--test", "capability_policy_model", nocapture=True),
             cargo_test("--test", "policy_profile_hardening", nocapture=True),
             cargo_test("--test", "extension_flag_passthrough", nocapture=True),
