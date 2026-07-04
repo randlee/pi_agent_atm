@@ -208,6 +208,8 @@ on:
 - required PR CI is green and comfortably under 10 minutes
 - the Sprint A1 PR notes record local and CI timings for every A1 baseline
   command plus total workflow duration
+- the Sprint A1 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 

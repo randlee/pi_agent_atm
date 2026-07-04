@@ -95,6 +95,8 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 - `baseline` remains green and under 10 minutes
 - the Sprint A5 PR notes record local and CI timings exactly as the sprint
   timing contract requires
+- the Sprint A5 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -104,7 +106,9 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 - `just test all`
 - `just lint all-local`
 - `gh workflow view baseline`
+- `gh run list --workflow baseline --limit 5`
 - record local timings for `just test unit`, `just test integration`,
   `just test all`, and `just lint all-local`
 - record refreshed CI step timings and total `baseline` workflow duration for
   the unchanged A3 baseline stage
+- record the exact CI run URL/ID used for each timing measurement

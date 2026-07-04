@@ -48,7 +48,8 @@ silently dropped or partially deferred.
 - verified baseline merges into `feature/atm-graft-integration` and stays green
 - the Sprint A7 PR notes include the phase-conclusion timing report for A1-A7,
   combining every sprint's local timing table and CI timing table into one
-  final progression summary
+  final progression summary with links back to each sprint PR timing table and
+  CI run URL/ID
 
 ## Required Work
 
@@ -105,6 +106,8 @@ merge surfaces to preserve
   integration surfaces
 - `baseline` remains green and under 10 minutes
 - the Sprint A7 PR notes publish the final A1-A7 local and CI timing ledger
+- the Sprint A7 PR notes record the exact CI run URL/ID used for each timing
+  measurement in that ledger
 
 ## Required Validation
 

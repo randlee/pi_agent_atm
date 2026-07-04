@@ -120,6 +120,8 @@ steps:
   E2E coverage
 - `baseline` remains green and under 10 minutes
 - the Sprint A3 PR notes record local and CI timings for the A3 baseline stage
+- the Sprint A3 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 

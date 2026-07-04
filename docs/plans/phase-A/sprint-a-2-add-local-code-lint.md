@@ -113,6 +113,8 @@ steps:
 - `baseline` remains green and under 10 minutes
 - no new PR-required workflow is introduced
 - the Sprint A2 PR notes record local and CI timings for the A2 baseline stage
+- the Sprint A2 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 

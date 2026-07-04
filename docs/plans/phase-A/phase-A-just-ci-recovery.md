@@ -173,7 +173,10 @@ Required backfill for each PR:
 
 - workflow registration proof for the exact head SHA
 - workflow execution proof, including failed-log review if red
-- cold and warm timing capture
+- timing tables that follow the Sprint Timing Deliverable Contract:
+  - local wall-clock measurements for the sprint's in-scope commands
+  - CI step and total workflow measurements
+  - exact CI run URL/ID recorded for each timing measurement
 - confirmation that the PR base branch actually contains the expected baseline
   substrate after merge-forward
 
@@ -192,6 +195,10 @@ Each sprint PR must include:
 - an explicit `no ci equivalent by design` note for local-only helper or
   optional lanes
 - links or identifiers for the exact CI runs used for timing capture
+
+CI timing must come from reading existing GitHub Actions run and job data for
+the sprint branch; Phase A should not add timing-only instrumentation steps to
+`baseline.yml`.
 
 Rollup requirements:
 

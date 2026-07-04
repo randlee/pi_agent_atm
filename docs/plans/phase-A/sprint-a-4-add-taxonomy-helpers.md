@@ -97,6 +97,8 @@ command=./scripts/smoke.sh --skip-lint --no-rch
 - `baseline` remains green and under 10 minutes
 - the Sprint A4 PR notes record local and CI timings exactly as the sprint
   timing contract requires
+- the Sprint A4 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 

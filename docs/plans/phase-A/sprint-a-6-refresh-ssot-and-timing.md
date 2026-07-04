@@ -118,6 +118,8 @@ review pack
   names or workflow names drifted unexpectedly
 - the review pack and sprint PR notes include a consolidated A1-A6 local and
   CI timing ledger
+- the review pack and sprint PR notes record the exact CI run URL/ID used for
+  each timing measurement in that ledger
 - required `baseline` workflow is unchanged from Sprint A3
 - sprint docs and testing strategy remain internally consistent after the timing refresh
 - `baseline` remains green and under 10 minutes
