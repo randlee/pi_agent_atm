@@ -13,6 +13,8 @@ target: develop
 
 - ship the smallest working `just` + CI surface
 - make `baseline` the only required PR workflow immediately
+- make compile checking and strict basic-unit coverage the first required test
+  layers
 
 ## Hard Dependencies
 
@@ -24,6 +26,9 @@ target: develop
 - `justfile`
 - `.just/print_help.py`
 - `.just/run_fmt.py`
+- `.just/run_cargo.py`
+- `.just/run_test.py`
+- `.just/test_catalog.py`
 - `.github/workflows/baseline.yml`
 - `.github/workflows/ci.yml`
 - `.github/workflows/conformance.yml`
@@ -41,12 +46,24 @@ silently dropped or partially deferred.
 
 - minimal `just` surface exists and one tiny `baseline` workflow becomes the
   only required PR gate
+- the first required gate proves compile health and strict basic-unit health
+  before lint or smoke expansion
 
 ## Required Work
 
 - add thin root `justfile`
 - reuse `print_help.py` and `run_fmt.py`
-- add `baseline.yml` with only `just help` and `just fmt check`
+- reuse `run_cargo.py`, `run_test.py`, and `test_catalog.py`
+- add `baseline.yml` with:
+  - `just help`
+  - `just fmt check`
+  - `just test compile`
+  - `just test unit-basic`
+- define `just test compile` as `cargo check --all-targets`
+- define `just test unit-basic` as:
+  - `cargo test --all-targets --lib`
+  - plus the explicit strict add-on allowlist from the testing strategy
+- do not treat all of `[suite.unit]` as the first baseline unit lane
 - confirm the testing strategy already inventories every currently PR-triggered
   upstream workflow before any trigger changes land
 - remove ordinary `pull_request` triggering from these heavyweight workflow
@@ -72,6 +89,8 @@ Reuse sources:
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/justfile`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/print_help.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_fmt.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_cargo.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_test.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.github/workflows/baseline.yml`
 
 ## Explicit Code Samples
@@ -84,6 +103,9 @@ help:
 
 fmt mode='check':
     {{python_cmd}} .just/run_fmt.py {{mode}}
+
+test lane='':
+    {{python_cmd}} .just/run_test.py {{lane}}
 ```
 
 ```yaml
@@ -96,6 +118,8 @@ jobs:
     steps:
       - run: just help
       - run: just fmt check
+      - run: just test compile
+      - run: just test unit-basic
 ```
 
 ```yaml
@@ -114,7 +138,6 @@ on:
 
 ## This Sprint Does Not Close
 
-- it does not add compile checking
 - it does not add clippy
 - it does not add smoke testing
 - it does not add optional local lanes
@@ -123,6 +146,8 @@ on:
 
 - `just help` works
 - `just fmt check` works
+- `just test compile` works
+- `just test unit-basic` works
 - one workflow named `baseline` runs on ordinary PRs
 - `.github/workflows/ci.yml`, `.github/workflows/fuzz.yml`,
   `.github/workflows/bench.yml`, `.github/workflows/semver.yml`,
@@ -137,12 +162,15 @@ on:
 - `.github/workflows/model-catalog-drift.yml` retains `workflow_dispatch` and
   `schedule` only
 - the new `baseline` workflow does not call any raw cargo command directly
+- `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
 - required PR CI is green and comfortably under 10 minutes
 
 ## Required Validation
 
 - `just help`
 - `just fmt check`
+- `just test compile`
+- `just test unit-basic`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,

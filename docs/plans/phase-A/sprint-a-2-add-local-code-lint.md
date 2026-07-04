@@ -63,6 +63,8 @@ LANES = {
 steps:
   - run: just help
   - run: just fmt check
+  - run: just test compile
+  - run: just test unit-basic
   - run: just lint clippy-bins
   - run: just lint clippy-lib
 ```
@@ -87,6 +89,8 @@ steps:
 
 - `just help`
 - `just fmt check`
+- `just test compile`
+- `just test unit-basic`
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `gh workflow view baseline`

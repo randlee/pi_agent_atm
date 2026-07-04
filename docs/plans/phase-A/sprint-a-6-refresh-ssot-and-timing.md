@@ -63,6 +63,8 @@ silently dropped or partially deferred.
 ```text
 baseline workflow
   -> just fmt check
+  -> just test compile
+  -> just test unit-basic
   -> just lint clippy-bins
   -> just lint clippy-lib
   -> just test baseline
@@ -86,6 +88,8 @@ baseline workflow
 
 - `gh run list --workflow baseline --limit 5`
 - `just fmt check`
+- `just test compile`
+- `just test unit-basic`
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `just test baseline`

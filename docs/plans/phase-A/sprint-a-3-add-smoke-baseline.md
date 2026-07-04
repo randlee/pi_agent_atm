@@ -65,6 +65,8 @@ LANES = {
 steps:
   - run: just help
   - run: just fmt check
+  - run: just test compile
+  - run: just test unit-basic
   - run: just lint clippy-bins
   - run: just lint clippy-lib
   - run: just test baseline
@@ -88,6 +90,8 @@ steps:
 ## Required Validation
 
 - `just fmt check`
+- `just test compile`
+- `just test unit-basic`
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `just test baseline`

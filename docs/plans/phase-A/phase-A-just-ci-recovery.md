@@ -11,6 +11,11 @@ baseline and then adding one small production-ready increment at a time.
 
 This corrected plan replaces the invalid rollout merged by PR #5.
 
+Supporting evidence for this correction:
+
+- `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
+- `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
+
 ## Authoritative Document Layout
 
 This phase uses:
@@ -80,6 +85,8 @@ immediately, not after an integration branch has accumulated multiple sprints.
 - `just` is the only local operator surface
 - the required `baseline` workflow and new Phase A fast-lane workflow edits must
   call `just` commands rather than bespoke cargo command strings
+- compile checking and strict basic-unit coverage must land before local-code
+  lint expansion or smoke-lane expansion
 - required PR CI must stay below 10 minutes in every implementation sprint
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
 
@@ -179,6 +186,8 @@ Implications:
 - `fuzz`, `bench`, and `semver` must stay outside ordinary PR gating
 - upstream PR-only specialty workflows must be explicitly classified before
   Sprint A1 changes any triggers
+- `suite.unit` is too broad to serve as the first basic-unit gate without an
+  explicit allowlist
 
 ## Known Issues To Preserve
 
@@ -194,7 +203,7 @@ These notes remain valid even though the old rollout plan was superseded.
 
 | Sprint | Branch | Worktree | Single deliverable | Required PR CI after merge |
 |---|---|---|---|---|
-| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | minimal `just` + tiny `baseline` workflow | `just help`, `just fmt check` |
+| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | minimal `just` + compile/unit-baseline workflow | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` |
 | A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
 | A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | smoke regression lane through `just test` | A2 + `just test baseline` |
 | A4 | `sprint-a-4-add-taxonomy-helpers` | `../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers` | taxonomy helpers only | unchanged from A3 |
@@ -207,11 +216,15 @@ These notes remain valid even though the old rollout plan was superseded.
 Deliverable:
 
 - minimal `just` operator surface plus one tiny required `baseline` workflow
+  that proves compile health and strict basic-unit health first
 
 Outcome:
 
 - old heavyweight PR workflows stop running on ordinary PRs
 - required PR CI becomes `baseline` immediately
+- the first required baseline proves compile health before lint expansion
+- the first required baseline proves a strict basic-unit subset rather than the
+  whole broad `[suite.unit]` bucket
 
 ### Sprint A2
 
@@ -286,6 +299,7 @@ No implementation sprint begins until team-lead reviews:
 - the exact baseline command list
 - the workflow files removed from ordinary PR gating
 - the upstream PR-workflow inventory and its post-A1 trigger classification
+- the `unit-basic` allowlist and exclusion rationale
 - the sprint ordering that makes Sprint A1 establish the required PR gate
 - the A4 / A5 split between taxonomy helpers and optional local lanes
 

@@ -65,12 +65,15 @@ develop
 - merge resolution does not restore abandoned exploratory `src/**` changes
 - `baseline` remains the required PR workflow
 - the merged branch keeps the same `just fmt`, `just lint`, and `just test baseline`
-  surface defined in Phase A
+  surface defined in Phase A, including `just test compile` and
+  `just test unit-basic`
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation
 
 - `just fmt check`
+- `just test compile`
+- `just test unit-basic`
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `just test baseline`

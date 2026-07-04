@@ -16,10 +16,12 @@ and local commands and CI share one source of truth.
 3. Required PR CI runs `just ...` commands, not bespoke cargo command strings.
 4. Every sprint preserves green `baseline` CI.
 5. Heavyweight workflows do not run on ordinary PRs after Sprint A1 lands.
-6. Lint in required PR CI covers only code we own.
-7. Broad tests, fuzz, semver, benchmarks, and evidence refresh remain outside
+6. Compile checking and strict basic-unit coverage come before lint expansion
+   and smoke expansion.
+7. Lint in required PR CI covers only code we own.
+8. Broad tests, fuzz, semver, benchmarks, and evidence refresh remain outside
    required PR CI.
-8. Do not invent new top-level `just` commands for Phase A. Use the established
+9. Do not invent new top-level `just` commands for Phase A. Use the established
    `just help`, `just fmt`, `just lint`, `just test`, `just explain`, and
    `just suites` surfaces only.
 
@@ -57,14 +59,23 @@ Mandatory A1 precondition:
   describe every currently PR-triggered workflow, why it is leaving the
   required gate, and what trigger path remains for it afterward
 
+## Evidence Reports
+
+Supporting evidence for this strategy lives in:
+
+- `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
+- `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
+
 ## Steady-State Required PR Baseline
 
 Steady-state `baseline` contents from Sprint A3 onward:
 
 1. `just fmt check`
-2. `just lint clippy-bins`
-3. `just lint clippy-lib`
-4. `just test baseline`
+2. `just test compile`
+3. `just test unit-basic`
+4. `just lint clippy-bins`
+5. `just lint clippy-lib`
+6. `just test baseline`
 
 Hard budget:
 
@@ -73,9 +84,11 @@ Hard budget:
 Per-step budget targets:
 
 - `just fmt check`: under 30 seconds
+- `just test compile`: under 90 seconds
+- `just test unit-basic`: under 120 seconds
 - `just lint clippy-bins`: under 30 seconds
 - `just lint clippy-lib`: under 3 minutes
-- `just test baseline`: under 4 minutes
+- `just test baseline`: under 3 minutes
 
 These are budget allocations, not historical facts. Sprint validation must
 measure and refresh them as each step is added.
@@ -86,7 +99,7 @@ Required PR CI contents per sprint:
 
 | Sprint | Required `baseline` contents |
 |---|---|
-| A1 | `just help`, `just fmt check` |
+| A1 | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` |
 | A2 | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
 | A3 | A2 + `just test baseline` |
 | A4 | same as A3 |
@@ -99,10 +112,12 @@ than the listed contents, the plan is being violated.
 
 Important interpretation:
 
-- Sprint A1 intentionally starts with a very small green gate.
+- Sprint A1 intentionally starts with a small green gate.
 - That green gate is only acceptable because the displaced upstream PR
   workflows remain available by explicit non-PR triggers and are documented in
   this strategy.
+- The small gate is still required to prove compile health and strict
+  basic-unit health first.
 - A1 is a gate-reduction sprint, not a claim that the fork's broader testing
   unknowns have been solved.
 
@@ -126,6 +141,53 @@ One lane, one owner:
   - owner: `.just/lint_catalog.py`
 - test lane:
   - owner: `.just/test_catalog.py`
+
+## Compile And Basic-Unit Policy
+
+Phase A must distinguish three different ideas that the repo currently blurs:
+
+- inline Rust unit tests under `src/**`
+- the broad deterministic bucket currently called `[suite.unit]`
+- the strict early required gate Phase A needs first
+
+Required rule:
+
+- `unit-basic` is an explicit allowlist lane
+- `unit-basic` must not blindly expand to all of `[suite.unit]`
+- `compile` is an explicit lane that runs `cargo check --all-targets`
+
+Required `unit-basic` starting point:
+
+1. `cargo test --all-targets --lib`
+2. Small curated deterministic add-on targets:
+   - `capability_policy_model`
+   - `policy_profile_hardening`
+   - `extension_flag_passthrough`
+   - `model_serialization`
+   - `redaction_test`
+   - `extension_scoring_ope`
+
+Explicit early exclusions from `unit-basic`:
+
+- process-launching tests
+- fixture/VCR inventory audits
+- benchmark/perf harness tests
+- docs/script audit tests
+- artifact/regeneration audits
+- subsystem stress or endurance tests
+
+Named current examples that must stay out of `unit-basic` until separately
+reclassified or split:
+
+- `bench_schema`
+- `perf_regression`
+- `franken_node_compat_harness`
+- `qa_docs_policy_validation`
+- `rch_artifact_sync_preflight`
+- `vcr_parity_validation`
+- `provider_closure_truth_table`
+- `mock_spec_schema`
+- `e2e_replay_bundle_validation`
 
 ## Required PR Exclusions
 
@@ -212,12 +274,16 @@ Local-only optional lint lanes:
 
 Required PR CI test rule:
 
-- `just test baseline` is a tiny deterministic smoke lane only
+- A1 starts with:
+  - `just test compile`
+  - `just test unit-basic`
+- A3 later adds:
+  - `just test baseline`
 
 It must not include:
 
 - broad `cargo test`
-- full `suite.unit`
+- full `[suite.unit]`
 - full `suite.vcr`
 - E2E sweeps
 - fuzz
@@ -304,6 +370,8 @@ Observed GitHub Actions timings from 2026-07-02:
 Team-lead approval should explicitly confirm:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
+- the `compile` lane definition
+- the `unit-basic` allowlist and exclusion list
 - the steady-state `baseline` command list
 - the per-sprint rollout table
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
