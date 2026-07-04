@@ -83,6 +83,10 @@ silently dropped or partially deferred.
   - `.github/workflows/model-catalog-drift.yml`: `workflow_dispatch` and `schedule` only
 - preserve current branch protection semantics by changing triggers rather than
   deleting whole workflow files
+- prove each displaced upstream workflow is still manually runnable after the
+  trigger edits and record that proof in the Sprint A1 PR notes
+- keep the Phase A baseline lane names stable so later ATM-owned lanes can
+  layer in additively instead of mutating the upstream-regression contract
 
 Reuse sources:
 
@@ -161,6 +165,8 @@ on:
 - `.github/workflows/semver.yml` retains `workflow_dispatch` only
 - `.github/workflows/model-catalog-drift.yml` retains `workflow_dispatch` and
   `schedule` only
+- each displaced workflow still has a verified manual or scheduled execution
+  path after the trigger edits
 - the new `baseline` workflow does not call any raw cargo command directly
 - `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
 - required PR CI is green and comfortably under 10 minutes
@@ -173,5 +179,11 @@ on:
 - `just test unit-basic`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
+- `gh workflow view ci`
+- `gh workflow view conformance`
+- `gh workflow view fuzz`
+- `gh workflow view bench`
+- `gh workflow view semver`
+- `gh workflow view model-catalog-drift`
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,
   `semver`, or `Model Catalog Drift`

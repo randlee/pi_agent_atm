@@ -37,6 +37,8 @@ silently dropped or partially deferred.
 
 - add optional local lanes such as `just test unit`, `just test integration`,
   `just test all`, and `just lint all-local`
+- reserve explicit naming room for future `atm-*` and `integration-*` lanes
+  without changing the established upstream baseline lane ids
 - route lane descriptions through the established helper surfaces from Sprint A4
 - keep required `baseline` contents exactly as Sprint A3 defined them
 
@@ -62,6 +64,8 @@ DISPLAY_ORDER = ("baseline", "unit", "integration", "all")
 
 - optional local lanes are documented and callable
 - optional local lanes are clearly marked as non-required in docs and lane help
+- any new ATM-owned or integration lane shape is classified as optional unless
+  separately promoted by evidence and review
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
 

@@ -36,6 +36,8 @@ silently dropped or partially deferred.
 
 - add `just explain`
 - add `just suites`
+- make `just explain` surface lane origin, owner, blocking level, and source of
+  truth so future ATM-owned lanes can reuse the same taxonomy
 - keep required `baseline` contents exactly as Sprint A3 defined them
 
 Reuse sources:
@@ -65,6 +67,8 @@ suites:
 - `just explain` works
 - `just suites` works
 - taxonomy helper output points operators to the SSOT lane and suite surfaces
+- taxonomy helper output distinguishes upstream baseline lanes from future
+  ATM-owned and integration lanes
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
 

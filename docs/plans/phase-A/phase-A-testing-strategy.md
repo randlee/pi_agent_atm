@@ -24,6 +24,11 @@ and local commands and CI share one source of truth.
 9. Do not invent new top-level `just` commands for Phase A. Use the established
    `just help`, `just fmt`, `just lint`, `just test`, `just explain`, and
    `just suites` surfaces only.
+10. Future ATM-owned lanes must be additive and must not silently redefine the
+    semantics of the upstream baseline lanes established in Phase A.
+11. Future ATM-owned reusable code should land in additive crate locations and
+    bounded integration seams rather than broad rewrites across upstream-owned
+    files.
 
 ## Fork And Upstream Audit Baseline
 
@@ -65,6 +70,7 @@ Supporting evidence for this strategy lives in:
 
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
+- `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
 
 ## Steady-State Required PR Baseline
 
@@ -141,6 +147,77 @@ One lane, one owner:
   - owner: `.just/lint_catalog.py`
 - test lane:
   - owner: `.just/test_catalog.py`
+
+## Just Layering Framework For ATM Additions
+
+Phase A needs a `just` design that stays useful after ATM-owned crates begin
+landing. The stable top-level operator surface remains:
+
+- `just help`
+- `just fmt`
+- `just lint`
+- `just test`
+- `just explain`
+- `just suites`
+
+Growth happens through lane catalogs, not new top-level commands.
+
+Future lane families:
+
+- upstream baseline lanes:
+  - preserve the audited fork-regression contract
+  - current examples: `compile`, `unit-basic`, `baseline`, `clippy-bins`,
+    `clippy-lib`
+- ATM-owned lanes:
+  - cover new ATM crates or modules we own
+  - should use explicit lane ids such as `atm-*`
+- seam or integration lanes:
+  - cover the boundary between upstream fork code and ATM-owned additions
+  - should use explicit lane ids such as `integration-*`
+
+Promotion rule:
+
+- upstream baseline lanes are stable once Phase A freezes them
+- new ATM-owned or integration lanes start as local/manual lanes
+- they move into required PR CI only after timing evidence and team-lead review
+- no ATM-owned lane may replace the upstream baseline requirement
+
+Recommended catalog metadata for future hardening:
+
+- `origin`: `upstream`, `atm`, or `integration`
+- `owner`: owning crate or module
+- `blocking`: `required`, `local`, `manual`, or `scheduled`
+- `paths`: primary source paths the lane protects
+- `promotion_rule`: evidence required before the lane can become blocking
+
+`just explain` should eventually print this metadata so operators can tell
+whether a lane protects upstream parity, ATM-owned code, or the seam between
+them.
+
+## Repository Layering Framework For ATM Additions
+
+Current repo reality:
+
+- the fork is still a single root package in `Cargo.toml`
+- there is no active workspace-member layout yet
+
+Planning target for minimum upstream disruption:
+
+- keep the existing root package as the upstream fork boundary through Phase A
+- when ATM-owned reusable crates start landing, place them under `crates/atm-*`
+- keep root-package glue in one bounded surface such as `src/atm/**`
+- keep cross-seam tests out of `unit-basic` and place them in explicit
+  integration lanes under `tests/atm_*` or `tests/integration_*`
+
+Required regression rule once ATM-owned crates exist:
+
+1. every PR still runs the upstream required baseline
+2. PRs touching `crates/atm-*` run the relevant ATM-owned lanes as well
+3. PRs touching the seam between root-package upstream code and ATM-owned code
+   run the relevant integration lanes as well
+
+This is how the project verifies there is no regression from the upstream fork
+while still allowing additive ATM-specific code growth.
 
 ## Compile And Basic-Unit Policy
 
@@ -226,6 +303,9 @@ Workflow classification target after Sprint A1:
 
 Protected-branch `push` triggers for heavyweight workflows are out of scope for
 Phase A unless team-lead explicitly revises this strategy later.
+
+Sprint A1 validation must prove that every displaced workflow still has a real
+manual or scheduled execution path after the trigger edits land.
 
 ## Upstream Test Contracts That Phase A Must Respect
 
@@ -379,6 +459,8 @@ Team-lead approval should explicitly confirm:
 - the SSOT owner files for lint and test lanes
 - the list of local-only and manual-only lanes
 - the rule that Phase A does not invent new top-level `just` commands
+- the future lane taxonomy for `upstream`, `atm`, and `integration`
+- the intended repository layering surfaces for ATM-owned crates and glue code
 
 ## Exit Criteria
 

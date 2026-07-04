@@ -15,6 +15,7 @@ Supporting evidence for this correction:
 
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
+- `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
 
 ## Authoritative Document Layout
 
@@ -89,6 +90,11 @@ immediately, not after an integration branch has accumulated multiple sprints.
   lint expansion or smoke-lane expansion
 - required PR CI must stay below 10 minutes in every implementation sprint
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
+- the Phase A baseline lanes become the stable upstream-regression contract
+- future ATM-owned lanes must layer in additively through `just lint` and
+  `just test`, not by mutating the meaning of the baseline lanes
+- future ATM-owned reusable crates should land under `crates/atm-*` with only
+  thin root-package glue in bounded integration surfaces such as `src/atm/**`
 
 ## Upstream Fork Testing Reality
 
@@ -255,8 +261,8 @@ Deliverable:
 
 Outcome:
 
-- operators can inspect lane semantics and suite taxonomy without changing the
-  required PR gate
+- operators can inspect lane semantics, ownership, and suite taxonomy without
+  changing the required PR gate
 
 ### Sprint A5
 
@@ -266,7 +272,8 @@ Deliverable:
 
 Outcome:
 
-- agents get richer local commands without changing the required PR gate
+- agents get richer local commands, including future ATM-owned or integration
+  lanes, without changing the required PR gate
 
 ### Sprint A6
 
@@ -277,8 +284,8 @@ Deliverable:
 
 Outcome:
 
-- team-lead gets a reviewed timing-backed strategy before the baseline merges
-  into `atm-graft`
+- team-lead gets a reviewed timing-backed strategy plus the frozen ATM layering
+  framework before the baseline merges into `atm-graft`
 
 ### Sprint A7
 
@@ -302,6 +309,9 @@ No implementation sprint begins until team-lead reviews:
 - the `unit-basic` allowlist and exclusion rationale
 - the sprint ordering that makes Sprint A1 establish the required PR gate
 - the A4 / A5 split between taxonomy helpers and optional local lanes
+- the future `just` lane taxonomy for upstream, ATM-owned, and integration
+  lanes
+- the planned repository locations for ATM-owned crates and root-package glue
 
 ## Exit Criteria
 
@@ -313,3 +323,5 @@ Phase A is complete when:
 - local `just` commands and required PR CI share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs
 - the verified baseline is merged into `feature/atm-graft-integration`
+- the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
+  crates without broad upstream churn

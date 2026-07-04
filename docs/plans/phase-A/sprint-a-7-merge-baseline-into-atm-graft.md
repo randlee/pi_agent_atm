@@ -40,6 +40,9 @@ silently dropped or partially deferred.
   source churn back in
 - keep `baseline` as the required PR workflow on the merged branch
 - preserve the same lane names and SSOT ownership on the merged branch
+- preserve the future ATM layering boundaries so
+  `feature/atm-graft-integration` can add `crates/atm-*` and bounded
+  root-package glue without redefining the upstream baseline lanes
 
 ## Explicit Code Samples
 
@@ -67,6 +70,8 @@ develop
 - the merged branch keeps the same `just fmt`, `just lint`, and `just test baseline`
   surface defined in Phase A, including `just test compile` and
   `just test unit-basic`
+- the merge keeps a clean additive path for future ATM-owned crates and
+  integration lanes
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation

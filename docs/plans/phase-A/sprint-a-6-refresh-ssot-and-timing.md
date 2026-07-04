@@ -14,6 +14,8 @@ target: develop
 - produce the team-lead review pack that freezes source-of-truth ownership and
   refreshes timing evidence without changing the established `just` command
   surface
+- freeze the future ATM layering framework before the baseline merges into
+  `feature/atm-graft-integration`
 
 ## Hard Dependencies
 
@@ -30,6 +32,7 @@ target: develop
 - `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md`
 - `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md`
 - `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md`
+- `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
 - `justfile`
 - `.just/lint_catalog.py`
 - `.just/test_catalog.py`
@@ -54,6 +57,10 @@ silently dropped or partially deferred.
 - confirm the required `baseline` workflow still calls only established
   `just` commands
 - confirm no new top-level `just` commands were introduced during A1-A5
+- confirm lane metadata still cleanly separates upstream, ATM-owned, and
+  integration surfaces
+- confirm the planned repository locations for ATM-owned crates and glue code
+  still fit the actual post-A5 code base
 - confirm the sprint docs still match the actual lane names and workflow names
 - confirm the upstream ordinary-PR workflow classification still matches the
   testing strategy after A1 trigger changes
@@ -80,6 +87,8 @@ baseline workflow
 
 - refreshed timing evidence is recorded in the testing strategy doc
 - team-lead can review SSOT ownership directly from the review-pack docs
+- team-lead can review the future ATM layering rules directly from the review
+  pack
 - required `baseline` workflow is unchanged from Sprint A3
 - sprint docs and testing strategy remain internally consistent after the timing refresh
 - `baseline` remains green and under 10 minutes
