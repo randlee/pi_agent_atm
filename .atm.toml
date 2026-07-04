@@ -38,20 +38,20 @@ layout = "even-horizontal"
 
 [[rmux.windows.panes]]
 name = "team-lead"
-tmux_pane_id = "%10"
+tmux_pane_id = "%3"
 model = "sonnet"
 color = "blue"
 env = { ATM_IDENTITY = "team-lead", ATM_TEAM = "pi", CLAUDE_CODE_TASK_LIST_ID = "pi" }
 
 [[rmux.windows.panes]]
 name = "cpi"
-tmux_pane_id = "%11"
+tmux_pane_id = "%4"
 command = "codex -c features.codex_hooks=true --yolo"
 env = { ATM_IDENTITY = "cpi", ATM_TEAM = "pi", CLAUDE_CODE_TASK_LIST_ID = "pi" }
 
 [[rmux.windows.panes]]
 name = "quality-mgr"
-tmux_pane_id = "%12"
+tmux_pane_id = "%5"
 model = "sonnet"
 color = "blue"
 env = { ATM_IDENTITY = "quality-mgr", ATM_TEAM = "pi", CLAUDE_CODE_TASK_LIST_ID = "pi" }
