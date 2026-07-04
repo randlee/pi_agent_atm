@@ -23,13 +23,13 @@ target: develop
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
 - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
-- `docs/plans/sprint-a-1-establish-minimal-baseline-gate.md`
-- `docs/plans/sprint-a-2-add-local-code-lint.md`
-- `docs/plans/sprint-a-3-add-smoke-baseline.md`
-- `docs/plans/sprint-a-4-add-taxonomy-helpers.md`
-- `docs/plans/sprint-a-5-add-optional-local-lanes.md`
-- `docs/plans/sprint-a-6-refresh-ssot-and-timing.md`
-- `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
+- `docs/plans/phase-A/sprint-a-1-establish-minimal-baseline-gate.md`
+- `docs/plans/phase-A/sprint-a-2-add-local-code-lint.md`
+- `docs/plans/phase-A/sprint-a-3-add-smoke-baseline.md`
+- `docs/plans/phase-A/sprint-a-4-add-taxonomy-helpers.md`
+- `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md`
+- `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md`
+- `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md`
 - `justfile`
 - `.just/lint_catalog.py`
 - `.just/test_catalog.py`
@@ -54,6 +54,8 @@ silently dropped or partially deferred.
 - confirm workflow YAML calls only established `just` commands
 - confirm no new top-level `just` commands were introduced during A1-A5
 - confirm the sprint docs still match the actual lane names and workflow names
+- confirm the upstream ordinary-PR workflow classification still matches the
+  testing strategy after A1 trigger changes
 
 ## Explicit Code Samples
 

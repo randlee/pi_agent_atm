@@ -23,6 +23,40 @@ and local commands and CI share one source of truth.
    `just help`, `just fmt`, `just lint`, `just test`, `just explain`, and
    `just suites` surfaces only.
 
+## Fork And Upstream Audit Baseline
+
+This repository is a fork of the public upstream
+`Dicklesworthstone/pi_agent_rust`.
+
+Phase A must treat the existing upstream workflow/test surface as a known risk
+inventory, not as disposable noise. The current upstream ordinary-PR workflows
+and what they prove are:
+
+| Workflow | Current PR trigger shape | What it proves today | Phase A handling |
+|---|---|---|---|
+| `ci.yml` | all PRs | cross-OS compile/test/policy guard with DoD evidence checks | remove from ordinary PRs in A1, retain manual trigger |
+| `conformance.yml` | all PRs | extension/runtime compatibility matrix, sibling-repo checkout health, Bun/npm legacy compatibility | remove from ordinary PRs in A1, retain manual and scheduled triggers |
+| `fuzz.yml` | PRs targeting `main` | Linux fuzz smoke across selected targets | remove from ordinary PRs in A1, retain manual and scheduled triggers |
+| `semver.yml` | path-filtered PRs touching Rust/API surfaces | public API SemVer compatibility | remove from ordinary PRs in A1, retain manual trigger |
+| `model-catalog-drift.yml` | path-filtered PRs touching generator/catalog inputs | Node-based catalog drift detection, advisory today | remove from ordinary PRs in A1, retain manual and scheduled triggers |
+
+Key upstream-specific unknowns that must stay visible throughout Phase A:
+
+- `conformance.yml` depends on sibling repositories (`asupersync`,
+  `rich_rust`, `charmed_rust`, `sqlmodel_rust`) and Bun/npm installation.
+- `ci.yml` is the only current cross-OS PR guard.
+- `semver.yml` and `model-catalog-drift.yml` are path-filtered specialty gates,
+  not generic test lanes.
+- the suite taxonomy and logging/evidence contract live upstream in
+  `docs/testing-policy.md` and `tests/suite_classification.toml`; Phase A may
+  narrow fast gating, but it may not redefine those upstream contracts casually.
+
+Mandatory A1 precondition:
+
+- before ordinary-PR triggers are removed, this strategy document must already
+  describe every currently PR-triggered workflow, why it is leaving the
+  required gate, and what trigger path remains for it afterward
+
 ## Steady-State Required PR Baseline
 
 Steady-state `baseline` contents from Sprint A3 onward:
@@ -62,6 +96,15 @@ Required PR CI contents per sprint:
 
 This table is the controlling rollout rule. If a sprint would require more
 than the listed contents, the plan is being violated.
+
+Important interpretation:
+
+- Sprint A1 intentionally starts with a very small green gate.
+- That green gate is only acceptable because the displaced upstream PR
+  workflows remain available by explicit non-PR triggers and are documented in
+  this strategy.
+- A1 is a gate-reduction sprint, not a claim that the fork's broader testing
+  unknowns have been solved.
 
 ## Source Of Truth Policy
 
@@ -109,12 +152,39 @@ Workflow classification target after Sprint A1:
 |---|---|---|
 | `baseline.yml` | yes | `pull_request`, optionally protected-branch `push` |
 | `ci.yml` | no | `workflow_dispatch` |
+| `conformance.yml` | no | `workflow_dispatch`, `schedule` |
 | `fuzz.yml` | no | `workflow_dispatch`, `schedule` |
 | `bench.yml` | no | `workflow_dispatch` |
 | `semver.yml` | no | `workflow_dispatch` |
+| `model-catalog-drift.yml` | no | `workflow_dispatch`, `schedule` |
+| `weekly-certification-verdict.yml` | no | `workflow_dispatch`, `schedule` |
+| `weekly-evidence-refresh.yml` | no | `workflow_dispatch`, `schedule` |
+| `publish.yml` | no | release-only trigger as defined in workflow |
+| `release.yml` | no | release-only trigger as defined in workflow |
 
 Protected-branch `push` triggers for heavyweight workflows are out of scope for
 Phase A unless team-lead explicitly revises this strategy later.
+
+## Upstream Test Contracts That Phase A Must Respect
+
+Phase A does not get to invent a new definition of "tests" for this fork.
+These upstream contracts remain authoritative while Phase A narrows ordinary PR
+gating:
+
+- suite taxonomy and suite membership:
+  - `docs/testing-policy.md`
+  - `tests/suite_classification.toml`
+- extension conformance/replay infrastructure:
+  - `.github/workflows/conformance.yml`
+  - `tests/ext_conformance/**`
+- no-mock and evidence-policy guards:
+  - `.github/workflows/ci.yml`
+- specialty API/catalog verification:
+  - `.github/workflows/semver.yml`
+  - `.github/workflows/model-catalog-drift.yml`
+
+Phase A is a required-gate reshaping effort. It is not an authorization to
+delete or semantically weaken those upstream contracts without separate review.
 
 ## Lint Policy
 
@@ -233,6 +303,7 @@ Observed GitHub Actions timings from 2026-07-02:
 
 Team-lead approval should explicitly confirm:
 
+- the upstream ordinary-PR workflow inventory and post-A1 trigger plan
 - the steady-state `baseline` command list
 - the per-sprint rollout table
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1

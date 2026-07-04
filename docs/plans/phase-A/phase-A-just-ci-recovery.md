@@ -20,13 +20,13 @@ This phase uses:
 - phase testing strategy:
   - `docs/plans/phase-A/phase-A-testing-strategy.md`
 - sprint plans:
-  - `docs/plans/sprint-a-1-establish-minimal-baseline-gate.md`
-  - `docs/plans/sprint-a-2-add-local-code-lint.md`
-  - `docs/plans/sprint-a-3-add-smoke-baseline.md`
-  - `docs/plans/sprint-a-4-add-taxonomy-helpers.md`
-  - `docs/plans/sprint-a-5-add-optional-local-lanes.md`
-  - `docs/plans/sprint-a-6-refresh-ssot-and-timing.md`
-  - `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
+  - `docs/plans/phase-A/sprint-a-1-establish-minimal-baseline-gate.md`
+  - `docs/plans/phase-A/sprint-a-2-add-local-code-lint.md`
+  - `docs/plans/phase-A/sprint-a-3-add-smoke-baseline.md`
+  - `docs/plans/phase-A/sprint-a-4-add-taxonomy-helpers.md`
+  - `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md`
+  - `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md`
+  - `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md`
 
 Only these docs are authoritative for corrected Phase A.
 
@@ -81,6 +81,35 @@ immediately, not after an integration branch has accumulated multiple sprints.
 - CI must call `just` commands rather than bespoke cargo command strings
 - required PR CI must stay below 10 minutes in every implementation sprint
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
+
+## Upstream Fork Testing Reality
+
+This repository is a fork of the public upstream
+`Dicklesworthstone/pi_agent_rust`.
+
+Current upstream ordinary-PR testing surfaces that Phase A must classify rather
+than ignore:
+
+- `.github/workflows/ci.yml`
+  - cross-OS build/test/policy workflow on `pull_request`
+- `.github/workflows/conformance.yml`
+  - extension conformance PR matrix on `pull_request`
+  - checks out sibling repositories and installs Bun / npm dependencies
+- `.github/workflows/fuzz.yml`
+  - Linux fuzz PR workflow for PRs targeting `main`
+- `.github/workflows/semver.yml`
+  - path-filtered PR API compatibility workflow
+- `.github/workflows/model-catalog-drift.yml`
+  - path-filtered advisory PR drift workflow
+
+Phase A is allowed to reduce ordinary PR gating to `baseline`, but only if the
+testing strategy documents what each displaced upstream workflow currently
+proves, how it will still be runnable after Sprint A1, and why the ordinary PR
+gate is no longer the right place for it.
+
+This is a fork-risk rule, not an optional note. "Simple CI green" for Sprint A1
+means a deliberately reduced required PR gate, not permission to forget what
+the upstream fork already validates.
 
 ## Safe Reuse Inventory
 
@@ -147,6 +176,8 @@ Implications:
 - `clippy --tests` does not belong in required PR CI
 - broad `cargo test` orchestration does not belong in required PR CI
 - `fuzz`, `bench`, and `semver` must stay outside ordinary PR gating
+- upstream PR-only specialty workflows must be explicitly classified before
+  Sprint A1 changes any triggers
 
 ## Known Issues To Preserve
 
@@ -253,6 +284,7 @@ No implementation sprint begins until team-lead reviews:
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
 - the exact baseline command list
 - the workflow files removed from ordinary PR gating
+- the upstream PR-workflow inventory and its post-A1 trigger classification
 - the sprint ordering that makes Sprint A1 establish the required PR gate
 - the A4 / A5 split between taxonomy helpers and optional local lanes
 
