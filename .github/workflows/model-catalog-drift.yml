@@ -15,6 +15,22 @@ name: Model Catalog Drift
 # manual edit).
 
 on:
+  push:
+    paths:
+      - scripts/gen-model-catalog.mjs
+      - scripts/models.local.json
+      - scripts/package.json
+      - scripts/package-lock.json
+      - .github/workflows/model-catalog-drift.yml
+      - legacy_pi_mono_code/pi-mono/packages/ai/src/models.generated.ts
+  pull_request:
+    paths:
+      - scripts/gen-model-catalog.mjs
+      - scripts/models.local.json
+      - scripts/package.json
+      - scripts/package-lock.json
+      - .github/workflows/model-catalog-drift.yml
+      - legacy_pi_mono_code/pi-mono/packages/ai/src/models.generated.ts
   schedule:
     # Weekly: catches an @earendil-works/pi-ai bump landed by Dependabot.
     - cron: '17 6 * * 1'

@@ -2,10 +2,10 @@
 
 ## Purpose
 
-Quality gates only protect the codebase if they cannot be bypassed during the
-merge workflow. This document specifies the required branch protection rules
-for the `main` branch and documents the current required ordinary-PR status
-check set.
+Quality gates (conformance, clippy, tests, coverage) only protect the
+codebase if they cannot be bypassed during the merge workflow. This
+document specifies the required branch protection rules for the `main`
+branch and documents how each CI gate maps to a required status check.
 
 ## Required Status Checks
 
@@ -13,20 +13,43 @@ The following checks must pass before a PR can be merged to `main`:
 
 | CI Job | Workflow | Required | Blocks Merge |
 |--------|----------|----------|--------------|
-| baseline | baseline.yml | Yes | Yes |
+| `rust (ubuntu-latest)` | `ci.yml` | Yes | Yes |
+| `rust (macos-latest)` | `ci.yml` | Yes | Yes |
+| `rust (windows-latest)` | `ci.yml` | Yes | Yes |
+| `conformance (fast-official)` | `conformance.yml` | Yes | Yes |
+| `conformance (fast-generated)` | `conformance.yml` | Yes | Yes |
+| `conformance (fast-negative)` | `conformance.yml` | Yes | Yes |
+| `conformance (fast-capability-matrix)` | `conformance.yml` | Yes | Yes |
 
 ## What Each Gate Enforces
 
-### Baseline Pipeline (`baseline.yml`)
+### CI Pipeline (`ci.yml`)
 
-The Phase A ordinary PR baseline is intentionally narrow:
+Per-platform (Linux, macOS, Windows):
 
-1. **`just help`** — Confirms the minimal shared operator surface is present.
-2. **`just fmt check`** — Confirms formatting compliance.
-3. **`just test compile`** — Confirms `cargo check --all-targets` succeeds.
-4. **`just test unit-basic`** — Confirms the full library test sweep plus the
-   strict basic-unit add-on targets succeed, with only the
-   testing-strategy exclusions carved out.
+1. **No-mock dependency guard** — Blocks `mockall`, `mockito`, `wiremock` in `Cargo.toml`/`Cargo.lock`.
+2. **No-mock code guard** — Blocks `Mock*/Fake*/Stub*` identifiers in test code (allowlisted: `MockHttp{Server,Request,Response}`).
+3. **Traceability matrix guard** — Validates `docs/traceability_matrix.json` consistency.
+4. **Suite classification guard** — Every `tests/*.rs` must appear in `tests/suite_classification.toml`.
+5. **VCR leak guard** — Unit-suite files must not reference VCR infrastructure.
+6. **PR Definition-of-Done evidence guard** — For feature-surface PRs, blocks merge unless the PR body includes checked unit/e2e/extension evidence links and reproduction commands (Linux PR lane only).
+7. **`cargo fmt --check`** — Format compliance.
+8. **`cargo clippy -D warnings`** — Zero clippy warnings.
+9. **`cargo doc --no-deps`** — Documentation builds cleanly.
+10. **`cargo test --all-targets`** — All tests pass.
+11. **Unified verification runner** — `scripts/e2e/run_all.sh --profile ci` (Linux only).
+12. **CI gate promotion** — Conformance thresholds enforced (Linux only).
+13. **Conformance regression gate** — No pass-rate regressions (Linux only).
+14. **Coverage gate** — Line coverage >= 50% (Linux only).
+
+### Conformance Pipeline (`conformance.yml`)
+
+On PRs, four fast conformance checks run:
+
+1. **fast-official** — Sample of official extensions (max 5).
+2. **fast-generated** — Generated tier 1-2 scenarios.
+3. **fast-negative** — Negative policy tests.
+4. **fast-capability-matrix** — Capability denial matrix.
 
 ## GitHub Branch Protection Settings
 
@@ -56,7 +79,7 @@ Settings → Branches → Branch protection rules → main
 # Set required status checks (adjust repo owner/name):
 gh api repos/{owner}/{repo}/branches/main/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["baseline"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["rust (ubuntu-latest)","rust (macos-latest)","rust (windows-latest)","conformance (fast-official)","conformance (fast-generated)","conformance (fast-negative)","conformance (fast-capability-matrix)"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true}' \
   --field restrictions=null \
@@ -111,8 +134,7 @@ minimum thresholds before a release tag is created.
 
 - Status checks: Required for all users including administrators.
 - PR requirement: Direct pushes to `main` are blocked.
-- Baseline gate: `just help`, `just fmt check`, `just test compile`, and
-  `just test unit-basic` stay required through the `baseline` workflow.
+- Format and lint: `cargo fmt --check` and `cargo clippy -D warnings`.
 
 ### Emergency Procedures
 
@@ -130,13 +152,12 @@ temporarily disable branch protection. This must be:
 Track these metrics weekly:
 
 - **Flake rate**: Transient failures / total runs (target: < 5%).
-- **Mean CI duration**: Average wall-clock time for the `baseline` workflow.
+- **Mean CI duration**: Average wall-clock time for the `ci` workflow.
 - **Coverage trend**: Line coverage over time (floor: 50%).
 - **Conformance pass rate**: Extension conformance trend.
 
 ### Alerts
 
-- CI flake rate exceeds 5% → investigate the failing baseline step.
-- Baseline runtime exceeds 10 minutes → split or narrow the ordinary PR gate.
-- Displaced specialty workflows stop running manually or on schedule →
-  restore their retained trigger paths before expanding required PR CI.
+- CI flake rate exceeds 5% → investigate per-target flake budgets.
+- Coverage drops below 50% → `cargo llvm-cov` gate will block merge.
+- Conformance pass rate drops → `CI_GATE_PROMOTION_MODE=strict` blocks merge.
