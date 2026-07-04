@@ -322,38 +322,38 @@ No implementation sprint begins until team-lead reviews:
 ### Team-Lead Review Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-04`
+Review date: `2026-07-03`
 Confirmation: team-lead reviewed and approved this Phase A plan on
-`2026-07-04`; the review gate is closed and implementation may begin from this
+`2026-07-03`; the review gate is closed and implementation may begin from this
 approved planning baseline.
 
 Review-item record:
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the exact baseline command list
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the workflow files removed from ordinary PR gating
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the upstream PR-workflow inventory and its post-A1 trigger classification
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the `unit-basic` allowlist and exclusion rationale
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the sprint ordering that makes Sprint A1 establish the required PR gate
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the A4 / A5 split between taxonomy helpers and optional local lanes
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 
 Implementation-start rule:
 
 - `Status: complete` now applies because team-lead explicitly closed every
-  review item above on `2026-07-04` and the review gate is satisfied
+  review item above on `2026-07-03` and the review gate is satisfied
 
 ## Upstream Workflow Trigger Reconciliation
 

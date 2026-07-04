@@ -474,36 +474,36 @@ Team-lead approval should explicitly confirm:
 ### Team-Lead Approval Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-04`
-Approval state: team-lead approved this testing strategy on `2026-07-04`; the
+Review date: `2026-07-03`
+Approval state: team-lead approved this testing strategy on `2026-07-03`; the
 strategy is the approved control document for Phase A implementation.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the `compile` lane definition
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the `unit-basic` allowlist and exclusion list
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the steady-state `baseline` command list
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the per-sprint rollout table
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the SSOT owner files for lint and test lanes
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the list of local-only and manual-only lanes
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: approved by team-lead, 2026-07-04
+  - status: approved by team-lead, 2026-07-03
 
 ## Exit Criteria
 
