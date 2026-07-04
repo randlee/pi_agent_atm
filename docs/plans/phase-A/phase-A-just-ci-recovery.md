@@ -1,410 +1,385 @@
-# Phase A - Just / CI Recovery
+# Phase A - Minimal Just / CI Recovery
 
-Date: 2026-07-02
-Status: planning
-Authoritative scope: Phase A planning only
+Date: 2026-07-03
+Status: complete
+Branch: `plan/phase-A`
+Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
+Authoritative scope: corrected Phase A planning
 
 ## Purpose
 
-Phase A recovers the `just` and CI integration effort after the failed
-exploratory attempt on `feature/just-integration`.
+Phase A recovers the `just` + CI effort by starting from a minimal working
+baseline and then adding one small production-ready increment at a time.
 
-Phase A exists to:
+This corrected plan replaces the invalid rollout merged by PR #5.
 
-1. restore review trust around `main` / `master`
-2. preserve useful learning from the exploratory branch without merging it
-   wholesale
-3. install a narrow, reviewable `just` system
-4. establish a testing strategy with one source of truth for local and CI lane
-   definitions
-5. reduce required PR CI to a bounded fast baseline
+Supporting evidence for this correction:
+
+- `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
+- `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
+- `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
 
 ## Authoritative Document Layout
 
-This phase uses the following document layout and naming rules:
+This phase uses:
 
-- phase document:
+- phase overview:
   - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
-- sprint documents:
-  - `docs/plans/sprint-a-1-<description>.md`
-  - `docs/plans/sprint-a-2-<description>.md`
-  - and so on
+- phase testing strategy:
+  - `docs/plans/phase-A/phase-A-testing-strategy.md`
+- sprint plans:
+  - `docs/plans/phase-A/sprint-a-1-establish-minimal-baseline-gate.md`
+  - `docs/plans/phase-A/sprint-a-2-add-local-code-lint.md`
+  - `docs/plans/phase-A/sprint-a-3-add-smoke-baseline.md`
+  - `docs/plans/phase-A/sprint-a-4-add-taxonomy-helpers.md`
+  - `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md`
+  - `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md`
+  - `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md`
 
-This phase document is the authoritative overview for Phase A.
-
-Each sprint document is authoritative for exactly one sprint and exactly one
-deliverable.
-
-Companion phase document:
-
-- `docs/plans/phase-A/phase-A-testing-strategy.md`
-
-Only the `docs/plans/` tree is authoritative for Phase A.
+Only these docs are authoritative for corrected Phase A.
 
 ## Planning Rules
 
 This phase follows:
 
-- `/Volumes/Extreme Pro/github/atm-core/.claude/skills/plan-hardening/sprint-planning-guidelines.md`
+- `.claude/skills/plan-hardening/sprint-planning-guidelines.md`
+- `.claude/skills/codex-orchestration/sprint-plan.md.j2`
 
 Applied interpretation for this phase:
 
-- each sprint has one deliverable
-- each sprint must end in a production-ready result for its claimed scope
-- no sprint may silently carry a committed deliverable forward
-- acceptance criteria and required validation live in the sprint doc, not in
-  duplicated checklists elsewhere
+- one sprint, one deliverable, one PR
+- each sprint must land production-ready for the scope it claims
+- no sprint may rely on the old heavyweight PR workflow surface remaining active
+- no sprint may silently carry a required deliverable forward
+- every sprint must preserve green required PR CI under 10 minutes
 
 ## Branch And Worktree Model
 
-Phase A implementation will use the following branch model:
+Corrected Phase A does not use an `integrate/phase-A` merge-forward branch.
 
-- prerequisite branch state:
-  - merge the revert PR first
-  - synchronize `master` to the restored `main`
-  - create `integrate/phase-A` from that synchronized `master`
-- integration branch:
-  - `integrate/phase-A`
-  - created off `master`
+Instead:
+
+- planning branch:
+  - `plan/phase-A`
+- implementation target branch:
+  - `develop`
 - sprint branches:
-  - one branch per sprint, cut from `integrate/phase-A`
-- worktrees:
-  - one dedicated `sc-git-worktree` per sprint branch
+  - cut directly from updated `develop`
+- sprint worktrees:
+  - one dedicated worktree per sprint branch
 
-Merge model:
+Execution model:
 
-1. `master` is synchronized to restored `main`
-2. `integrate/phase-A` is created from synchronized `master`
-3. Sprint A1 stages and holds the draft revert PR against `main`
-4. sprint worktree for Sprint A2 is created from `integrate/phase-A`
-5. Sprint A2 lands into `integrate/phase-A`
-6. later sprint worktrees are created from updated `integrate/phase-A`
-7. work merges forward sprint-by-sprint
+1. team-lead reviews and approves the testing strategy
+2. Sprint A1 branches from `develop`
+3. Sprint A1 merges back to `develop` only after green `baseline` CI
+4. Sprint A2 branches from updated `develop`
+5. repeat through Sprint A7
 
-Expected merge-forward pattern:
-
-- `sprint-a-2-*` starts from updated `integrate/phase-A`
-- `sprint-a-2-*` -> `integrate/phase-A`
-- repeat for later sprints
-
-No implementation sprint should branch from:
-
-- `plan/just-integration`
-- `feature/just-integration`
-- `feature/atm-graft-integration`
-
-## Revert PR Policy
-
-The unauthorized direct commits on `main` must be addressed first in execution
-order, but not merged immediately during planning.
-
-Required policy:
-
-- the revert exists now as a reviewable draft PR
-- the revert PR stays unmerged while Phase A planning is completed
-- the revert PR is the first execution step once implementation begins
-- before merging the revert PR, review whether any leaked changes have salvage
-  value and should be reintroduced properly on a dedicated sprint branch
-
-Current revert PR:
-
-- draft PR for `fix/revert-unauthorized-main-20260702` -> `main`
-
-This means:
-
-- planning completes first
-- codebase review of leaked commits happens during planning / sprint setup
-- revert executes first when Phase A implementation starts
-
-## Inputs Reviewed
-
-- `sc-just` skill and references under
-  `/Volumes/Extreme Pro/github/synaptic-canvas/packages/sc-just`
-- `atm-core` `justfile` and `.just/` structure under
-  `/Volumes/Extreme Pro/github/atm-core`
-- current repo branch state
-- exploratory branch `feature/just-integration`
-- GitHub Actions timing/failure evidence from 2026-07-02
+This branch model is required because the first shipped baseline must land
+immediately, not after an integration branch has accumulated multiple sprints.
 
 ## Ground Rules
 
 - do not work on `main`
 - do not merge `feature/just-integration` wholesale
-- do not reintroduce exploratory `src/**` churn as part of the `just` recovery
-- reuse only narrow, understandable pieces from exploratory work
-- `just` must unify existing command entry points rather than create parallel
-  ones
-- `just test` and CI must share the same lane definitions
-- required PR CI must finish in under 10 minutes
-- long-running workflows must be optional/manual/scheduled unless later evidence
-  proves they belong in required PR CI
+- do not reintroduce exploratory `src/**` churn as part of Phase A
+- reuse only narrow proven pieces from `feature/just-integration`
+- `just` is the only local operator surface
+- the required `baseline` workflow and new Phase A fast-lane workflow edits must
+  call `just` commands rather than bespoke cargo command strings
+- compile checking and strict basic-unit coverage must land before local-code
+  lint expansion or smoke-lane expansion
+- required PR CI must stay below 10 minutes in every implementation sprint
+- heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
+- the Phase A baseline lanes become the stable upstream-regression contract
+- future ATM-owned lanes must layer in additively through `just lint` and
+  `just test`, not by mutating the meaning of the baseline lanes
+- future ATM integration should follow the actual
+  `feature/atm-graft-integration` model: root `Cargo.toml` dependency wiring to
+  `atm-core` crates plus narrowly scoped local shim/integration surfaces
+
+## Upstream Fork Testing Reality
+
+This repository is a fork of the public upstream
+`Dicklesworthstone/pi_agent_rust`.
+
+Current upstream ordinary-PR testing surfaces that Phase A must classify rather
+than ignore:
+
+- `.github/workflows/ci.yml`
+  - cross-OS build/test/policy workflow on `pull_request`
+- `.github/workflows/conformance.yml`
+  - extension conformance PR matrix on `pull_request`
+  - checks out sibling repositories and installs Bun / npm dependencies
+- `.github/workflows/fuzz.yml`
+  - Linux fuzz PR workflow for PRs targeting `main`
+- `.github/workflows/bench.yml`
+  - benchmark PR workflow that remains outside ordinary required PR gating
+- `.github/workflows/semver.yml`
+  - path-filtered PR API compatibility workflow
+- `.github/workflows/model-catalog-drift.yml`
+  - path-filtered advisory PR drift workflow
+
+Phase A is allowed to reduce ordinary PR gating to `baseline`, but only if the
+testing strategy documents what each displaced upstream workflow currently
+proves, how it will still be runnable after Sprint A1, and why the ordinary PR
+gate is no longer the right place for it.
+
+This is a fork-risk rule, not an optional note. "Simple CI green" for Sprint A1
+means a deliberately reduced required PR gate, not permission to forget what
+the upstream fork already validates.
 
 ## Safe Reuse Inventory
 
-Safe reuse candidates from exploratory work:
+Safe reuse candidates from `feature/just-integration`:
 
-- `feature/just-integration:justfile`
-- `feature/just-integration:.just/print_help.py`
-- `feature/just-integration:.just/run_fmt.py`
-- `feature/just-integration:.just/run_lint.py`
-- `feature/just-integration:.just/lint_catalog.py`
-- `feature/just-integration:.just/test_catalog.py`
-- `feature/just-integration:.just/explain.py`
-- `feature/just-integration:.just/show_suites.py`
-- `feature/just-integration:.github/workflows/baseline.yml`
-- `feature/just-integration:scripts/smoke.sh`
+- `justfile`
+- `.just/print_help.py`
+- `.just/run_fmt.py`
+- `.just/run_cargo.py`
+- `.just/run_lint.py`
+- `.just/lint_catalog.py`
+- `.just/run_test.py`
+- `.just/test_catalog.py`
+- `.just/explain.py`
+- `.just/show_suites.py`
+- `.github/workflows/baseline.yml`
+- `scripts/smoke.sh`
 
-Exact on-disk source paths for those candidates:
+Exact on-disk reference paths:
 
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/justfile`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/print_help.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_fmt.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_cargo.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_lint.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/lint_catalog.py`
+- `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/run_test.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/test_catalog.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/explain.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.just/show_suites.py`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/.github/workflows/baseline.yml`
 - `/Volumes/Extreme Pro/github/pi_agent_atm-worktrees/feature/just-integration/scripts/smoke.sh`
 
-Reuse only after revalidation:
-
-- `feature/just-integration:.just/run_test.py`
-- any `verify --profile ...` coupling
-- broad CI workflow rewrites
-- artifact/shard orchestration changes
-
 Do not reuse directly:
 
-- exploratory `src/**` changes
-- broad test rewrites done only to chase green CI
-- monolithic workflow edits without a minimal target-state design
+- any exploratory `src/**` change
+- broad workflow rewrites that try to preserve monolithic PR CI
+- shard orchestration and artifact plumbing from exploratory CI work
+- broad test rewrites made only to chase green CI
 
-Reference-only current on-disk files from the unauthorized direct-to-main
-commit range:
+## Retained Evidence
 
-- `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
-- `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/semver.yml`
-- `/Volumes/Extreme Pro/github/pi_agent_atm/.gitignore`
-- `/Volumes/Extreme Pro/github/pi_agent_atm/fuzz/fuzz_targets/fuzz_tool_paths.rs`
-- `/Volumes/Extreme Pro/github/pi_agent_atm/tests/suite_classification.toml`
+Observed local macOS timings from `feature/just-integration`:
 
-## Reverted Main Commit Restoration Ledger
+- `just help`: `<1s`
+- `just fmt check`: `12.46s`
+- `just lint clippy-lib`: `50.66s`
+- `just lint clippy-bins`: `2.87s`
+- `just test baseline`: `10.59s`
+- `just lint clippy-tests`: `>3m38s` before manual stop
+- `just test unit`: `>120s` before timeout
+- `just test integration`: `>120s` before timeout
 
-No reverted direct-to-main commit is automatically restored as part of the
-revert itself.
+Observed GitHub Actions timings from 2026-07-02:
 
-Restoration rule:
-
-- revert first
-- review each reverted commit as salvage inventory
-- reintroduce only the narrow pieces that still make sense
-- reintroduce them on the correct Phase A sprint branch, never by reverting the
-  revert
-
-### `9203d7df` Fix VCR suite classification and refresh review dates
-
-Files:
-
-- `tests/ext_conformance/reports/conformance_baseline.json`
-- `tests/qa_certification_dossier.rs`
-- `tests/suite_classification.toml`
-
-Current disposition:
-
-- `tests/suite_classification.toml`
-  - candidate for restoration review during Sprint A3 if the exploratory
-    reclassification is still correct
-  - current on-disk reference:
-    `/Volumes/Extreme Pro/github/pi_agent_atm/tests/suite_classification.toml`
-- `tests/ext_conformance/reports/conformance_baseline.json`
-  - not automatically part of Phase A baseline; restore only if later workflow
-    classification proves it necessary
-- `tests/qa_certification_dossier.rs`
-  - not automatically part of Phase A baseline; review separately if date-based
-    failures remain relevant after revert
-
-### `425e7a05` Fix baseline CI and verification regressions
-
-Files:
-
-- `.github/workflows/bench.yml`
-- `.github/workflows/ci.yml`
-- `Cargo.toml`
-- `README.md`
-- `fuzz/Cargo.lock`
-- `fuzz/Cargo.toml`
-- `scripts/ci/generate_parity_evidence.py`
-- `scripts/e2e/run_all.sh`
-- `tests/full_suite_gate/extension_remediation_backlog.json`
-- `tests/security_budgets.rs`
-
-Current disposition:
-
-- `.github/workflows/ci.yml`
-  - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
-  - current on-disk reference:
-    `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
-- `.github/workflows/bench.yml`
-  - review in Sprint A6 when classifying long-running workflows
-- `scripts/e2e/run_all.sh`
-  - candidate for narrow salvage only if `verify` remains in use and the
-    fail-fast/shard behavior is still required after Sprint A4 review
-- `Cargo.toml`
-  - do not restore blindly; any dependency or feature changes require separate
-    justification
-- `README.md`
-  - out of scope for Phase A unless command-surface docs must be updated after
-    implementation
-- `fuzz/Cargo.toml`
-  - review only when fuzz classification is revisited in Sprint A6
-- `fuzz/Cargo.lock`
-  - never restore independently of an intentional `fuzz/Cargo.toml` change
-- `scripts/ci/generate_parity_evidence.py`
-  - outside initial baseline scope; review only if retained CI still needs it
-- `tests/full_suite_gate/extension_remediation_backlog.json`
-  - outside initial baseline scope
-- `tests/security_budgets.rs`
-  - outside initial baseline scope unless later retained workflow review
-    requires it
-
-### `4b762a59` Disable semver in baseline CI
-
-Files:
-
-- `.github/workflows/semver.yml`
-
-Current disposition:
-
-- do not restore as a direct revert of the revert
-- decide classification in Sprint A6
-- if semver remains out of required PR CI, update it there intentionally
-- current on-disk reference:
-  `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/semver.yml`
-
-### `5fe05e11` Trim baseline CI and ignore local artifacts
-
-Files:
-
-- `.github/workflows/ci.yml`
-- `.gitignore`
-
-Current disposition:
-
-- `.github/workflows/ci.yml`
-  - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
-  - current on-disk reference:
-    `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
-- `.gitignore`
-  - candidate for explicit restoration if the ignored local-only artifacts are
-    still required:
-    - `.DS_Store`
-    - `.sc/`
-  - current on-disk reference:
-    `/Volumes/Extreme Pro/github/pi_agent_atm/.gitignore`
-
-### `392b209f` Fix SQLite claim guard and fuzz path invariant
-
-Files:
-
-- `.github/workflows/ci.yml`
-- `fuzz/fuzz_targets/fuzz_tool_paths.rs`
-
-Current disposition:
-
-- `.github/workflows/ci.yml`
-  - do not restore wholesale; redesign only through Sprint A5 and Sprint A6
-  - current on-disk reference:
-    `/Volumes/Extreme Pro/github/pi_agent_atm/.github/workflows/ci.yml`
-- `fuzz/fuzz_targets/fuzz_tool_paths.rs`
-  - review only if fuzz remains a retained workflow after Sprint A6
-  - current on-disk reference:
-    `/Volumes/Extreme Pro/github/pi_agent_atm/fuzz/fuzz_targets/fuzz_tool_paths.rs`
-
-## Testing Strategy Summary
-
-Phase A includes a testing strategy as part of the plan, not as an afterthought.
-
-Current observed facts:
-
-- `suite.unit`: 118 targets
-- `suite.vcr`: 144 targets
-- `suite.e2e`: 39 targets
-- `tests/*.rs` integration-test crates: 301
-
-Observed timing baseline:
-
-- local macOS:
-  - `just fmt check`: `12.46s`
-  - `just lint clippy-lib`: `50.66s`
-  - `just lint clippy-bins`: `2.87s`
-  - `just test baseline`: `10.59s`
-- GitHub Actions:
-  - `baseline`: about `7m`
-  - `Extension Conformance`: about `6m25s`
-  - `Fuzz CI`: about `43m`
-  - old monolithic `ci`: about `49m` before cancellation
+- `baseline`: `~7m03s`
+- `Extension Conformance`: `~6m25s`
+- `Fuzz CI`: `~42m59s`
+- old monolithic `ci`: `~49m25s` before cancellation
 
 Implications:
 
 - a fast required PR baseline is viable
-- fuzz does not belong in required PR CI
-- monolithic CI does not belong in required PR gating
-- broad `clippy --tests` and full test orchestration must be kept outside the
-  default fast lane until separately justified
+- `clippy --tests` does not belong in required PR CI
+- broad `cargo test` orchestration does not belong in required PR CI
+- `fuzz`, `bench`, and `semver` must stay outside ordinary PR gating
+- upstream PR-only specialty workflows must be explicitly classified before
+  Sprint A1 changes any triggers
+- `suite.unit` is too broad to serve as the first basic-unit gate without an
+  explicit allowlist
 
-Known issues to preserve in implementation planning:
+## Known Issues To Preserve
 
-- macOS Bash 3 portability concerns
-- macOS `just clean` instability against `target/agents/...`
-- prior `vergen-lib` local build issue
-- historical fuzz instability around `sysinfo` / nightly drift
-- historical CI working-directory mistakes
-- the planning branch itself still carries pre-revert ancestry and must not be
-  used as the code integration base
+- Bash 3 portability still matters on macOS
+- `just clean` previously failed against `target/agents/...` on macOS
+- a `vergen-lib` local build-script issue was observed in exploratory runs
+- prior fuzz failures hit `sysinfo` / nightly drift
+- historical CI used wrong working-directory paths
 
-## Phase Deliverables By Sprint
+These notes remain valid even though the old rollout plan was superseded.
 
-Phase A is split into the following sprint documents:
+## Corrected Sprint Sequence
 
-1. `docs/plans/sprint-a-1-stage-revert-pr.md`
-2. `docs/plans/sprint-a-2-install-minimal-sc-just-skeleton.md`
-3. `docs/plans/sprint-a-3-establish-lane-ssot.md`
-4. `docs/plans/sprint-a-4-add-fast-test-baseline.md`
-5. `docs/plans/sprint-a-5-reduce-required-pr-ci-to-baseline.md`
-6. `docs/plans/sprint-a-6-classify-long-running-workflows.md`
-7. `docs/plans/sprint-a-7-merge-baseline-into-atm-graft.md`
+| Sprint | Branch | Worktree | Single deliverable | Required PR CI after merge |
+|---|---|---|---|---|
+| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | minimal `just` + compile/unit-baseline workflow | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` |
+| A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
+| A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | smoke regression lane through `just test` | A2 + `just test baseline` |
+| A4 | `sprint-a-4-add-taxonomy-helpers` | `../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers` | taxonomy helpers only | unchanged from A3 |
+| A5 | `sprint-a-5-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes` | optional local lanes only | unchanged from A3 |
+| A6 | `sprint-a-6-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing` | freeze SSOT and refresh timing evidence | unchanged from A3 |
+| A7 | `sprint-a-7-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft` | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 on merge PRs |
 
-Each sprint has one deliverable only.
+### Sprint A1
 
-Sprint A1 is the only pre-integration gating sprint:
+Deliverable:
 
-- it creates and holds the draft revert PR against `main`
-- it does not merge into `integrate/phase-A`
-- `integrate/phase-A` is created only after the revert merges and `master` is
-  synchronized
+- minimal `just` operator surface plus one tiny required `baseline` workflow
+  that proves compile health and strict basic-unit health first
 
-Sprints A2 through A7 follow the normal merge-forward model into
-`integrate/phase-A`.
+Outcome:
 
-## Open Questions For Jen
+- old heavyweight PR workflows stop running on ordinary PRs
+- required PR CI becomes `baseline` immediately
+- the first required baseline proves compile health before lint expansion
+- the first required baseline proves a strict basic-unit subset rather than the
+  whole broad `[suite.unit]` bucket
 
-1. Should the phase ultimately retain `verify` as the underlying test runner, or
-   should Phase A treat it as replaceable plumbing behind the `just` lane SSOT?
-2. Should cross-platform CI remain outside required PR CI for the fork baseline,
-   with Linux baseline as the required path?
-3. Should the smoke baseline remain shell-based or move into Python so the same
-   catalog system owns all lane data?
-4. Should `Extension Conformance` stay PR-available but non-required, or move
-   to manual/nightly only?
+### Sprint A2
+
+Deliverable:
+
+- add local-code lint through the established `just lint` surface
+
+Outcome:
+
+- required PR CI gains local-code lint coverage while staying under budget
+
+### Sprint A3
+
+Deliverable:
+
+- add a tiny deterministic smoke lane through the established `just test`
+  surface
+
+Outcome:
+
+- required PR CI proves the repo still basically works without broad test churn
+
+### Sprint A4
+
+Deliverable:
+
+- add taxonomy helpers only without changing required PR CI
+
+Outcome:
+
+- operators can inspect lane semantics, ownership, and suite taxonomy without
+  changing the required PR gate
+
+### Sprint A5
+
+Deliverable:
+
+- add optional local lanes without changing required PR CI
+
+Outcome:
+
+- agents get richer local commands, including future ATM-owned or integration
+  lanes, without changing the required PR gate
+
+### Sprint A6
+
+Deliverable:
+
+- freeze SSOT ownership and refresh timing evidence using the established
+  command surface
+
+Outcome:
+
+- team-lead gets a reviewed timing-backed strategy plus the frozen ATM layering
+  framework before the baseline merges into `atm-graft`
+
+### Sprint A7
+
+Deliverable:
+
+- merge the verified baseline into `feature/atm-graft-integration`
+
+Outcome:
+
+- the `atm-graft` line starts from the corrected `just` + CI baseline instead
+  of carrying forward the abandoned exploratory work
+
+## Team-Lead Review Gate
+
+No implementation sprint begins until team-lead reviews:
+
+- `docs/plans/phase-A/phase-A-testing-strategy.md`
+- the exact baseline command list
+- the workflow files removed from ordinary PR gating
+- the upstream PR-workflow inventory and its post-A1 trigger classification
+- the `unit-basic` allowlist and exclusion rationale
+- the sprint ordering that makes Sprint A1 establish the required PR gate
+- the A4 / A5 split between taxonomy helpers and optional local lanes
+- the future `just` lane taxonomy for upstream, ATM-owned, and integration
+  lanes
+- the planned dependency and glue surfaces already present on
+  `feature/atm-graft-integration`
+
+### Team-Lead Review Record
+
+Reviewer: `team-lead`
+Review date: `2026-07-03`
+Confirmation: team-lead reviewed and approved this Phase A plan on
+`2026-07-03`; the review gate is closed and implementation may begin from this
+approved planning baseline.
+
+Review-item record:
+
+- `docs/plans/phase-A/phase-A-testing-strategy.md`
+  - status: approved by team-lead, 2026-07-03
+- the exact baseline command list
+  - status: approved by team-lead, 2026-07-03
+- the workflow files removed from ordinary PR gating
+  - status: approved by team-lead, 2026-07-03
+- the upstream PR-workflow inventory and its post-A1 trigger classification
+  - status: approved by team-lead, 2026-07-03
+- the `unit-basic` allowlist and exclusion rationale
+  - status: approved by team-lead, 2026-07-03
+- the sprint ordering that makes Sprint A1 establish the required PR gate
+  - status: approved by team-lead, 2026-07-03
+- the A4 / A5 split between taxonomy helpers and optional local lanes
+  - status: approved by team-lead, 2026-07-03
+- the future `just` lane taxonomy for upstream, ATM-owned, and integration
+  lanes
+  - status: approved by team-lead, 2026-07-03
+- the planned dependency and glue surfaces already present on
+  `feature/atm-graft-integration`
+  - status: approved by team-lead, 2026-07-03
+
+Implementation-start rule:
+
+- `Status: complete` now applies because team-lead explicitly closed every
+  review item above on `2026-07-03` and the review gate is satisfied
+
+## Upstream Workflow Trigger Reconciliation
+
+Recurring upstream merges may reintroduce ordinary-PR triggers on heavyweight
+workflow files. When that happens, Phase A must reconcile the conflict this way:
+
+1. preserve the strategy rule that only `baseline` remains required on ordinary
+   PRs
+2. reapply the documented retained triggers for `ci`, `conformance`, `fuzz`,
+   `bench`, `semver`, and `model-catalog-drift`
+3. treat trigger-only workflow edits as isolated reconciliations unless the
+   underlying workflow contract is intentionally being re-scoped
+4. rerun the A1 workflow-view validation and record the reconciliation result in
+   the sprint PR notes
 
 ## Exit Criteria
 
-Phase A is complete when all of the following are true:
+Phase A is complete when:
 
-- the revert PR has been reviewed and then merged as the first execution step
-- `integrate/phase-A` contains the new `just` baseline
-- `just` lane definitions are SSOT-backed
-- required PR CI is under 10 minutes
-- long-running workflows are explicitly classified outside required PR CI
-- the stabilized baseline is ready to merge forward into `atm-graft` work
+- `baseline` is the only required PR workflow
+- `baseline` is the only required branch-protection status check for ordinary
+  PRs once the Sprint A1 operational branch-protection update lands
+- required PR CI on ordinary PRs is limited to the `baseline` workflow surface
+- `baseline` stays below 10 minutes
+- local `just` commands and required PR CI share the same lane definitions
+- heavyweight workflows no longer run on ordinary PRs
+- the verified baseline is merged into `feature/atm-graft-integration`
+- the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
+  crates without broad upstream churn
