@@ -1,10 +1,10 @@
 ---
 id: A1
 title: Establish Minimal Baseline Gate
-status: planned
+status: complete
 branch: sprint-a-1-establish-minimal-baseline-gate
 worktree: ../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate
-target: develop
+target: integrate/phase-A
 ---
 
 # Sprint A1 — Establish Minimal Baseline Gate
@@ -19,7 +19,8 @@ target: develop
 ## Hard Dependencies
 
 - team-lead reviews `docs/plans/phase-A/phase-A-testing-strategy.md`
-- sprint branches are cut from current `develop`
+- Sprint A1 is the root of the merge-forward Phase A chain and targets
+  `integrate/phase-A`
 
 ## Unblocks
 

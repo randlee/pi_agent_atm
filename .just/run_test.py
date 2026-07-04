@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import os
 
 from run_cargo import cargo_command, run_cargo
 from test_catalog import repo_root
@@ -63,6 +64,10 @@ def run_verify_lane(target: str) -> int:
     lane = resolve_lane(target)
     command = ["./verify", *lane.verify_args]
     print_lane_header(lane.name, command)
+    if lane.requires_readiness_env and os.environ.get(lane.requires_readiness_env) != "1":
+        if lane.readiness_message:
+            print(f"next={lane.readiness_message}")
+        return 2
     completed = subprocess.run(
         command,
         cwd=repo_root(),

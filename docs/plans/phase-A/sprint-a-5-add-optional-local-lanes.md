@@ -26,6 +26,9 @@ target: sprint-a-4-add-taxonomy-helpers
 
 - `justfile` (`isolation: baseline-command-surface`)
 - `.just/lint_catalog.py` (`isolation: optional-lint-lane-surface`)
+- `.just/run_lint.py` (`isolation: optional-lint-lane-surface`)
+- `.just/run_test.py` (`isolation: optional-test-lane-surface`)
+- `.just/show_suites.py` (`isolation: helper-output-sync`)
 - `.just/test_catalog.py` (`isolation: optional-test-lane-surface`)
 - `.just/explain.py` (`isolation: helper-output-sync`)
 
@@ -53,6 +56,9 @@ silently dropped or partially deferred.
 - reserve explicit naming room for future `atm-*` and `integration-*` lanes
   without changing the established upstream baseline lane ids
 - route lane descriptions through the established helper surfaces from Sprint A4
+- keep the optional `just test all` lane behind an explicit E2E readiness
+  guard so it does not silently pull live/network/tmux-dependent suites on
+  unprepared operator machines
 - keep required `baseline` contents exactly as Sprint A3 defined them
 - do not add `just test vcr` or `just test e2e` in this sprint
 
@@ -79,6 +85,8 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 
 - optional local lanes are documented and callable
 - optional local lanes are clearly marked as non-required in docs and lane help
+- `just test all` does not silently run live/network/tmux-dependent E2E suites
+  without an explicit readiness acknowledgment
 - any new ATM-owned or integration lane shape is classified as optional unless
   separately promoted by evidence and review
 - this sprint adds exactly `just test unit`, `just test integration`,

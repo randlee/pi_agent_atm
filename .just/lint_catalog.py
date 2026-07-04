@@ -13,9 +13,20 @@ class LintLane:
     blocking: str
     ssot: str
     children: tuple[str, ...] = ()
-    recipe: str | None = None
     cargo_args: tuple[str, ...] = ()
     steps: tuple[tuple[str, ...], ...] = ()
+
+
+def cargo_step(*args: str) -> tuple[str, ...]:
+    return ("cargo", *args)
+
+
+def fmt_step(mode: str) -> tuple[str, ...]:
+    return ("fmt", mode)
+
+
+def lane_step(name: str) -> tuple[str, ...]:
+    return ("lane", name)
 
 
 LANES = {
@@ -35,7 +46,6 @@ LANES = {
         owner=".just/lint_catalog.py",
         blocking="required",
         ssot=".just/lint_catalog.py",
-        recipe="_lint-clippy-bins",
         cargo_args=("clippy", "--no-deps", "--bins", "--", "-D", "warnings"),
     ),
     "clippy-lib": LintLane(
@@ -45,7 +55,6 @@ LANES = {
         owner=".just/lint_catalog.py",
         blocking="required",
         ssot=".just/lint_catalog.py",
-        recipe="_lint-clippy-lib",
         cargo_args=("clippy", "--no-deps", "--lib", "--", "-D", "warnings"),
     ),
     "all-local": LintLane(
@@ -56,12 +65,12 @@ LANES = {
         blocking="optional",
         ssot=".just/lint_catalog.py",
         steps=(
-            ("just", "_fmt-check"),
-            ("just", "_lint-clippy-bins"),
-            ("just", "_lint-clippy-lib"),
-            ("just", "_lint-clippy-tests"),
-            ("just", "_lint-clippy-benches"),
-            ("just", "_lint-clippy-examples"),
+            fmt_step("check"),
+            lane_step("clippy-bins"),
+            lane_step("clippy-lib"),
+            cargo_step("clippy", "--no-deps", "--tests", "--", "-D", "warnings"),
+            cargo_step("clippy", "--no-deps", "--benches", "--", "-D", "warnings"),
+            cargo_step("clippy", "--no-deps", "--examples", "--", "-D", "warnings"),
         ),
     ),
 }
@@ -88,11 +97,26 @@ def display_lanes() -> list[tuple[str, str]]:
     return [(name, LANES[name].description) for name in DISPLAY_ORDER]
 
 
+def lane_names_by_blocking(blocking: str) -> list[str]:
+    return [name for name in DISPLAY_ORDER if LANES[name].blocking == blocking]
+
+
+def step_command(step: tuple[str, ...]) -> str:
+    kind, *args = step
+    if kind == "cargo":
+        return "cargo " + " ".join(args)
+    if kind == "fmt":
+        return "just fmt " + " ".join(args)
+    if kind == "lane":
+        return "just lint " + args[0]
+    raise ValueError(f"unsupported lint step kind: {kind}")
+
+
 def lane_command(lane: LintLane) -> str:
     if lane.cargo_args:
         return "cargo " + " ".join(lane.cargo_args)
     if lane.steps:
-        return " && ".join(" ".join(step) for step in lane.steps)
+        return " && ".join(step_command(step) for step in lane.steps)
     if lane.children:
         return ", ".join(lane.children)
     return ""

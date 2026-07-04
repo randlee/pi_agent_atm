@@ -3,20 +3,16 @@ from __future__ import annotations
 
 from unit_basic_audit import UNIT_BASIC_INCLUDE_PREFIXES
 
-from lint_catalog import OPTIONAL_LANES as OPTIONAL_LINT_LANES
+from lint_catalog import DISPLAY_ORDER as LINT_DISPLAY_ORDER
+from lint_catalog import LANES as LINT_LANES
 from test_catalog import LANES
-from test_catalog import OPTIONAL_LANES as OPTIONAL_TEST_LANES
+from test_catalog import DISPLAY_ORDER as TEST_DISPLAY_ORDER
 from test_catalog import SUITE_ORDER
 from test_catalog import load_suite_targets
 
 
-UPSTREAM_REQUIRED_LANES = (
-    "lint.clippy-bins",
-    "lint.clippy-lib",
-    "test.compile",
-    "test.unit-basic",
-    "test.baseline",
-)
+def lane_members(prefix: str, display_order: tuple[str, ...], lanes: dict[str, object], blocking: str) -> list[str]:
+    return [f"{prefix}.{name}" for name in display_order if lanes[name].blocking == blocking]
 
 
 def emit_record(fields: list[tuple[str, str]]) -> None:
@@ -30,7 +26,15 @@ def main() -> int:
         [
             ("lane_group", "upstream-required"),
             ("source", ".just/lint_catalog.py,.just/test_catalog.py"),
-            ("members", ",".join(UPSTREAM_REQUIRED_LANES)),
+            (
+                "members",
+                ",".join(
+                    [
+                        *lane_members("lint", LINT_DISPLAY_ORDER, LINT_LANES, "required"),
+                        *lane_members("test", TEST_DISPLAY_ORDER, LANES, "required"),
+                    ]
+                ),
+            ),
         ]
     )
     emit_record(
@@ -40,7 +44,10 @@ def main() -> int:
             (
                 "members",
                 ",".join(
-                    [*(f"lint.{name}" for name in OPTIONAL_LINT_LANES), *(f"test.{name}" for name in OPTIONAL_TEST_LANES)]
+                    [
+                        *lane_members("lint", LINT_DISPLAY_ORDER, LINT_LANES, "optional"),
+                        *lane_members("test", TEST_DISPLAY_ORDER, LANES, "optional"),
+                    ]
                 ),
             ),
         ]

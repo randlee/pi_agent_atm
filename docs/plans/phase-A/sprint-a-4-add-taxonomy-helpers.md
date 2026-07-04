@@ -27,8 +27,11 @@ target: sprint-a-3-add-smoke-baseline
 ## Exact Targets
 
 - `justfile` (`isolation: baseline-command-surface`)
+- `.just/print_help.py` (`isolation: helper-surface`)
 - `.just/explain.py` (`isolation: taxonomy-helper-surface`)
+- `.just/lint_catalog.py` (`isolation: helper-surface`)
 - `.just/show_suites.py` (`isolation: taxonomy-helper-surface`)
+- `.just/test_catalog.py` (`isolation: helper-surface`)
 
 ## Deliverables
 
@@ -68,7 +71,7 @@ origin=upstream
 owner=.just/test_catalog.py
 blocking=required
 ssot=.just/test_catalog.py
-command=./scripts/smoke.sh --skip-lint --no-rch
+command=./scripts/smoke.sh --skip-lint --no-rch --only unit
 ```
 
 ## This Sprint Does Not Close
@@ -80,7 +83,8 @@ command=./scripts/smoke.sh --skip-lint --no-rch
 
 ## Acceptance Criteria
 
-- `just explain` exits 0 for required and optional lanes
+- `just explain` exits 0 for required lanes and for optional lanes that are
+  later added through the same lane catalogs
 - `just suites` exits 0 and reports suite taxonomy from the documented source
 - taxonomy helper output points operators to the SSOT lane and suite surfaces
 - taxonomy helper output distinguishes upstream baseline lanes from future

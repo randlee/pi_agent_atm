@@ -13,9 +13,9 @@ def repo_root() -> Path:
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "check"
     if mode in {"check", "verify"}:
-        command = ["just", "_fmt-check"]
+        command = ["cargo", "fmt", "--all", "--check"]
     elif mode in {"write", "apply"}:
-        command = ["just", "_fmt-write"]
+        command = ["cargo", "fmt", "--all"]
     else:
         raise SystemExit(f"unknown fmt mode: {mode}")
 

@@ -1,6 +1,6 @@
 # Phase A - Testing Strategy
 
-Date: 2026-07-03
+Date: 2026-07-04
 Status: approved
 
 ## Purpose
@@ -139,6 +139,8 @@ Target end state:
 - `.just/explain.py` explains lane semantics
 - `.just/show_suites.py` reports suite taxonomy from
   `tests/suite_classification.toml`
+- `.just/show_suites.py` derives required and optional lane groups from the
+  lane catalog metadata instead of maintaining a duplicate lane list
 - the required `baseline` workflow invokes only `just ...` commands
 
 One lane, one owner:
@@ -147,6 +149,8 @@ One lane, one owner:
   - owner: `justfile` + `.just/run_fmt.py`
 - lint lane:
   - owner: `.just/lint_catalog.py`
+  - execution rule: `justfile` may expose `just lint`, but it must not
+    duplicate the cargo command strings owned by the catalog
 - test lane:
   - owner: `.just/test_catalog.py`
 
@@ -472,14 +476,25 @@ Observed local macOS timings from `feature/just-integration`:
 | `just test unit` | incomplete | `>120s` before timeout |
 | `just test integration` | incomplete | `>120s` before timeout |
 
-Observed GitHub Actions timings from 2026-07-02:
+Observed GitHub Actions timings from 2026-07-04:
 
-| Workflow | Result | Approximate wall time |
-|---|---|---:|
-| `baseline` | success | `~7m03s` |
-| `Extension Conformance` | success | `~6m25s` |
-| `Fuzz CI` | success | `~42m59s` |
-| old monolithic `ci` | cancelled | `~49m25s` before cancellation |
+| Evidence source | Scope | Result | Observed wall time |
+|---|---|---:|---:|
+| run `28698960460` | Sprint A1 command steps (`just help` through `just test unit-basic`) | success | `9m45s` |
+| run `28698763616` | Sprint A2 command steps (`just help` through `just lint clippy-lib`) | success | `12m07s` |
+| run `28698763616` | `just fmt check` | success | `16s` |
+| run `28698763616` | `just test compile` | success | `4m01s` |
+| run `28698763616` | `just test unit-basic` | success | `5m45s` |
+| run `28698763616` | `just lint clippy-bins` | success | `2m03s` |
+| run `28698763616` | `just lint clippy-lib` | success | `1s` |
+
+Current budget status from that evidence:
+
+- the required gate is green on July 4, 2026 for A1 and A2
+- the A1 command-step envelope is inside the 10-minute target
+- the A2 command-step envelope is currently `2m07s` over the 10-minute target
+- A6 must report this overage honestly; it must not claim the budget is met
+  until a later green run proves that
 
 ## Team-Lead Review Checklist
 

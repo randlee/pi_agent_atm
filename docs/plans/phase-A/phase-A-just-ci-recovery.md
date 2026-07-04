@@ -1,6 +1,6 @@
 # Phase A - Minimal Just / CI Recovery
 
-Date: 2026-07-03
+Date: 2026-07-04
 Status: complete
 Branch: `plan/phase-A`
 Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
@@ -52,32 +52,48 @@ Applied interpretation for this phase:
 - no sprint may rely on the old heavyweight PR workflow surface remaining active
 - no sprint may silently carry a required deliverable forward
 - every sprint must preserve green required PR CI under 10 minutes
+- standing process gap from A4 and A5 QA: sprint docs that add or widen lane
+  catalogs must predeclare the runner/helper files those lanes require
+  (`.just/run_*.py`, `.just/show_suites.py`, `.just/print_help.py`) in Exact
+  Targets instead of only the public catalog files
 
 ## Branch And Worktree Model
 
-Corrected Phase A does not use an `integrate/phase-A` merge-forward branch.
+Corrected Phase A now uses a merge-forward sprint chain so each sprint PR can
+run CI against the immediately preceding sprint surface and fixes can merge
+forward through the active worktrees.
 
-Instead:
+Branch model:
 
 - planning branch:
   - `plan/phase-A`
-- implementation target branch:
-  - `develop`
+- merge-root branch:
+  - `integrate/phase-A`
 - sprint branches:
-  - cut directly from updated `develop`
+  - `sprint-a-1-establish-minimal-baseline-gate` targets `integrate/phase-A`
+  - `sprint-a-2-add-local-code-lint` targets A1
+  - `sprint-a-3-add-smoke-baseline` targets A2
+  - `sprint-a-4-add-taxonomy-helpers` targets A3
+  - `sprint-a-5-add-optional-local-lanes` targets A4
+  - `sprint-a-6-refresh-ssot-and-timing` targets A5
+  - `sprint-a-7-merge-baseline-into-atm-graft` merges the verified chain into
+    `feature/atm-graft-integration`
 - sprint worktrees:
   - one dedicated worktree per sprint branch
 
 Execution model:
 
 1. team-lead reviews and approves the testing strategy
-2. Sprint A1 branches from `develop`
-3. Sprint A1 merges back to `develop` only after green `baseline` CI
-4. Sprint A2 branches from updated `develop`
-5. repeat through Sprint A7
+2. Sprint A1 targets `integrate/phase-A`
+3. Sprint A2 through A6 target the immediately previous sprint branch
+4. once a sprint is fixed, merge that work forward into the next sprint
+   worktree before expecting CI to run there
+5. Sprint A7 merges the verified Phase A chain into
+   `feature/atm-graft-integration`
 
-This branch model is required because the first shipped baseline must land
-immediately, not after an integration branch has accumulated multiple sprints.
+This branch model is required because the sprint chain is being executed
+back-to-back on separate worktrees and each PR must validate against the
+actual previous increment, not against an older `develop` snapshot.
 
 ## Ground Rules
 
@@ -182,18 +198,22 @@ Observed local macOS timings from `feature/just-integration`:
 - `just test unit`: `>120s` before timeout
 - `just test integration`: `>120s` before timeout
 
-Observed GitHub Actions timings from 2026-07-02:
+Observed GitHub Actions timings from 2026-07-04:
 
-- `baseline`: `~7m03s`
-- `Extension Conformance`: `~6m25s`
-- `Fuzz CI`: `~42m59s`
-- old monolithic `ci`: `~49m25s` before cancellation
+- Sprint A1 command steps (`just help` through `just test unit-basic`):
+  `9m45s` on run `28698960460`
+- Sprint A2 command steps (`just help` through `just lint clippy-lib`):
+  `12m07s` on run `28698763616`
+- current step-level detail lives in
+  `docs/plans/phase-A/phase-A-testing-strategy.md`
 
 Implications:
 
 - a fast required PR baseline is viable
 - `clippy --tests` does not belong in required PR CI
 - broad `cargo test` orchestration does not belong in required PR CI
+- the current A2 green evidence is still over the 10-minute budget and must be
+  reported honestly until a later green run proves otherwise
 - `fuzz`, `bench`, and `semver` must stay outside ordinary PR gating
 - upstream PR-only specialty workflows must be explicitly classified before
   Sprint A1 changes any triggers

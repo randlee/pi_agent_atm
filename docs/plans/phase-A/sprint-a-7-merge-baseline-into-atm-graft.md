@@ -16,7 +16,7 @@ target: feature/atm-graft-integration
 
 ## Hard Dependencies
 
-- Sprint A6 merged into `develop`
+- Sprint A6 merged forward from `sprint-a-6-refresh-ssot-and-timing`
 - `feature/atm-graft-integration` is the active integration branch
 
 ## Unblocks
@@ -46,7 +46,8 @@ silently dropped or partially deferred.
 
 ## Required Work
 
-- merge the corrected Phase A baseline forward from `develop`
+- merge the corrected Phase A baseline forward from the merge-forward Phase A
+  sprint chain
 - resolve conflicts without pulling exploratory `feature/just-integration`
   source churn back in
 - keep `baseline` as the required PR workflow on the merged branch
@@ -62,7 +63,7 @@ silently dropped or partially deferred.
 ## Explicit Code Samples
 
 ```text
-develop
+integrate/phase-A
   -> sprint-a-1
   -> sprint-a-2
   -> sprint-a-3
@@ -76,7 +77,7 @@ develop
 merge surfaces to preserve
   -> Cargo.toml: atm-graft + atm_core dependency wiring
   -> vendor/atm-daemon-bootstrap-shim/Cargo.toml
-  -> baseline just/CI files from develop
+  -> baseline just/CI files from the Phase A sprint chain
 ```
 
 ## This Sprint Does Not Close

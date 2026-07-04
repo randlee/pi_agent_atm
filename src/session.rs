@@ -30,6 +30,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::{BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::Barrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
@@ -7578,6 +7580,9 @@ mod tests {
 
         let path1 = path.clone();
         let path2 = path.clone();
+        let barrier = Arc::new(Barrier::new(3));
+        let barrier1 = Arc::clone(&barrier);
+        let barrier2 = Arc::clone(&barrier);
 
         let t1 = std::thread::spawn(move || {
             let runtime = RuntimeBuilder::current_thread()
@@ -7588,6 +7593,7 @@ mod tests {
                     .await
                     .expect("open session");
                 s.append_message(make_test_message("From thread 1"));
+                barrier1.wait();
                 s.save().await
             })
         });
@@ -7601,20 +7607,28 @@ mod tests {
                     .await
                     .expect("open session");
                 s.append_message(make_test_message("From thread 2"));
+                barrier2.wait();
                 s.save().await
             })
         });
 
+        barrier.wait();
         let r1 = t1.join().expect("thread 1 join");
         let r2 = t2.join().expect("thread 2 join");
         assert!(
-            r1.is_ok() || r2.is_ok(),
-            "Expected at least one save to succeed: r1={r1:?} r2={r2:?}"
+            r1.is_ok() && r2.is_ok(),
+            "Expected both concurrent saves to succeed: r1={r1:?} r2={r2:?}"
         );
 
         let loaded = run_async(async { Session::open(path.to_string_lossy().as_ref()).await })
             .expect("open after concurrent saves");
         assert!(!loaded.entries.is_empty());
+        assert!(loaded.entries.iter().any(|entry| {
+            matches!(entry, SessionEntry::Message(message) if matches!(&message.message, SessionMessage::User { content: UserContent::Text(text), .. } if text == "From thread 1"))
+        }));
+        assert!(loaded.entries.iter().any(|entry| {
+            matches!(entry, SessionEntry::Message(message) if matches!(&message.message, SessionMessage::User { content: UserContent::Text(text), .. } if text == "From thread 2"))
+        }));
     }
 
     #[test]

@@ -49,6 +49,10 @@ def explain_test(target: str) -> int:
     ]
     if lane.documented_targets:
         fields.append(("documented_targets", ",".join(lane.documented_targets)))
+    if lane.requires_readiness_env:
+        fields.append(("readiness_env", lane.requires_readiness_env))
+    if lane.readiness_message:
+        fields.append(("readiness", lane.readiness_message))
     return emit_record(fields)
 
 

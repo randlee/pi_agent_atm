@@ -21,6 +21,8 @@ class TestLane:
     commands: tuple[tuple[str, ...], ...] = ()
     script_args: tuple[str, ...] = ()
     documented_targets: tuple[str, ...] = ()
+    requires_readiness_env: str | None = None
+    readiness_message: str | None = None
 
 
 def cargo_test(
@@ -133,13 +135,15 @@ LANES = {
     ),
     "all": TestLane(
         name="all",
-        description="Run the optional local full verification profile.",
+        description="Run the optional local full verification profile once E2E prerequisites are explicitly acknowledged.",
         kind="verify",
         origin="local",
         owner=".just/test_catalog.py",
         blocking="optional",
         ssot=".just/test_catalog.py",
         verify_args=("--profile", "full", "--skip-lint"),
+        requires_readiness_env="PI_VERIFY_E2E_READY",
+        readiness_message="set PI_VERIFY_E2E_READY=1 only after confirming tmux, Ollama/provider access, and network readiness; otherwise use `just test integration`",
     ),
 }
 
