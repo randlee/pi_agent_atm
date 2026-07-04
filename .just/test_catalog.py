@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unit_basic_audit import unit_basic_inline_commands as audited_unit_basic_commands
+from typing import Callable
 
 
 @dataclass(frozen=True)
 class TestLane:
     name: str
     description: str
-    commands: tuple[tuple[str, ...], ...]
+    command_factory: Callable[[], tuple[tuple[str, ...], ...]]
+
+    @property
+    def commands(self) -> tuple[tuple[str, ...], ...]:
+        return self.command_factory()
 
 
 def cargo_test(
@@ -29,6 +33,8 @@ def cargo_test(
 
 
 def unit_basic_inline_commands() -> tuple[tuple[str, ...], ...]:
+    from unit_basic_audit import unit_basic_inline_commands as audited_unit_basic_commands
+
     commands: list[tuple[str, ...]] = []
     for prefix, skip_filters in audited_unit_basic_commands():
         commands.append(
@@ -45,12 +51,12 @@ LANES = {
     "compile": TestLane(
         name="compile",
         description="Run cargo check across all targets.",
-        commands=(("check", "--all-targets"),),
+        command_factory=lambda: (("check", "--all-targets"),),
     ),
     "unit-basic": TestLane(
         name="unit-basic",
         description="Run the audited inline allowlist plus strict add-on tests.",
-        commands=(
+        command_factory=lambda: (
             *unit_basic_inline_commands(),
             cargo_test("--test", "capability_policy_model", nocapture=True),
             cargo_test("--test", "policy_profile_hardening", nocapture=True),

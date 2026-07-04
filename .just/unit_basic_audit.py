@@ -4,8 +4,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-import subprocess
 import sys
+
+from run_cargo import run_cargo
 
 
 @dataclass(frozen=True)
@@ -752,6 +753,22 @@ def exact_prefix_match(test_name: str, prefix: str) -> bool:
     return len(test_parts) > len(prefix_parts) and test_parts[: len(prefix_parts)] == prefix_parts
 
 
+def boundary_path_contains(test_name: str, prefix: str) -> bool:
+    test_parts = test_name.split("::")
+    prefix_parts = prefix.split("::")
+    window = len(prefix_parts)
+    if window == 0 or len(test_parts) <= window:
+        return False
+    for index in range(len(test_parts) - window):
+        if test_parts[index : index + window] == prefix_parts:
+            return True
+    return False
+
+
+def cargo_filter_matches(test_name: str, filter_text: str) -> bool:
+    return filter_text in test_name
+
+
 def classify_inline_test(test_name: str) -> TaxonomyRule:
     for rule in EXCLUDE_RULES:
         if rule.match_kind == "exact" and test_name == rule.pattern:
@@ -770,9 +787,11 @@ def repo_root() -> Path:
 
 
 def list_inline_tests() -> list[str]:
-    completed = subprocess.run(
-        ["cargo", "test", "--lib", "--", "--list"],
-        cwd=repo_root(),
+    completed = run_cargo(
+        "test",
+        "--lib",
+        "--",
+        "--list",
         capture_output=True,
         text=True,
         check=True,
@@ -799,7 +818,8 @@ def unit_basic_inline_commands() -> tuple[tuple[str, tuple[str, ...]], ...]:
         collision_skips = sorted(
             test_name
             for test_name in test_names
-            if prefix in test_name and not exact_prefix_match(test_name, prefix)
+            if cargo_filter_matches(test_name, prefix)
+            and not boundary_path_contains(test_name, prefix)
         )
         commands.append(
             (

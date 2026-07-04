@@ -1,7 +1,7 @@
 # Phase A - Testing Strategy
 
 Date: 2026-07-04
-Status: approved for lane design; branch-state reconciliation still required
+Status: approved for lane design; current sprint-chain branch model recorded
 
 ## Purpose
 
@@ -479,12 +479,12 @@ on 2026-07-04:
 
 | Command | Result | Observed wall time |
 |---|---|---:|
-| `just help` | pass | `0.43s` |
-| `just fmt check` | pass | `12.07s` |
-| `just test compile` | pass | `1.05s` |
-| `just test unit-basic` | pass | `37.85s` |
+| `just help` | pass | `0.06s` |
+| `just fmt check` | pass | `13.63s` |
+| `just test compile` | pass | `1.41s` |
+| `just test unit-basic` | pass | `37.50s` |
 
-Observed GitHub Actions timings from baseline run `28720833124` on
+Observed GitHub Actions timings from baseline run `28721139199` on
 2026-07-04:
 
 | Workflow / Step | Result | Approximate wall time |
@@ -498,7 +498,8 @@ Observed GitHub Actions timings from baseline run `28720833124` on
 `just test unit-basic` currently reconciles as:
 
 - 1,797 audited inline tests
-- 243 explicit add-on target tests
+- 244 explicit add-on target tests
+- 2,041 total executed tests in the lane
 - 15 substring-collision exclusions under `session::tests` for
   `interactive::ext_session::*`
 
@@ -522,37 +523,38 @@ Team-lead approval should explicitly confirm:
 ### Team-Lead Approval Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-03`
-Approval state: team-lead approved the lane strategy on `2026-07-03`, but that
-approval does not override later branch-state contradictions found in live
-git/GitHub evidence on `2026-07-04`.
+Review date: `2026-07-04`
+Approval state: the `2026-07-03` lane-strategy approval was superseded by the
+live sprint-chain evidence review on `2026-07-04`. This document now records
+the current branch model and lane strategy. Sprint implementation claims still
+require per-PR git/GitHub evidence.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `compile` lane definition
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `unit-basic` allowlist and exclusion list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the steady-state `baseline` command list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the per-sprint rollout table
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the SSOT owner files for lint and test lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the list of local-only and manual-only lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 
 ## Exit Criteria
 
