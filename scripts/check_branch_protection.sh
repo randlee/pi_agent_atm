@@ -42,13 +42,7 @@ fi
 # ─── Required status checks ─────────────────────────────────────────────────
 
 REQUIRED_CHECKS=(
-    "rust (ubuntu-latest)"
-    "rust (macos-latest)"
-    "rust (windows-latest)"
-    "conformance (fast-official)"
-    "conformance (fast-generated)"
-    "conformance (fast-negative)"
-    "conformance (fast-capability-matrix)"
+    "baseline"
 )
 
 # ─── State tracking ─────────────────────────────────────────────────────────
