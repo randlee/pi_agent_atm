@@ -1,10 +1,11 @@
 ---
 id: A5
 title: Add Optional Local Lanes
-status: complete
+status: open
 branch: sprint-a-5-add-optional-local-lanes
 worktree: ../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes
 target: sprint-a-4-add-taxonomy-helpers
+pr: 15
 ---
 
 # Sprint A5 — Add Optional Local Lanes
@@ -15,7 +16,8 @@ target: sprint-a-4-add-taxonomy-helpers
 
 ## Hard Dependencies
 
-- Sprint A4 merged forward from `sprint-a-4-add-taxonomy-helpers`
+- the live PR stack for A5 targets `sprint-a-4-add-taxonomy-helpers`, not
+  `develop`
 
 ## Unblocks
 
@@ -26,9 +28,6 @@ target: sprint-a-4-add-taxonomy-helpers
 
 - `justfile` (`isolation: baseline-command-surface`)
 - `.just/lint_catalog.py` (`isolation: optional-lint-lane-surface`)
-- `.just/run_lint.py` (`isolation: optional-lint-lane-surface`)
-- `.just/run_test.py` (`isolation: optional-test-lane-surface`)
-- `.just/show_suites.py` (`isolation: helper-output-sync`)
 - `.just/test_catalog.py` (`isolation: optional-test-lane-surface`)
 - `.just/explain.py` (`isolation: helper-output-sync`)
 
@@ -45,6 +44,11 @@ silently dropped or partially deferred.
   - `just test integration`
   - `just test all`
   - `just lint all-local`
+- the Sprint A5 PR notes include:
+  - refreshed local and CI timing for the unchanged A3 baseline stage
+  - local timings for `just test unit`, `just test integration`,
+    `just test all`, and `just lint all-local`
+  - an explicit `no ci equivalent by design` note for the optional local lanes
 
 ## Required Work
 
@@ -56,9 +60,6 @@ silently dropped or partially deferred.
 - reserve explicit naming room for future `atm-*` and `integration-*` lanes
   without changing the established upstream baseline lane ids
 - route lane descriptions through the established helper surfaces from Sprint A4
-- keep the optional `just test all` lane behind an explicit E2E readiness
-  guard so it does not silently pull live/network/tmux-dependent suites on
-  unprepared operator machines
 - keep required `baseline` contents exactly as Sprint A3 defined them
 - do not add `just test vcr` or `just test e2e` in this sprint
 
@@ -85,8 +86,6 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 
 - optional local lanes are documented and callable
 - optional local lanes are clearly marked as non-required in docs and lane help
-- `just test all` does not silently run live/network/tmux-dependent E2E suites
-  without an explicit readiness acknowledgment
 - any new ATM-owned or integration lane shape is classified as optional unless
   separately promoted by evidence and review
 - this sprint adds exactly `just test unit`, `just test integration`,
@@ -94,6 +93,10 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 - this sprint does not add `just test vcr` or `just test e2e`
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
+- the Sprint A5 PR notes record local and CI timings exactly as the sprint
+  timing contract requires
+- the Sprint A5 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -103,3 +106,9 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 - `just test all`
 - `just lint all-local`
 - `gh workflow view baseline`
+- `gh run list --workflow baseline --limit 5`
+- record local timings for `just test unit`, `just test integration`,
+  `just test all`, and `just lint all-local`
+- record refreshed CI step timings and total `baseline` workflow duration for
+  the unchanged A3 baseline stage
+- record the exact CI run URL/ID used for each timing measurement

@@ -1,10 +1,11 @@
 ---
 id: A7
 title: Merge Baseline Into Atm-Graft
-status: revised
+status: open
 branch: sprint-a-7-merge-baseline-into-atm-graft
 worktree: ../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft
 target: feature/atm-graft-integration
+pr: 17
 ---
 
 # Sprint A7 — Merge Baseline Into Atm-Graft
@@ -16,7 +17,9 @@ target: feature/atm-graft-integration
 
 ## Hard Dependencies
 
-- Sprint A6 merged forward from `sprint-a-6-refresh-ssot-and-timing`
+- the current open PR for A7 targets `feature/atm-graft-integration`
+- the planned input is the proven Phase A baseline rather than anything merged
+  into `develop`
 - `feature/atm-graft-integration` is the active integration branch
 
 ## Unblocks
@@ -43,11 +46,15 @@ sprint must be split before implementation begins. No deliverable may be
 silently dropped or partially deferred.
 
 - verified baseline merges into `feature/atm-graft-integration` and stays green
+- the Sprint A7 PR notes include the phase-conclusion timing report for A1-A7,
+  combining every sprint's local timing table and CI timing table into one
+  final progression summary with links back to each sprint PR timing table and
+  CI run URL/ID
 
 ## Required Work
 
-- merge the corrected Phase A baseline forward from the merge-forward Phase A
-  sprint chain
+- merge the corrected Phase A baseline forward from the proven Phase A sprint
+  chain rather than assuming `develop` is the source of truth
 - resolve conflicts without pulling exploratory `feature/just-integration`
   source churn back in
 - keep `baseline` as the required PR workflow on the merged branch
@@ -63,7 +70,7 @@ silently dropped or partially deferred.
 ## Explicit Code Samples
 
 ```text
-integrate/phase-A
+develop bootstrap
   -> sprint-a-1
   -> sprint-a-2
   -> sprint-a-3
@@ -77,31 +84,13 @@ integrate/phase-A
 merge surfaces to preserve
   -> Cargo.toml: atm-graft + atm_core dependency wiring
   -> vendor/atm-daemon-bootstrap-shim/Cargo.toml
-  -> baseline just/CI files from the Phase A sprint chain
+  -> baseline just/CI files from the proven Phase A sprint chain
 ```
 
 ## This Sprint Does Not Close
 
 - it does not add new `atm-graft`-specific test lanes
 - it does not expand required PR CI beyond the established `baseline`
-
-## Timing Criterion Revision (2026-07-04)
-
-The original Phase A expectation that the required `baseline` workflow would
-meet a smaller phase-wide timing target is formally revised for this sprint
-handoff.
-
-Real single-job baseline evidence now shows that the 10-minute target was
-apparently never met across the phase:
-
-- Sprint A1 run `28698012935`: `17m39s`
-- Sprint A2 run `28698763616`: `12m59s`
-- Sprint A7 run `28701385323`: `13m09s`
-
-This is treated as a systemic phase-wide characteristic rather than as an A7
-merge regression. The final A7 merge also runs against the full
-`feature/atm-graft-integration` dependency graph with the larger merged
-`Cargo.lock`, which is a contributing factor to the observed timing envelope.
 
 ## Acceptance Criteria
 
@@ -115,9 +104,10 @@ merge regression. The final A7 merge also runs against the full
   integration lanes
 - the merge preserves the existing `atm-graft`, `atm_core`, and vendor shim
   integration surfaces
-- `baseline` remains green and uses the revised July 4, 2026 steady-state
-  timing reference established by runs `28698012935` (`17m39s`),
-  `28698763616` (`12m59s`), and `28701385323` (`13m09s`)
+- `baseline` remains green and under 10 minutes
+- the Sprint A7 PR notes publish the final A1-A7 local and CI timing ledger
+- the Sprint A7 PR notes record the exact CI run URL/ID used for each timing
+  measurement in that ledger
 
 ## Required Validation
 
@@ -129,3 +119,5 @@ merge regression. The final A7 merge also runs against the full
 - `just test baseline`
 - `rg -n \"atm-graft|atm_core|atm-daemon-bootstrap\" Cargo.toml vendor/atm-daemon-bootstrap-shim/Cargo.toml`
 - `gh run list --workflow baseline --limit 5`
+- verify the phase-conclusion A1-A7 timing ledger matches the per-sprint PR
+  timing tables

@@ -1,10 +1,11 @@
 ---
 id: A6
 title: Refresh SSOT And Timing
-status: complete
+status: open
 branch: sprint-a-6-refresh-ssot-and-timing
 worktree: ../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing
-target: sprint-a-5-add-optional-local-lanes
+target: integrate/phase-A
+pr: 16
 ---
 
 # Sprint A6 — Refresh SSOT And Timing
@@ -19,7 +20,9 @@ target: sprint-a-5-add-optional-local-lanes
 
 ## Hard Dependencies
 
-- Sprint A5 merged forward from `sprint-a-5-add-optional-local-lanes`
+- the current open PR for A6 targets `integrate/phase-A`
+- the intended logical dependency remains the A5 baseline state, but the live
+  GitHub base branch is not `develop`
 
 ## Unblocks
 
@@ -38,18 +41,9 @@ target: sprint-a-5-add-optional-local-lanes
 - `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md` (`isolation: review-pack-doc`)
 - `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md` (`isolation: review-pack-doc`)
 - `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md` (`isolation: review-pack-report`)
-- `.gitignore` (`isolation: smoke-artifact-hygiene`)
 - `justfile` (`isolation: baseline-command-surface`)
-- `.just/explain.py` (`isolation: ssot-validation-surface`)
 - `.just/lint_catalog.py` (`isolation: ssot-validation-surface`)
-- `.just/run_lint.py` (`isolation: ssot-validation-surface`)
-- `.just/run_test.py` (`isolation: ssot-validation-surface`)
 - `.just/test_catalog.py` (`isolation: ssot-validation-surface`)
-- `.just/show_suites.py` (`isolation: ssot-validation-surface`)
-- `scripts/e2e/run_all.sh` (`isolation: optional-verify-surface`)
-- `scripts/smoke.sh` (`isolation: required-smoke-script-surface`)
-- `tests/session_conformance.rs` (`isolation: required-smoke-test-surface`)
-- `src/session.rs` (`isolation: mirrored-session-test-surface`)
 - `.github/workflows/baseline.yml` (`isolation: required-pr-workflow-audit`)
 
 ## Deliverables
@@ -66,6 +60,8 @@ silently dropped or partially deferred.
   - refreshed timing table in `phase-A-testing-strategy.md`
   - refreshed Phase A overview and sprint docs if names or ownership drifted
   - current ATM layering report for `feature/atm-graft-integration`
+- the review pack includes a consolidated A1-A6 timing ledger with links back
+  to each sprint PR's local and CI timing table
 
 ## Required Work
 
@@ -78,20 +74,13 @@ silently dropped or partially deferred.
 - confirm no new top-level `just` commands were introduced during A1-A5
 - confirm lane metadata still cleanly separates upstream, ATM-owned, and
   integration surfaces
-- remove duplicated lint cargo command strings from `justfile` so
-  `.just/lint_catalog.py` owns both lint taxonomy and actual execution
-- derive required-lane and optional-lane grouping output from lane metadata
-  rather than from hardcoded lists in `.just/show_suites.py`
 - confirm the planned ATM dependency and glue surfaces from
   `feature/atm-graft-integration` still fit the actual post-A5 code base
 - confirm the sprint docs still match the actual lane names and workflow names
 - confirm the upstream ordinary-PR workflow classification still matches the
   testing strategy after A1 trigger changes
-- synchronize `session_conformance.rs::concurrent_saves_do_not_corrupt_session_file`
-  with the mirrored session unit test so the required smoke target proves both
-  concurrent saves survive the race instead of only tolerating partial success
-- add repo ignore coverage for `tests/smoke_results/`
 - record the exact review-pack artifact list in the sprint PR notes
+- record the consolidated A1-A6 timing ledger in the sprint PR notes
 
 ## Explicit Code Samples
 
@@ -122,34 +111,27 @@ review pack
 ## Acceptance Criteria
 
 - refreshed timing evidence is recorded in the testing strategy doc
-- refreshed timing evidence names the exact July 4, 2026 green evidence source
-  and states whether the current baseline budget is met or exceeded
 - team-lead can review SSOT ownership directly from the review-pack docs
 - team-lead can review the future ATM layering rules directly from the review
   pack
 - the sprint PR notes name the exact review-pack artifacts and confirm no lane
   names or workflow names drifted unexpectedly
+- the review pack and sprint PR notes include a consolidated A1-A6 local and
+  CI timing ledger
+- the review pack and sprint PR notes record the exact CI run URL/ID used for
+  each timing measurement in that ledger
 - required `baseline` workflow is unchanged from Sprint A3
-- sprint docs and testing strategy remain internally consistent after the
-  timing refresh
-- `tests/smoke_results/` is gitignored
-- `session_conformance` and `src/session.rs` use the same concurrent-save test
-  contract for the smoke-covered race case
+- sprint docs and testing strategy remain internally consistent after the timing refresh
+- `baseline` remains green and under 10 minutes
 
 ## Required Validation
 
 - `gh run list --workflow baseline --limit 5`
-- `just explain lint clippy-lib`
-- `just explain test all`
-- `just explain test unit`
-- `just suites`
 - `just fmt check`
 - `just test compile`
 - `just test unit-basic`
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `just test baseline`
-- `cargo test --test session_conformance concurrent_saves_do_not_corrupt_session_file -- --nocapture`
-- `cargo test concurrent_saves_do_not_corrupt_session_file_unit --lib -- --nocapture`
-- `rg -n "tests/smoke_results/" .gitignore`
 - verify the review-pack artifact list matches the final changed docs/report set
+- verify the consolidated A1-A6 timing ledger matches the per-sprint PR notes
