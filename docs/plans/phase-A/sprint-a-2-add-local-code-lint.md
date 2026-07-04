@@ -1,10 +1,12 @@
 ---
 id: A2
 title: Add Local-Code Lint
-status: complete
+status: open
 branch: sprint-a-2-add-local-code-lint
 worktree: ../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint
 target: sprint-a-1-establish-minimal-baseline-gate
+pr: 11
+previous_merged_pr: 10
 ---
 
 # Sprint A2 — Add Local-Code Lint
@@ -16,7 +18,8 @@ target: sprint-a-1-establish-minimal-baseline-gate
 
 ## Hard Dependencies
 
-- Sprint A1 merged forward from `sprint-a-1-establish-minimal-baseline-gate`
+- the live PR stack for A2 targets
+  `sprint-a-1-establish-minimal-baseline-gate`, not `develop`
 
 ## Unblocks
 
@@ -43,13 +46,13 @@ silently dropped or partially deferred.
   is wired into `baseline`
 - `just lint clippy-lib` exists with an exact local-code command contract and
   is wired into `baseline`
+- the Sprint A2 PR notes include a timing table with local wall-clock and CI
+  wall-clock measurements for the full A2 baseline command set and total
+  `baseline` workflow duration
 
 ## Required Work
 
 - reuse `run_cargo.py`, `run_lint.py`, and `lint_catalog.py`
-- make `.just/lint_catalog.py` the execution source of truth for lint commands;
-  `justfile` may expose the public surface but must not duplicate the cargo
-  command strings
 - define only the required local-code lint lanes first
 - define the exact commands as:
   - `just lint clippy-bins` -> `cargo clippy --no-deps --bins -- -D warnings`
@@ -109,6 +112,9 @@ steps:
   `clippy --examples`
 - `baseline` remains green and under 10 minutes
 - no new PR-required workflow is introduced
+- the Sprint A2 PR notes record local and CI timings for the A2 baseline stage
+- the Sprint A2 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -121,3 +127,6 @@ steps:
 - verify `baseline.yml` orders the lint lanes after `just test unit-basic`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
+- record local timings for the full A2 baseline command set through
+  `just lint clippy-lib`
+- record CI step timings and total `baseline` workflow duration from the A2 run

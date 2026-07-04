@@ -1,10 +1,12 @@
 ---
 id: A1
 title: Establish Minimal Baseline Gate
-status: complete
+status: open
 branch: sprint-a-1-establish-minimal-baseline-gate
 worktree: ../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate
 target: integrate/phase-A
+pr: 12
+previous_merged_pr: 9
 ---
 
 # Sprint A1 — Establish Minimal Baseline Gate
@@ -19,8 +21,8 @@ target: integrate/phase-A
 ## Hard Dependencies
 
 - team-lead reviews `docs/plans/phase-A/phase-A-testing-strategy.md`
-- Sprint A1 is the root of the merge-forward Phase A chain and targets
-  `integrate/phase-A`
+- a bootstrap worktree may start from current `develop`, but the live delivery
+  target for A1 is `integrate/phase-A`
 
 ## Unblocks
 
@@ -58,6 +60,13 @@ silently dropped or partially deferred.
   only required PR gate
 - the first required gate proves compile health and strict basic-unit health
   before lint or smoke expansion
+- the Sprint A1 PR notes include a timing table with local wall-clock and CI
+  wall-clock measurements for:
+  - `just help`
+  - `just fmt check`
+  - `just test compile`
+  - `just test unit-basic`
+  - total `baseline` workflow duration
 
 ## Required Work
 
@@ -71,23 +80,8 @@ silently dropped or partially deferred.
   - `just test unit-basic`
 - define `just test compile` as `cargo check --all-targets`
 - define `just test unit-basic` as:
-  - the audited inline allowlist from
-    `docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
-  - implemented as one `cargo test --lib <prefix>` command per audited
-    included inline prefix
-  - with exactly one retained exact skip inside an included prefix:
-    `acp::tests::permission_request_times_out_fail_closed`
-  - plus the explicit strict add-on integration targets from the testing
-    strategy
-- document the reconciliation for the current inline audit:
-  - `6651` total inline lib tests
-  - `1797` included in `unit-basic`
-  - `4854` excluded by documented categories
-- document why `unit-basic` cannot use `cargo test --all-targets --lib`:
-  benchmark/example harnesses reject forwarded `--skip` flags under
-  `--all-targets`
-- do not treat a broad `cargo test --lib` minus a growing skip list as the
-  first baseline unit lane
+  - `cargo test --all-targets --lib`
+  - plus the explicit strict add-on allowlist from the testing strategy
 - do not treat all of `[suite.unit]` as the first baseline unit lane
 - confirm the testing strategy already inventories every currently PR-triggered
   upstream workflow before any trigger changes land
@@ -211,8 +205,11 @@ on:
   the Sprint A1 operational update lands
 - the new `baseline` workflow does not call any raw cargo command directly
 - `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
-- `unit-basic` is traceable to the checked-in audited inline taxonomy artifact
 - required PR CI is green and comfortably under 10 minutes
+- the Sprint A1 PR notes record local and CI timings for every A1 baseline
+  command plus total workflow duration
+- the Sprint A1 PR notes record the exact CI run URL/ID used for each timing
+  measurement
 
 ## Required Validation
 
@@ -220,7 +217,6 @@ on:
 - `just fmt check`
 - `just test compile`
 - `just test unit-basic`
-- `python3 .just/unit_basic_audit.py summary`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
 - `gh workflow view ci`
@@ -236,6 +232,9 @@ on:
 - `gh workflow run semver --ref <sprint-branch>`
 - `gh workflow run model-catalog-drift --ref <sprint-branch>`
 - `./scripts/check_branch_protection.sh --report`
+- record local timings for `just help`, `just fmt check`, `just test compile`,
+  and `just test unit-basic`
+- record CI step timings and total `baseline` workflow duration from the A1 run
 - verify ordinary-PR required status checks are reduced to `baseline` only
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,
   `semver`, or `Model Catalog Drift`

@@ -1,13 +1,18 @@
 # Phase A - Testing Strategy
 
 Date: 2026-07-04
-Status: approved
+Status: approved for lane design; branch-state reconciliation still required
 
 ## Purpose
 
 Define the specific testing strategy that Phase A will implement so every
 increment starts from something working, required PR CI stays under 10 minutes,
 and local commands and CI share one source of truth.
+
+This document governs lane design and rollout shape. Live branch targets, live
+PR state, and the current CI-registration incident are tracked by
+`docs/plans/phase-A/phase-A-just-ci-recovery.md` and must be re-verified from
+git/GitHub evidence before implementation claims are treated as complete.
 
 ## Strategy Rules
 
@@ -29,6 +34,9 @@ and local commands and CI share one source of truth.
 11. Future ATM-owned integration in this repo should follow the actual
     `feature/atm-graft-integration` dependency model and bounded seam files
     rather than broad rewrites across upstream-owned files.
+12. Every sprint PR must include a timing table for local runs and equivalent
+    CI runs for that sprint's stage, and the phase conclusion must roll those
+    timings up across all sprints.
 
 ## Fork And Upstream Audit Baseline
 
@@ -65,6 +73,11 @@ Mandatory A1 precondition:
   describe every currently PR-triggered workflow, why it is leaving the
   required gate, and what trigger path remains for it afterward
 
+Trigger-file edits are required instead of branch-protection-only narrowing
+because branch protection changes which checks block merges, but it does not
+stop heavyweight `pull_request` workflows from still registering and running on
+ordinary PRs.
+
 ## Evidence Reports
 
 Supporting evidence for this strategy lives in:
@@ -72,7 +85,6 @@ Supporting evidence for this strategy lives in:
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
 - `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
-- `docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
 
 ## Steady-State Required PR Baseline
 
@@ -129,6 +141,27 @@ Important interpretation:
 - A1 is a gate-reduction sprint, not a claim that the fork's broader testing
   unknowns have been solved.
 
+## Timing Capture Contract
+
+Each sprint PR must record, at minimum:
+
+- local wall-clock timing for every command added or re-validated in that
+  sprint
+- CI step timing for the equivalent `baseline` workflow steps
+- total `baseline` workflow wall time for that sprint stage
+
+When a sprint adds local-only commands without putting them into required PR CI:
+
+- the PR must still refresh the unchanged baseline CI timing table for that
+  sprint
+- local-only commands must be timed locally and marked `no ci equivalent by
+  design`
+
+Rollup ownership:
+
+- A6 must assemble an A1-A6 timing ledger in the review pack
+- A7 must publish the final A1-A7 timing ledger at phase conclusion
+
 ## Source Of Truth Policy
 
 Target end state:
@@ -139,8 +172,6 @@ Target end state:
 - `.just/explain.py` explains lane semantics
 - `.just/show_suites.py` reports suite taxonomy from
   `tests/suite_classification.toml`
-- `.just/show_suites.py` derives required and optional lane groups from the
-  lane catalog metadata instead of maintaining a duplicate lane list
 - the required `baseline` workflow invokes only `just ...` commands
 
 One lane, one owner:
@@ -149,8 +180,6 @@ One lane, one owner:
   - owner: `justfile` + `.just/run_fmt.py`
 - lint lane:
   - owner: `.just/lint_catalog.py`
-  - execution rule: `justfile` may expose `just lint`, but it must not
-    duplicate the cargo command strings owned by the catalog
 - test lane:
   - owner: `.just/test_catalog.py`
 
@@ -247,11 +276,10 @@ Required rule:
 - `unit-basic` must not blindly expand to all of `[suite.unit]`
 - `compile` is an explicit lane that runs `cargo check --all-targets`
 
-Required `unit-basic` structure:
+Required `unit-basic` starting point:
 
-1. an audited inline-test allowlist derived from the full `cargo test --lib
-   -- --list` surface
-2. small curated deterministic add-on targets:
+1. `cargo test --all-targets --lib`
+2. Small curated deterministic add-on targets:
    - `capability_policy_model`
    - `policy_profile_hardening`
    - `extension_flag_passthrough`
@@ -259,52 +287,27 @@ Required `unit-basic` structure:
    - `redaction_test`
    - `extension_scoring_ope`
 
-Audited inline-test source of truth:
+Explicit early exclusions from `unit-basic`:
 
-- checked-in artifact: `docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
-- reproducible generator: `.just/unit_basic_audit.py`
-- reproduction commands:
-  - `cargo test --lib -- --list`
-  - `python3 .just/unit_basic_audit.py summary`
-  - `python3 .just/unit_basic_audit.py tsv > docs/plans/phase-A/unit-basic-inline-taxonomy.tsv`
+- process-launching tests
+- fixture/VCR inventory audits
+- benchmark/perf harness tests
+- docs/script audit tests
+- artifact/regeneration audits
+- subsystem stress or endurance tests
 
-Current inline-test reconciliation from that audit:
+Named current examples that must stay out of `unit-basic` until separately
+reclassified or split:
 
-- total inline lib tests enumerated: `6651`
-- inline tests included in `unit-basic`: `1797`
-- inline tests excluded from `unit-basic`: `4854`
-- audited included inline prefixes: `32`
-- exact per-test skip retained inside an included prefix: `1`
-  - `acp::tests::permission_request_times_out_fail_closed`
-
-Excluded inline categories and current counts:
-
-| Category | Count | Why excluded from A1 `unit-basic` |
-|---|---:|---|
-| `async_timing_dependent_flow_tests` | 20 | real waits, retries, cooldowns, or timeout-path coverage that does not fit a fast required gate |
-| `fixture_vcr_inventory_audits` | 451 | conformance, replay, and inventory audits that validate broader upstream compatibility |
-| `network_http_streaming_dependent_tests` | 713 | auth/provider/HTTP/streaming flows that rely on transport-style behavior rather than the first unit gate |
-| `extension_runtime_policy_integration_tests` | 2178 | extension runtime, hostcall, dispatcher, policy, and scheduler matrices broader than A1 |
-| `interactive_tui_workflow_tests` | 493 | higher-level TUI/operator workflow coverage outside the first required gate |
-| `subprocess_bash_tool_execution_tests` | 492 | doctor, package-manager, bash-tool, grep-tool, and process-surface execution tests |
-| `rpc_command_queue_integration_tests` | 149 | RPC queue, retry, bridge, and extension-session integration flows |
-| `persistence_index_sqlite_artifact_tests` | 258 | index/sqlite/storage/reporting persistence verification |
-| `subsystem_stress_or_endurance_tests` | 100 | stress, endurance, and broader system-behavior harnesses |
-
-Implementation rule:
-
-- `.just/test_catalog.py` must run one `cargo test --lib <prefix>` command per
-  audited included prefix, not one broad `cargo test --lib` command with a
-  growing skip list
-- the checked-in taxonomy artifact is the reviewable accounting surface for the
-  full inline test inventory
-- the six add-on integration targets above remain explicit and separate from
-  the inline reconciliation
-
-`unit-basic` must not use `cargo test --all-targets --lib` because Cargo
-forwards harness flags into benchmark/example binaries under `--all-targets`,
-and those binaries reject the `--skip` mechanism required for the one exact
-timeout exclusion retained inside the audited inline allowlist.
+- `bench_schema`
+- `perf_regression`
+- `franken_node_compat_harness`
+- `qa_docs_policy_validation`
+- `rch_artifact_sync_preflight`
+- `vcr_parity_validation`
+- `provider_closure_truth_table`
+- `mock_spec_schema`
+- `e2e_replay_bundle_validation`
 
 ## Required PR Exclusions
 
@@ -463,44 +466,27 @@ Minimum example:
 
 ## Retained Evidence
 
-Observed local macOS timings from the A6 July 4, 2026 rust-qa-agent review pass
-against the current post-A5 required baseline:
+Observed local macOS timings from `feature/just-integration`:
 
-| Evidence source | Scope | Result | Observed wall time |
-|---|---|---:|---:|
-| rust-qa-agent live QA pass, 2026-07-04 | `just fmt check` | pass | `12.4s` |
-| rust-qa-agent live QA pass, 2026-07-04 | `just test compile` | pass | `6m46s` (cold) |
-| rust-qa-agent live QA pass, 2026-07-04 | `just test unit-basic` | pass | `105.7s` |
-| rust-qa-agent live QA pass, 2026-07-04 | `just lint clippy-bins` | pass | `117.5s` (cold) |
-| rust-qa-agent live QA pass, 2026-07-04 | `just lint clippy-lib` | pass | `2.2s` (warm) |
-| rust-qa-agent live QA pass, 2026-07-04 | `just test baseline` | pass | `14s` (6/6 passing) |
+| Command | Result | Observed wall time |
+|---|---|---:|
+| `just help` | pass | `<1s` |
+| `just fmt check` | pass | `12.46s` |
+| `just lint clippy-lib` | pass | `50.66s` |
+| `just lint clippy-bins` | pass | `2.87s` |
+| `just test baseline` | pass | `10.59s` |
+| `just lint clippy-tests` | incomplete | `>3m38s` before manual stop |
+| `just test unit` | incomplete | `>120s` before timeout |
+| `just test integration` | incomplete | `>120s` before timeout |
 
-Observed GitHub Actions timings from 2026-07-04:
+Observed GitHub Actions timings from 2026-07-02:
 
-| Evidence source | Scope | Result | Observed wall time |
-|---|---|---:|---:|
-| run `28701385323` | Sprint A7 single-job `baseline` workflow on `sprint-a-7-merge-baseline-into-atm-graft` | success | `13m09s` |
-| run `28698960460` | Sprint A1 command steps (`just help` through `just test unit-basic`) | success | `9m45s` |
-| run `28698763616` | Sprint A2 command steps (`just help` through `just lint clippy-lib`) | success | `12m07s` |
-| run `28698763616` | `just fmt check` | success | `16s` |
-| run `28698763616` | `just test compile` | success | `4m01s` |
-| run `28698763616` | `just test unit-basic` | success | `5m45s` |
-| run `28698763616` | `just lint clippy-bins` | success | `2m03s` |
-| run `28698763616` | `just lint clippy-lib` | success | `1s` |
-
-Current budget status from the A6 retained evidence:
-
-- the current post-A5 required baseline now includes a real single-job CI total
-  from run `28701385323` on July 4, 2026
-- every required step is green in that dated A6 pass
-- the Sprint A7 single-job `baseline` workflow total is `13m09s`, which exceeds
-  the 10-minute hard budget by `3m09s`
-- the earlier retained A2 run `28698763616` already showed `12m07s` for only
-  the first five required steps, so the new six-step single-job result
-  reinforces the same over-budget conclusion rather than contradicting it
-- the local rust-qa-agent per-step timings above remain useful diagnostic
-  evidence for which steps are expensive, but they are not the authoritative
-  source for the overall budget call
+| Workflow | Result | Approximate wall time |
+|---|---|---:|
+| `baseline` | success | `~7m03s` |
+| `Extension Conformance` | success | `~6m25s` |
+| `Fuzz CI` | success | `~42m59s` |
+| old monolithic `ci` | cancelled | `~49m25s` before cancellation |
 
 ## Team-Lead Review Checklist
 
@@ -508,7 +494,7 @@ Team-lead approval should explicitly confirm:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
 - the `compile` lane definition
-- the `unit-basic` audited taxonomy, allowlist, and add-on set
+- the `unit-basic` allowlist and exclusion list
 - the steady-state `baseline` command list
 - the per-sprint rollout table
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
@@ -523,35 +509,36 @@ Team-lead approval should explicitly confirm:
 
 Reviewer: `team-lead`
 Review date: `2026-07-03`
-Approval state: team-lead approved this testing strategy on `2026-07-03`; the
-strategy is the approved control document for Phase A implementation.
+Approval state: team-lead approved the lane strategy on `2026-07-03`, but that
+approval does not override later branch-state contradictions found in live
+git/GitHub evidence on `2026-07-04`.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `compile` lane definition
-  - status: approved by team-lead, 2026-07-03
-- the `unit-basic` audited taxonomy, allowlist, and add-on set
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+- the `unit-basic` allowlist and exclusion list
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the steady-state `baseline` command list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the per-sprint rollout table
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the SSOT owner files for lint and test lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the list of local-only and manual-only lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 
 ## Exit Criteria
 
