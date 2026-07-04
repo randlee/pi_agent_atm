@@ -97,6 +97,32 @@ Practical interpretation:
 - if an ATM feature requires broad edits across upstream files, treat that as a
   design smell and justify it explicitly before implementation
 
+## 2026-07-04 Surface Refresh
+
+Current `feature/atm-graft-integration` bounded seam files observed during the
+A6 review are:
+
+- `Cargo.toml`
+- `src/lib.rs`
+- `src/main.rs`
+- `src/cli.rs`
+- `src/atm_graft.rs`
+- `vendor/atm-daemon-bootstrap-shim/Cargo.toml`
+- `vendor/atm-daemon-bootstrap-shim/src/lib.rs`
+
+Recommended lane ownership once these surfaces start changing under Phase A's
+baseline:
+
+- upstream baseline lanes continue to prove the fork still compiles, passes the
+  strict basic-unit gate, and passes the smoke baseline
+- future `atm-*` lanes should own ATM-only dependency wiring and adapter logic
+  that is additive to the upstream baseline
+- future `integration-*` lanes should own the seam between the root package and
+  the ATM shim/dependency surfaces above
+- PRs touching only the seam files above should not force unrelated upstream
+  lane expansion; they should add the narrowest matching ATM or integration
+  lane set on top of the unchanged upstream baseline
+
 ## Phase-A Planning Implications
 
 - Sprint A1 should establish the upstream baseline lanes and prove displaced

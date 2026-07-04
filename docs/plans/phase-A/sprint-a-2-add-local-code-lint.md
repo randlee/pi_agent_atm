@@ -1,10 +1,10 @@
 ---
 id: A2
 title: Add Local-Code Lint
-status: planned
+status: complete
 branch: sprint-a-2-add-local-code-lint
 worktree: ../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint
-target: develop
+target: sprint-a-1-establish-minimal-baseline-gate
 ---
 
 # Sprint A2 — Add Local-Code Lint
@@ -16,7 +16,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A1 merged into `develop`
+- Sprint A1 merged forward from `sprint-a-1-establish-minimal-baseline-gate`
 
 ## Unblocks
 
@@ -47,6 +47,9 @@ silently dropped or partially deferred.
 ## Required Work
 
 - reuse `run_cargo.py`, `run_lint.py`, and `lint_catalog.py`
+- make `.just/lint_catalog.py` the execution source of truth for lint commands;
+  `justfile` may expose the public surface but must not duplicate the cargo
+  command strings
 - define only the required local-code lint lanes first
 - define the exact commands as:
   - `just lint clippy-bins` -> `cargo clippy --no-deps --bins -- -D warnings`

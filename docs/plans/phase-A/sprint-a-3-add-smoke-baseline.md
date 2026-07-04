@@ -1,10 +1,10 @@
 ---
 id: A3
 title: Add Smoke Baseline
-status: planned
+status: complete
 branch: sprint-a-3-add-smoke-baseline
 worktree: ../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline
-target: develop
+target: sprint-a-2-add-local-code-lint
 ---
 
 # Sprint A3 — Add Smoke Baseline
@@ -16,7 +16,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A2 merged into `develop`
+- Sprint A2 merged forward from `sprint-a-2-add-local-code-lint`
 
 ## Unblocks
 
@@ -72,7 +72,7 @@ LANES = {
     "baseline": TestLane(
         name="baseline",
         kind="script",
-        script_args=("./scripts/smoke.sh", "--skip-lint", "--no-rch"),
+        script_args=("./scripts/smoke.sh", "--skip-lint", "--no-rch", "--only", "unit"),
         documented_targets=(
             "model_serialization",
             "config_precedence",

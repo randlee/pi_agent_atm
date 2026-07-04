@@ -17653,6 +17653,8 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
 
                             #[cfg(not(target_os = "linux"))]
                             {
+                                use std::io::Read;
+
                                 let checked_path = crate::extensions::safe_canonicalize(&requested_abs);
 
                                 // Allow reads from workspace root or any registered
