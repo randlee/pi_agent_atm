@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from unit_basic_audit import UNIT_BASIC_INCLUDE_PREFIXES
 from unit_basic_audit import UNIT_BASIC_SKIP_FILTERS_BY_PREFIX
 
@@ -10,7 +11,10 @@ from unit_basic_audit import UNIT_BASIC_SKIP_FILTERS_BY_PREFIX
 class TestLane:
     name: str
     description: str
-    commands: tuple[tuple[str, ...], ...]
+    kind: str
+    commands: tuple[tuple[str, ...], ...] = ()
+    script_args: tuple[str, ...] = ()
+    documented_targets: tuple[str, ...] = ()
 
 
 def cargo_test(
@@ -42,15 +46,35 @@ def unit_basic_inline_commands() -> tuple[tuple[str, ...], ...]:
     return tuple(commands)
 
 
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
 LANES = {
+    "baseline": TestLane(
+        name="baseline",
+        description="Run the required six-target smoke baseline without lint.",
+        kind="script",
+        script_args=("./scripts/smoke.sh", "--skip-lint", "--no-rch", "--only", "unit"),
+        documented_targets=(
+            "model_serialization",
+            "config_precedence",
+            "session_conformance",
+            "error_types",
+            "compaction",
+            "security_budgets",
+        ),
+    ),
     "compile": TestLane(
         name="compile",
         description="Run cargo check across all targets.",
+        kind="cargo",
         commands=(("check", "--all-targets"),),
     ),
     "unit-basic": TestLane(
         name="unit-basic",
         description="Run the audited inline allowlist plus strict add-on tests.",
+        kind="cargo",
         commands=(
             *unit_basic_inline_commands(),
             cargo_test("--test", "capability_policy_model", nocapture=True),
@@ -63,7 +87,7 @@ LANES = {
     ),
 }
 
-DISPLAY_ORDER = ("compile", "unit-basic")
+DISPLAY_ORDER = ("compile", "unit-basic", "baseline")
 
 
 def resolve_lane(target: str) -> TestLane:

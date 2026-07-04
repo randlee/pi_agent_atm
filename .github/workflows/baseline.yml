@@ -42,3 +42,6 @@ jobs:
 
       - name: Clippy lib
         run: just lint clippy-lib
+
+      - name: Smoke baseline
+        run: just test baseline

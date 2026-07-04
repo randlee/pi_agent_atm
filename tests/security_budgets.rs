@@ -181,8 +181,9 @@ fn interrupt_budget_preserves_state_after_trip() {
 fn memory_limit_prevents_large_allocation() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 1MB memory limit
-            memory_limit_bytes: Some(1024 * 1024),
+            // 2MB memory limit — low enough to force OOM on the test payload,
+            // but high enough for QuickJS bridge initialization on macOS ARM64.
+            memory_limit_bytes: Some(2 * 1024 * 1024),
             ..Default::default()
         });
 
