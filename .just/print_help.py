@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from lint_catalog import display_lanes
 from pathlib import Path
 
 from test_catalog import display_targets
@@ -20,13 +19,6 @@ SECTIONS = (
             ("fmt", "Check Rust formatting."),
             ("fmt check", "Check Rust formatting."),
             ("fmt write", "Format the Rust workspace in place."),
-        ),
-    ),
-    (
-        "Lint",
-        tuple(
-            [("lint", "Run the required local-code lint lanes.")]
-            + [(f"lint {name}", description) for name, description in display_lanes() if name != "all"]
         ),
     ),
     (

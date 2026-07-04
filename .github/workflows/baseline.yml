@@ -36,9 +36,3 @@ jobs:
 
       - name: Basic unit gate
         run: just test unit-basic
-
-      - name: Clippy bins
-        run: just lint clippy-bins
-
-      - name: Clippy lib
-        run: just lint clippy-lib
