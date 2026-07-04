@@ -2,8 +2,9 @@
 
 Date: 2026-07-04
 Status: blocked pending branch-and-ci reconciliation
-Branch: `plan/phase-A`
-Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
+Branch: `docs/phase-a-plan-updates`
+Worktree: `../pi_agent_atm-worktrees/docs/phase-a-plan-updates`
+PR target: `develop`
 Authoritative scope: corrected Phase A planning
 
 ## Purpose
@@ -150,6 +151,30 @@ What the evidence does not yet explain:
 
 The plan must therefore preserve this as an open incident rather than papering
 it over with a single-cause theory.
+
+## Remediation Tasks
+
+Before Phase A can be considered back on track, these live PRs must each carry
+their own evidence package or be reset and re-cut:
+
+- PR #11 `sprint-a-2-add-local-code-lint`
+- PR #12 `sprint-a-1-establish-minimal-baseline-gate`
+- PR #13 `sprint-a-3-add-smoke-baseline`
+- PR #14 `sprint-a-4-add-taxonomy-helpers`
+- PR #15 `sprint-a-5-add-optional-local-lanes`
+- PR #16 `sprint-a-6-refresh-ssot-and-timing`
+- PR #17 `sprint-a-7-merge-baseline-into-atm-graft`
+
+Required backfill for each PR:
+
+- workflow registration proof for the exact head SHA
+- workflow execution proof, including failed-log review if red
+- cold and warm timing capture
+- confirmation that the PR base branch actually contains the expected baseline
+  substrate after merge-forward
+
+If any PR cannot supply that evidence cleanly, it should be reset or re-cut
+from the last proven state instead of being treated as implicitly valid.
 
 ## Ground Rules
 
@@ -412,25 +437,25 @@ branch model and CI-registration gap are reviewed again.
 Review-item record:
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the exact baseline command list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the workflow files removed from ordinary PR gating
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the upstream PR-workflow inventory and its post-A1 trigger classification
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `unit-basic` allowlist and exclusion rationale
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the sprint ordering that makes Sprint A1 establish the required PR gate
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the A4 / A5 split between taxonomy helpers and optional local lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 
 Implementation-start rule:
 

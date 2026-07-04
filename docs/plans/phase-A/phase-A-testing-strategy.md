@@ -70,6 +70,11 @@ Mandatory A1 precondition:
   describe every currently PR-triggered workflow, why it is leaving the
   required gate, and what trigger path remains for it afterward
 
+Trigger-file edits are required instead of branch-protection-only narrowing
+because branch protection changes which checks block merges, but it does not
+stop heavyweight `pull_request` workflows from still registering and running on
+ordinary PRs.
+
 ## Evidence Reports
 
 Supporting evidence for this strategy lives in:
@@ -487,29 +492,29 @@ git/GitHub evidence on `2026-07-04`.
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `compile` lane definition
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the `unit-basic` allowlist and exclusion list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the steady-state `baseline` command list
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the per-sprint rollout table
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the SSOT owner files for lint and test lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the list of local-only and manual-only lanes
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: approved by team-lead, 2026-07-03
+  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
 
 ## Exit Criteria
 
