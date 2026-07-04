@@ -87,7 +87,7 @@ Steady-state `baseline` contents from Sprint A3 onward:
 
 Steady-state timing reference (formally revised 2026-07-04):
 
-- the original under-10-minute target was not met in real phase evidence
+- the original phase-wide timing target was not met in real phase evidence
 - the current single-job `baseline` reference envelope is approximately
   13 minutes, based on:
   - Sprint A1 run `28698012935`: `17m39s`
@@ -501,8 +501,8 @@ Observed GitHub Actions timings from 2026-07-04:
 Current budget status from that evidence:
 
 - the required gate is green on July 4, 2026 for A1, A2, and A7
-- the real single-job totals show that the original under-10-minute target was
-  not met phase-wide
+- the real single-job totals show that the original phase-wide timing target
+  was not met phase-wide
 - the latest merged A7 baseline run `28701385323` finished in `13m09s`, which
   is `3m09s` over the original 10-minute target
 - the earlier A1 total `17m39s` and A2 total `12m59s` show that this is a

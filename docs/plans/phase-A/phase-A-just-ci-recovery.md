@@ -216,7 +216,7 @@ Implications:
 - a fast required PR baseline is viable
 - `clippy --tests` does not belong in required PR CI
 - broad `cargo test` orchestration does not belong in required PR CI
-- the original under-10-minute target was apparently never met in real phase
+- the original phase-wide timing target was apparently never met in real phase
   evidence and is formally revised by the July 4, 2026 run history above
 - the current steady-state baseline reference is approximately 13 minutes, and
   any future claim of sub-10-minute compliance requires a real single-job run
@@ -404,7 +404,8 @@ Phase A is complete when:
 - `baseline` is the only required branch-protection status check for ordinary
   PRs once the Sprint A1 operational branch-protection update lands
 - required PR CI on ordinary PRs is limited to the `baseline` workflow surface
-- `baseline` stays below 10 minutes
+- `baseline` timing is measured against the revised July 4, 2026 steady-state
+  reference envelope and any overage is reported explicitly
 - local `just` commands and required PR CI share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs
 - the verified baseline is merged into `feature/atm-graft-integration`

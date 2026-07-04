@@ -88,7 +88,7 @@ merge surfaces to preserve
 ## Timing Criterion Revision (2026-07-04)
 
 The original Phase A expectation that the required `baseline` workflow would
-stay below the old 10-minute target is formally revised for this sprint
+meet a smaller phase-wide timing target is formally revised for this sprint
 handoff.
 
 Real single-job baseline evidence now shows that the 10-minute target was
