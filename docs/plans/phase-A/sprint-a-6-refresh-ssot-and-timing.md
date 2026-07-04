@@ -51,7 +51,8 @@ silently dropped or partially deferred.
 - update the testing strategy doc with refreshed numbers
 - update the phase doc and sprint docs if any lane names, workflow names, or
   ownership statements drifted during A1-A5
-- confirm workflow YAML calls only established `just` commands
+- confirm the required `baseline` workflow still calls only established
+  `just` commands
 - confirm no new top-level `just` commands were introduced during A1-A5
 - confirm the sprint docs still match the actual lane names and workflow names
 - confirm the upstream ordinary-PR workflow classification still matches the

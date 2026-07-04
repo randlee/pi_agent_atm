@@ -78,7 +78,8 @@ immediately, not after an integration branch has accumulated multiple sprints.
 - do not reintroduce exploratory `src/**` churn as part of Phase A
 - reuse only narrow proven pieces from `feature/just-integration`
 - `just` is the only local operator surface
-- CI must call `just` commands rather than bespoke cargo command strings
+- the required `baseline` workflow and new Phase A fast-lane workflow edits must
+  call `just` commands rather than bespoke cargo command strings
 - required PR CI must stay below 10 minutes in every implementation sprint
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
 

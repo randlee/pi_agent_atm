@@ -13,7 +13,7 @@ and local commands and CI share one source of truth.
 
 1. `just` is the only public local operator surface.
 2. Required PR CI is exactly one workflow: `baseline`.
-3. CI runs `just ...` commands, not bespoke cargo command strings.
+3. Required PR CI runs `just ...` commands, not bespoke cargo command strings.
 4. Every sprint preserves green `baseline` CI.
 5. Heavyweight workflows do not run on ordinary PRs after Sprint A1 lands.
 6. Lint in required PR CI covers only code we own.
@@ -116,7 +116,7 @@ Target end state:
 - `.just/explain.py` explains lane semantics
 - `.just/show_suites.py` reports suite taxonomy from
   `tests/suite_classification.toml`
-- GitHub Actions invokes only `just ...` commands
+- the required `baseline` workflow invokes only `just ...` commands
 
 One lane, one owner:
 
