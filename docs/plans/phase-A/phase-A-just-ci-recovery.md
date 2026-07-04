@@ -1,7 +1,9 @@
 # Phase A - Minimal Just / CI Recovery
 
-Date: 2026-07-03
-Status: complete
+Date: 2026-07-03 (branch-model and CI-gap remediation section added 2026-07-04)
+Status: open -- the 2026-07-04 CI-gap remediation below is unresolved; do not
+treat this doc as fully closed until integrate/phase-A shows real, verified
+green CI (see remediation steps)
 Branch: `plan/phase-A`
 Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
 Authoritative scope: corrected Phase A planning
@@ -64,7 +66,9 @@ Applied interpretation for this phase:
 > and lets each be QA/CI-verified before anything lands on `develop`. This
 > section is retained for historical record of the original (superseded)
 > intent; see "Integration Branch Model (reconfirmed 2026-07-04)" below for
-> the model actually in force.
+> the model actually in force. **This section (lines below, through the end
+> of "Execution model") is superseded and must not be followed** -- it is
+> retained only for historical record.
 
 Corrected Phase A does not use an `integrate/phase-A` merge-forward branch.
 
@@ -101,21 +105,34 @@ on `develop` directly.
 
 Known gap being remediated as of 2026-07-04: `integrate/phase-A` (and
 `develop`) lack the `justfile` / `.just/**` operator surface that
-`.github/workflows/baseline.yml` depends on for 6 of its 7 steps, and GitHub's
-own Actions API shows several Phase A sprint PRs (A3-A5) never triggered a
-single workflow run at all -- not merely a missing-tool failure, but no run
-recorded by GitHub for those PRs' head SHAs. Remediation:
+`.github/workflows/baseline.yml` depends on for 6 of its 7 steps -- confirmed
+absent on both branches via `git ls-tree`. GitHub's own Actions API
+(`gh api repos/randlee/pi_agent_atm/actions/runs?branch=<branch>`) also shows
+`total_count: 0` for Phase A sprint PRs A3/A4/A5 (#13/#14/#15) at their head
+SHAs -- not merely a missing-tool failure, but no run recorded by GitHub at
+all for those PRs. Remediation:
 
 1. land `justfile`, `.just/**`, and `.github/workflows/baseline.yml` together
    onto `integrate/phase-A` in one PR, so the integration branch is fully
    self-sufficient (this supersedes attempting to register `baseline.yml`
-   alone, which is necessary but not sufficient)
+   alone, which is necessary but not sufficient -- see the closed PR #19,
+   which registered `baseline.yml` alone on `develop` and failed QA-1 for
+   exactly this reason). Before treating `integrate/phase-A` as
+   self-sufficient, verify via `gh pr checks` that a real workflow run
+   triggers and completes on that bundling PR's own head SHA -- registration
+   alone is not proof, since A3-A5's zero-run symptom may be independent of
+   the missing `justfile` and is not yet fully explained
 2. after that lands, verify -- per sprint PR, via `gh pr checks` against a
    freshly pushed commit -- that a real workflow run starts and completes;
    do not assume registration alone fixed the silent-no-run PRs
-3. only after the full stacked chain shows real, green, individually-verified
-   CI does `integrate/phase-A` proceed to its own gated PR into `develop`,
-   which must itself show green CI before merge
+3. add `baseline` as a required branch-protection status check on
+   `integrate/phase-A` -- a green run is not the same guarantee as a required
+   check; branch protection must be updated explicitly, it will not follow
+   automatically from the workflow existing
+4. only after the full stacked chain shows real, green, individually-verified
+   CI, and `baseline` is a required status check on `integrate/phase-A`, does
+   `integrate/phase-A` proceed to its own gated PR into `develop`, which must
+   itself show green CI before merge
 
 ## Ground Rules
 

@@ -1,10 +1,10 @@
 ---
 id: A4
 title: Add Taxonomy Helpers
-status: planned
+status: in-review
 branch: sprint-a-4-add-taxonomy-helpers
 worktree: ../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers
-target: develop
+target: integrate/phase-A
 ---
 
 # Sprint A4 — Add Taxonomy Helpers
@@ -15,7 +15,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A3 merged into `develop`
+- Sprint A3 merged into `integrate/phase-A` (stacked chain; see PR #14)
 
 ## Unblocks
 

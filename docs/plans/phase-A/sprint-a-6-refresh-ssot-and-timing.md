@@ -1,10 +1,10 @@
 ---
 id: A6
 title: Refresh SSOT And Timing
-status: planned
+status: in-review
 branch: sprint-a-6-refresh-ssot-and-timing
 worktree: ../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing
-target: develop
+target: integrate/phase-A
 ---
 
 # Sprint A6 — Refresh SSOT And Timing
@@ -19,7 +19,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A5 merged into `develop`
+- Sprint A5 merged into `integrate/phase-A` (stacked chain; see PR #16)
 
 ## Unblocks
 

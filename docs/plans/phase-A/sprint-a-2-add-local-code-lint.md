@@ -1,10 +1,10 @@
 ---
 id: A2
 title: Add Local-Code Lint
-status: planned
+status: merged
 branch: sprint-a-2-add-local-code-lint
 worktree: ../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint
-target: develop
+target: integrate/phase-A
 ---
 
 # Sprint A2 — Add Local-Code Lint
@@ -16,7 +16,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A1 merged into `develop`
+- Sprint A1 merged into `integrate/phase-A` (stacked chain; see PR #10)
 
 ## Unblocks
 

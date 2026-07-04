@@ -1,10 +1,10 @@
 ---
 id: A3
 title: Add Smoke Baseline
-status: planned
+status: in-review
 branch: sprint-a-3-add-smoke-baseline
 worktree: ../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline
-target: develop
+target: integrate/phase-A
 ---
 
 # Sprint A3 — Add Smoke Baseline
@@ -16,7 +16,7 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A2 merged into `develop`
+- Sprint A2 merged into `integrate/phase-A` (stacked chain; see PR #13)
 
 ## Unblocks
 
