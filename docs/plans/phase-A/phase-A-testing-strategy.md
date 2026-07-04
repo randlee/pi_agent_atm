@@ -475,10 +475,11 @@ against the current post-A5 required baseline:
 | rust-qa-agent live QA pass, 2026-07-04 | `just lint clippy-lib` | pass | `2.2s` (warm) |
 | rust-qa-agent live QA pass, 2026-07-04 | `just test baseline` | pass | `14s` (6/6 passing) |
 
-Retained older green evidence for rollout history:
+Observed GitHub Actions timings from 2026-07-04:
 
 | Evidence source | Scope | Result | Observed wall time |
 |---|---|---:|---:|
+| run `28701385323` | Sprint A7 single-job `baseline` workflow on `sprint-a-7-merge-baseline-into-atm-graft` | success | `13m09s` |
 | run `28698960460` | Sprint A1 command steps (`just help` through `just test unit-basic`) | success | `9m45s` |
 | run `28698763616` | Sprint A2 command steps (`just help` through `just lint clippy-lib`) | success | `12m07s` |
 | run `28698763616` | `just fmt check` | success | `16s` |
@@ -489,14 +490,17 @@ Retained older green evidence for rollout history:
 
 Current budget status from the A6 retained evidence:
 
-- the current post-A5 required baseline is recorded from the July 4, 2026
-  rust-qa-agent timing pass rather than from stale A1/A2-only rollout data
+- the current post-A5 required baseline now includes a real single-job CI total
+  from run `28701385323` on July 4, 2026
 - every required step is green in that dated A6 pass
-- the retained A6 timing record classifies the full required baseline sequence
-  as under the 10-minute budget under the accepted CI-gap evidence policy
-- the `cold` and `warm` tags above are part of the retained record and explain
-  why these step measurements are cited individually instead of being treated
-  as one synthetic stopwatch total from a different cache state
+- the Sprint A7 single-job `baseline` workflow total is `13m09s`, which exceeds
+  the 10-minute hard budget by `3m09s`
+- the earlier retained A2 run `28698763616` already showed `12m07s` for only
+  the first five required steps, so the new six-step single-job result
+  reinforces the same over-budget conclusion rather than contradicting it
+- the local rust-qa-agent per-step timings above remain useful diagnostic
+  evidence for which steps are expensive, but they are not the authoritative
+  source for the overall budget call
 
 ## Team-Lead Review Checklist
 
