@@ -59,8 +59,8 @@ silently dropped or partially deferred.
 - confirm no new top-level `just` commands were introduced during A1-A5
 - confirm lane metadata still cleanly separates upstream, ATM-owned, and
   integration surfaces
-- confirm the planned repository locations for ATM-owned crates and glue code
-  still fit the actual post-A5 code base
+- confirm the planned ATM dependency and glue surfaces from
+  `feature/atm-graft-integration` still fit the actual post-A5 code base
 - confirm the sprint docs still match the actual lane names and workflow names
 - confirm the upstream ordinary-PR workflow classification still matches the
   testing strategy after A1 trigger changes

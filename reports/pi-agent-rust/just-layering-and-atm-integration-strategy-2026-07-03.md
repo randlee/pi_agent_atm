@@ -9,6 +9,9 @@ without broad churn in the upstream fork.
 
 - the repository is still a single root package in `Cargo.toml`
 - there is no active Cargo workspace member layout yet
+- the current ATM integration model already being developed in
+  `feature/atm-graft-integration` uses root-package dependency edges to
+  `atm-core` crates plus a local shim in `vendor/atm-daemon-bootstrap-shim`
 - Phase A therefore must stabilize operator and CI semantics first, then layer
   additional crates additively instead of rewriting the fork boundary
 
@@ -59,9 +62,10 @@ lane protects upstream parity, ATM-owned code, or the seam between them.
 Required rules once ATM-owned code starts landing:
 
 1. every PR still runs the upstream required baseline
-2. any PR touching ATM-owned crates also runs the relevant ATM-owned lane set
-3. any PR touching the seam between the root package and ATM crates also runs
-   the relevant integration lanes
+2. any PR touching the ATM dependency wiring or local shim surfaces also runs
+   the relevant ATM-owned lane set
+3. any PR touching the seam between the root package and ATM-owned
+   dependencies also runs the relevant integration lanes
 4. no ATM-specific lane may weaken or silently redefine the meaning of the
    upstream baseline lanes
 
@@ -73,18 +77,23 @@ base becomes more ATM-specific.
 To minimize disruption to the upstream code base:
 
 - keep the upstream fork boundary in the existing root package for Phase A
-- add reusable ATM-owned Rust crates under `crates/atm-*` when integration
-  begins
-- keep root-package glue in one bounded surface such as `src/atm/**`
-  rather than scattering ATM-specific logic through unrelated upstream modules
+- treat `feature/atm-graft-integration` as the source of truth for the planned
+  ATM layering surface during Phase A
+- prefer ATM integration through explicit root `Cargo.toml` dependency edges
+  such as `atm-graft` and `atm_core`, plus narrowly scoped vendor shims when
+  needed
+- keep any repo-local ATM glue bounded to the small set of integration files
+  that wire those dependencies into the upstream binary/library surface rather
+  than scattering ATM-specific logic through unrelated upstream modules
 - keep cross-package seam tests under `tests/integration_*` or
   `tests/atm_*`, separate from the upstream baseline allowlist
 
 Practical interpretation:
 
-- business logic or reusable services we own should live in `crates/atm-*`
-- root-package edits should stay thin and mostly wire ATM crates into the
-  upstream binary/library surface
+- ATM-owned business logic should continue to live in the `atm-core` line
+  unless there is a separately approved reason to move it into this repo
+- root-package edits here should stay thin and mostly wire ATM-owned
+  dependencies into the upstream binary/library surface
 - if an ATM feature requires broad edits across upstream files, treat that as a
   design smell and justify it explicitly before implementation
 

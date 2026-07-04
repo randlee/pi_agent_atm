@@ -41,8 +41,9 @@ silently dropped or partially deferred.
 - keep `baseline` as the required PR workflow on the merged branch
 - preserve the same lane names and SSOT ownership on the merged branch
 - preserve the future ATM layering boundaries so
-  `feature/atm-graft-integration` can add `crates/atm-*` and bounded
-  root-package glue without redefining the upstream baseline lanes
+  `feature/atm-graft-integration` can keep its root dependency wiring to
+  `atm-core` crates and bounded local shim/glue surfaces without redefining the
+  upstream baseline lanes
 
 ## Explicit Code Samples
 

@@ -93,8 +93,9 @@ immediately, not after an integration branch has accumulated multiple sprints.
 - the Phase A baseline lanes become the stable upstream-regression contract
 - future ATM-owned lanes must layer in additively through `just lint` and
   `just test`, not by mutating the meaning of the baseline lanes
-- future ATM-owned reusable crates should land under `crates/atm-*` with only
-  thin root-package glue in bounded integration surfaces such as `src/atm/**`
+- future ATM integration should follow the actual
+  `feature/atm-graft-integration` model: root `Cargo.toml` dependency wiring to
+  `atm-core` crates plus narrowly scoped local shim/integration surfaces
 
 ## Upstream Fork Testing Reality
 
@@ -311,7 +312,8 @@ No implementation sprint begins until team-lead reviews:
 - the A4 / A5 split between taxonomy helpers and optional local lanes
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-- the planned repository locations for ATM-owned crates and root-package glue
+- the planned dependency and glue surfaces already present on
+  `feature/atm-graft-integration`
 
 ## Exit Criteria
 

@@ -26,9 +26,9 @@ and local commands and CI share one source of truth.
    `just suites` surfaces only.
 10. Future ATM-owned lanes must be additive and must not silently redefine the
     semantics of the upstream baseline lanes established in Phase A.
-11. Future ATM-owned reusable code should land in additive crate locations and
-    bounded integration seams rather than broad rewrites across upstream-owned
-    files.
+11. Future ATM-owned integration in this repo should follow the actual
+    `feature/atm-graft-integration` dependency model and bounded seam files
+    rather than broad rewrites across upstream-owned files.
 
 ## Fork And Upstream Audit Baseline
 
@@ -200,21 +200,29 @@ Current repo reality:
 
 - the fork is still a single root package in `Cargo.toml`
 - there is no active workspace-member layout yet
+- the planned ATM integration surface already exists on
+  `feature/atm-graft-integration` as root-package dependency wiring to
+  `atm-core` crates plus a local vendor shim
 
 Planning target for minimum upstream disruption:
 
 - keep the existing root package as the upstream fork boundary through Phase A
-- when ATM-owned reusable crates start landing, place them under `crates/atm-*`
-- keep root-package glue in one bounded surface such as `src/atm/**`
+- use `feature/atm-graft-integration` as the concrete reference for ATM
+  layering decisions during Phase A
+- prefer explicit root `Cargo.toml` dependency edges to `atm-core` crates such
+  as `atm-graft` and `atm_core`, plus narrowly scoped vendor shims when needed
+- keep repo-local glue bounded to the small integration surfaces that wire
+  those dependencies into the upstream package
 - keep cross-seam tests out of `unit-basic` and place them in explicit
   integration lanes under `tests/atm_*` or `tests/integration_*`
 
 Required regression rule once ATM-owned crates exist:
 
 1. every PR still runs the upstream required baseline
-2. PRs touching `crates/atm-*` run the relevant ATM-owned lanes as well
-3. PRs touching the seam between root-package upstream code and ATM-owned code
-   run the relevant integration lanes as well
+2. PRs touching the ATM dependency wiring or vendor shim surfaces run the
+   relevant ATM-owned lanes as well
+3. PRs touching the seam between root-package upstream code and ATM-owned
+   dependencies run the relevant integration lanes as well
 
 This is how the project verifies there is no regression from the upstream fork
 while still allowing additive ATM-specific code growth.
