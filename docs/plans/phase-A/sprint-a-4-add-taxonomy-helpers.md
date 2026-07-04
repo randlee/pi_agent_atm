@@ -17,6 +17,13 @@ target: develop
 
 - Sprint A3 merged into `develop`
 
+## Unblocks
+
+- Sprint A5 optional local lanes can only be QA-readable if A4 defines the
+  helper output contract first
+- Sprint A6 review-pack freezing depends on A4 exposing SSOT ownership and lane
+  metadata directly
+
 ## Exact Targets
 
 - `justfile`
@@ -55,6 +62,15 @@ suites:
     {{python_cmd}} .just/show_suites.py
 ```
 
+```text
+lane=test.baseline
+origin=upstream
+owner=.just/test_catalog.py
+blocking=required
+ssot=.just/test_catalog.py
+command=./scripts/smoke.sh --skip-lint --no-rch
+```
+
 ## This Sprint Does Not Close
 
 - it does not change required PR CI contents
@@ -64,17 +80,20 @@ suites:
 
 ## Acceptance Criteria
 
-- `just explain` works
-- `just suites` works
+- `just explain` exits 0 for required and optional lanes
+- `just suites` exits 0 and reports suite taxonomy from the documented source
 - taxonomy helper output points operators to the SSOT lane and suite surfaces
 - taxonomy helper output distinguishes upstream baseline lanes from future
   ATM-owned and integration lanes
+- `just explain` prints lane origin, owner, blocking level, SSOT file, and
+  command for the requested lane
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation
 
 - `just explain lint clippy-lib`
+- `just explain test baseline`
 - `just suites`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`

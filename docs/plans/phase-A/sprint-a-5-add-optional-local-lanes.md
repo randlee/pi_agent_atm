@@ -17,6 +17,11 @@ target: develop
 
 - Sprint A4 merged into `develop`
 
+## Unblocks
+
+- Sprint A6 review-pack validation depends on A5 locking the optional local
+  lane names and their non-required classification
+
 ## Exact Targets
 
 - `justfile`
@@ -31,16 +36,25 @@ the scope this sprint claims. If that cannot be done cleanly in one sprint, the
 sprint must be split before implementation begins. No deliverable may be
 silently dropped or partially deferred.
 
-- optional local lanes exist without changing required PR CI
+- the exact optional local lanes added in this sprint exist without changing
+  required PR CI:
+  - `just test unit`
+  - `just test integration`
+  - `just test all`
+  - `just lint all-local`
 
 ## Required Work
 
-- add optional local lanes such as `just test unit`, `just test integration`,
-  `just test all`, and `just lint all-local`
+- add these exact optional local lanes:
+  - `just test unit`
+  - `just test integration`
+  - `just test all`
+  - `just lint all-local`
 - reserve explicit naming room for future `atm-*` and `integration-*` lanes
   without changing the established upstream baseline lane ids
 - route lane descriptions through the established helper surfaces from Sprint A4
 - keep required `baseline` contents exactly as Sprint A3 defined them
+- do not add `just test vcr` or `just test e2e` in this sprint
 
 Reuse sources:
 
@@ -52,6 +66,7 @@ Reuse sources:
 
 ```python
 DISPLAY_ORDER = ("baseline", "unit", "integration", "all")
+OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 ```
 
 ## This Sprint Does Not Close
@@ -66,6 +81,9 @@ DISPLAY_ORDER = ("baseline", "unit", "integration", "all")
 - optional local lanes are clearly marked as non-required in docs and lane help
 - any new ATM-owned or integration lane shape is classified as optional unless
   separately promoted by evidence and review
+- this sprint adds exactly `just test unit`, `just test integration`,
+  `just test all`, and `just lint all-local`
+- this sprint does not add `just test vcr` or `just test e2e`
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
 
@@ -74,5 +92,6 @@ DISPLAY_ORDER = ("baseline", "unit", "integration", "all")
 - `just explain test unit`
 - `just test unit`
 - `just test integration`
+- `just test all`
 - `just lint all-local`
 - `gh workflow view baseline`

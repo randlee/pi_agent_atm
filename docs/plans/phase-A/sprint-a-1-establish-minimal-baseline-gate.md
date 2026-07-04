@@ -21,6 +21,13 @@ target: develop
 - team-lead reviews `docs/plans/phase-A/phase-A-testing-strategy.md`
 - sprint branches are cut from current `develop`
 
+## Unblocks
+
+- Sprint A2 can add required lint only after A1 proves the reduced PR gate is
+  real and stable
+- all later Phase A sprints depend on A1 defining the stable baseline lane
+  names and retained upstream-workflow trigger model
+
 ## Exact Targets
 
 - `justfile`
@@ -148,10 +155,10 @@ on:
 
 ## Acceptance Criteria
 
-- `just help` works
-- `just fmt check` works
-- `just test compile` works
-- `just test unit-basic` works
+- `just help` exits 0 and lists the established Phase A command surface
+- `just fmt check` exits 0
+- `just test compile` exits 0
+- `just test unit-basic` exits 0
 - one workflow named `baseline` runs on ordinary PRs
 - `.github/workflows/ci.yml`, `.github/workflows/fuzz.yml`,
   `.github/workflows/bench.yml`, `.github/workflows/semver.yml`,
@@ -185,5 +192,11 @@ on:
 - `gh workflow view bench`
 - `gh workflow view semver`
 - `gh workflow view model-catalog-drift`
+- `gh workflow run ci --ref <sprint-branch>`
+- `gh workflow run conformance --ref <sprint-branch>`
+- `gh workflow run fuzz --ref <sprint-branch>`
+- `gh workflow run bench --ref <sprint-branch>`
+- `gh workflow run semver --ref <sprint-branch>`
+- `gh workflow run model-catalog-drift --ref <sprint-branch>`
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,
   `semver`, or `Model Catalog Drift`

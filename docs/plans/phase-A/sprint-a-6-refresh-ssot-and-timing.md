@@ -21,6 +21,11 @@ target: develop
 
 - Sprint A5 merged into `develop`
 
+## Unblocks
+
+- Sprint A7 merge work should not begin until A6 freezes the final review-pack
+  contract and refreshed timing evidence
+
 ## Exact Targets
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
@@ -47,6 +52,11 @@ silently dropped or partially deferred.
 
 - team-lead review pack exists with frozen source-of-truth ownership and
   refreshed timing evidence against a green baseline
+- the review pack explicitly identifies the final authoritative artifacts QA
+  and team-lead review from:
+  - refreshed timing table in `phase-A-testing-strategy.md`
+  - refreshed Phase A overview and sprint docs if names or ownership drifted
+  - current ATM layering report for `feature/atm-graft-integration`
 
 ## Required Work
 
@@ -64,6 +74,7 @@ silently dropped or partially deferred.
 - confirm the sprint docs still match the actual lane names and workflow names
 - confirm the upstream ordinary-PR workflow classification still matches the
   testing strategy after A1 trigger changes
+- record the exact review-pack artifact list in the sprint PR notes
 
 ## Explicit Code Samples
 
@@ -75,6 +86,14 @@ baseline workflow
   -> just lint clippy-bins
   -> just lint clippy-lib
   -> just test baseline
+```
+
+```text
+review pack
+  -> docs/plans/phase-A/phase-A-testing-strategy.md
+  -> docs/plans/phase-A/phase-A-just-ci-recovery.md
+  -> docs/plans/phase-A/sprint-a-*.md
+  -> reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md
 ```
 
 ## This Sprint Does Not Close
@@ -89,6 +108,8 @@ baseline workflow
 - team-lead can review SSOT ownership directly from the review-pack docs
 - team-lead can review the future ATM layering rules directly from the review
   pack
+- the sprint PR notes name the exact review-pack artifacts and confirm no lane
+  names or workflow names drifted unexpectedly
 - required `baseline` workflow is unchanged from Sprint A3
 - sprint docs and testing strategy remain internally consistent after the timing refresh
 - `baseline` remains green and under 10 minutes
@@ -102,3 +123,4 @@ baseline workflow
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `just test baseline`
+- verify the review-pack artifact list matches the final changed docs/report set

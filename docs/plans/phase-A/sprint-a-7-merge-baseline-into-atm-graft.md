@@ -19,10 +19,20 @@ target: feature/atm-graft-integration
 - Sprint A6 merged into `develop`
 - `feature/atm-graft-integration` is the active integration branch
 
+## Unblocks
+
+- no further Phase A sprint; this sprint hands the verified baseline to the
+  active ATM integration branch
+
 ## Exact Targets
 
 - `feature/atm-graft-integration`
-- conflict-resolution surfaces required by the merge
+- `justfile`
+- `.just/**`
+- `.github/workflows/baseline.yml`
+- `Cargo.toml`
+- `vendor/atm-daemon-bootstrap-shim/**`
+- any additional merge-conflict files Git reports during the forward merge
 
 ## Deliverables
 
@@ -44,6 +54,9 @@ silently dropped or partially deferred.
   `feature/atm-graft-integration` can keep its root dependency wiring to
   `atm-core` crates and bounded local shim/glue surfaces without redefining the
   upstream baseline lanes
+- preserve the existing `atm-graft`, `atm_core`, and
+  `atm-daemon-bootstrap-shim` dependency/glue surfaces while merging the Phase A
+  baseline
 
 ## Explicit Code Samples
 
@@ -56,6 +69,13 @@ develop
   -> sprint-a-5
   -> sprint-a-6
   -> feature/atm-graft-integration
+```
+
+```text
+merge surfaces to preserve
+  -> Cargo.toml: atm-graft + atm_core dependency wiring
+  -> vendor/atm-daemon-bootstrap-shim/Cargo.toml
+  -> baseline just/CI files from develop
 ```
 
 ## This Sprint Does Not Close
@@ -73,6 +93,8 @@ develop
   `just test unit-basic`
 - the merge keeps a clean additive path for future ATM-owned crates and
   integration lanes
+- the merge preserves the existing `atm-graft`, `atm_core`, and vendor shim
+  integration surfaces
 - `baseline` remains green and under 10 minutes
 
 ## Required Validation
@@ -83,4 +105,5 @@ develop
 - `just lint clippy-bins`
 - `just lint clippy-lib`
 - `just test baseline`
+- `rg -n \"atm-graft|atm_core|atm-daemon-bootstrap\" Cargo.toml vendor/atm-daemon-bootstrap-shim/Cargo.toml`
 - `gh run list --workflow baseline --limit 5`
