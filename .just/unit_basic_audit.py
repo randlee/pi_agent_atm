@@ -746,6 +746,12 @@ UNIT_BASIC_SKIP_FILTERS_BY_PREFIX = {
 }
 
 
+def exact_prefix_match(test_name: str, prefix: str) -> bool:
+    test_parts = test_name.split("::")
+    prefix_parts = prefix.split("::")
+    return len(test_parts) > len(prefix_parts) and test_parts[: len(prefix_parts)] == prefix_parts
+
+
 def classify_inline_test(test_name: str) -> TaxonomyRule:
     for rule in EXCLUDE_RULES:
         if rule.match_kind == "exact" and test_name == rule.pattern:
@@ -786,12 +792,19 @@ def category_counts(test_names: list[str]) -> Counter[str]:
 
 
 def unit_basic_inline_commands() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    test_names = list_inline_tests()
     commands: list[tuple[str, tuple[str, ...]]] = []
     for prefix in UNIT_BASIC_INCLUDE_PREFIXES:
+        configured_skips = list(UNIT_BASIC_SKIP_FILTERS_BY_PREFIX.get(prefix, ()))
+        collision_skips = sorted(
+            test_name
+            for test_name in test_names
+            if prefix in test_name and not exact_prefix_match(test_name, prefix)
+        )
         commands.append(
             (
                 prefix,
-                UNIT_BASIC_SKIP_FILTERS_BY_PREFIX.get(prefix, ()),
+                tuple(configured_skips + collision_skips),
             )
         )
     return tuple(commands)

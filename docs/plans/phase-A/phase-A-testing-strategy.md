@@ -278,14 +278,22 @@ Required rule:
 
 Required `unit-basic` starting point:
 
-1. `cargo test --all-targets --lib`
-2. Small curated deterministic add-on targets:
+1. Audited inline Rust unit tests only, executed from reviewed module prefixes
+   rather than a blind `cargo test --all-targets --lib` sweep
+2. Exact module-path collision reconciliation whenever cargo's substring filter
+   would otherwise drag non-audited tests into a lane
+3. Small curated deterministic add-on targets:
    - `capability_policy_model`
    - `policy_profile_hardening`
    - `extension_flag_passthrough`
    - `model_serialization`
    - `redaction_test`
    - `extension_scoring_ope`
+
+Required reconciliation rule:
+
+- PR evidence must report the audited inline count separately from explicit
+  add-on target counts so reviewers can verify what the lane actually ran
 
 Explicit early exclusions from `unit-basic`:
 
@@ -466,27 +474,33 @@ Minimum example:
 
 ## Retained Evidence
 
-Observed local macOS timings from `feature/just-integration`:
+Observed local macOS timings from `sprint-a-1-establish-minimal-baseline-gate`
+on 2026-07-04:
 
 | Command | Result | Observed wall time |
 |---|---|---:|
-| `just help` | pass | `<1s` |
-| `just fmt check` | pass | `12.46s` |
-| `just lint clippy-lib` | pass | `50.66s` |
-| `just lint clippy-bins` | pass | `2.87s` |
-| `just test baseline` | pass | `10.59s` |
-| `just lint clippy-tests` | incomplete | `>3m38s` before manual stop |
-| `just test unit` | incomplete | `>120s` before timeout |
-| `just test integration` | incomplete | `>120s` before timeout |
+| `just help` | pass | `0.43s` |
+| `just fmt check` | pass | `12.07s` |
+| `just test compile` | pass | `1.05s` |
+| `just test unit-basic` | pass | `37.85s` |
 
-Observed GitHub Actions timings from 2026-07-02:
+Observed GitHub Actions timings from baseline run `28720833124` on
+2026-07-04:
 
-| Workflow | Result | Approximate wall time |
+| Workflow / Step | Result | Approximate wall time |
 |---|---|---:|
-| `baseline` | success | `~7m03s` |
-| `Extension Conformance` | success | `~6m25s` |
-| `Fuzz CI` | success | `~42m59s` |
-| old monolithic `ci` | cancelled | `~49m25s` before cancellation |
+| `baseline` total | success | `~5m46s` |
+| `Just help` | success | `<1s` |
+| `Format gate` | success | `~16s` |
+| `Compile gate` | success | `~1m44s` |
+| `Basic unit gate` | success | `~2m58s` |
+
+`just test unit-basic` currently reconciles as:
+
+- 1,797 audited inline tests
+- 243 explicit add-on target tests
+- 15 substring-collision exclusions under `session::tests` for
+  `interactive::ext_session::*`
 
 ## Team-Lead Review Checklist
 
