@@ -1,7 +1,7 @@
 # Phase A - Minimal Just / CI Recovery
 
-Date: 2026-07-03
-Status: complete
+Date: 2026-07-04
+Status: blocked pending branch-and-ci reconciliation
 Branch: `plan/phase-A`
 Worktree: `../pi_agent_atm-worktrees/plan/phase-A`
 Authoritative scope: corrected Phase A planning
@@ -52,37 +52,110 @@ Applied interpretation for this phase:
 - no sprint may rely on the old heavyweight PR workflow surface remaining active
 - no sprint may silently carry a required deliverable forward
 - every sprint must preserve green required PR CI under 10 minutes
+- no implementation code should merge back into `develop` until the Phase A
+  salvage chain is proven
+- no sprint should merge into `integrate/phase-A` without a recorded evidence
+  package that includes registration, execution, and timing proof
 
 ## Branch And Worktree Model
 
-Corrected Phase A does not use an `integrate/phase-A` merge-forward branch.
+The previously documented branch model was incorrect.
 
-Instead:
+Live evidence collected on 2026-07-04 shows:
 
-- planning branch:
-  - `plan/phase-A`
-- implementation target branch:
-  - `develop`
-- sprint branches:
-  - cut directly from updated `develop`
-- sprint worktrees:
-  - one dedicated worktree per sprint branch
+- Sprint A1 open PR #12 targets `integrate/phase-A`
+- Sprint A2 open PR #11 targets `sprint-a-1-establish-minimal-baseline-gate`
+- Sprint A3 open PR #13 targets `sprint-a-2-add-local-code-lint`
+- Sprint A4 open PR #14 targets `sprint-a-3-add-smoke-baseline`
+- Sprint A5 open PR #15 targets `sprint-a-4-add-taxonomy-helpers`
+- Sprint A6 open PR #16 targets `integrate/phase-A`
+- Sprint A7 open PR #17 targets `feature/atm-graft-integration`
+- earlier merged PRs also exist for A1 and A2 into `integrate/phase-A`
+  (PR #9 and PR #10), so the live state is a mixed merge history plus an open
+  stacked chain, not a clean one-pass rollout from `develop`
 
-Execution model:
+Additional branch-state evidence:
 
-1. team-lead reviews and approves the testing strategy
-2. Sprint A1 branches from `develop`
-3. Sprint A1 merges back to `develop` only after green `baseline` CI
-4. Sprint A2 branches from updated `develop`
-5. repeat through Sprint A7
+- `origin/develop` currently contains none of:
+  - `justfile`
+  - `.just/**`
+  - `.github/workflows/baseline.yml`
+- `origin/integrate/phase-A` currently contains none of:
+  - `justfile`
+  - `.just/**`
+  - `.github/workflows/baseline.yml`
 
-This branch model is required because the first shipped baseline must land
-immediately, not after an integration branch has accumulated multiple sprints.
+The current sprint branches themselves do contain the `just` surface and
+`baseline.yml`, so the plan has to distinguish between:
+
+- branch-local sprint content that exists on the sprint branches
+- missing substrate on `origin/develop` and `origin/integrate/phase-A`
+- a separate GitHub Actions registration gap on A3-A6
+
+Historical reality, as verified, is therefore:
+
+1. Phase A has in practice been executed as a stacked PR chain, not as direct
+   merge-backs to `develop`
+2. `integrate/phase-A` has been used as an integration target in the actual PR
+   history
+3. the current docs were encoding the wrong branch model and were a source of
+   confusion
+
+Salvage model going forward:
+
+1. a bootstrap worktree may be created from `develop` because that branch holds
+   the current planning docs
+2. that bootstrap does not authorize merging unproven Phase A implementation
+   code back into `develop`
+3. Phase A implementation should continue as a proof-first merge chain where
+   each sprint branch demonstrates real CI progression before merge-forward
+4. `integrate/phase-A` should be treated as the accumulation branch for proven
+   Phase A sprint outputs
+5. `feature/atm-graft-integration` remains the Phase A consumer branch in A7
+
+## Live CI Registration Findings
+
+Evidence collected on 2026-07-04 shows this split:
+
+- `sprint-a-1-establish-minimal-baseline-gate`
+  - registered runs present
+  - latest sampled result: `baseline` success
+- `sprint-a-2-add-local-code-lint`
+  - registered runs present
+  - latest sampled result: `baseline` success
+- `sprint-a-3-add-smoke-baseline`
+  - zero registered runs
+- `sprint-a-4-add-taxonomy-helpers`
+  - zero registered runs
+- `sprint-a-5-add-optional-local-lanes`
+  - zero registered runs
+- `sprint-a-6-refresh-ssot-and-timing`
+  - zero registered runs
+
+This means the current CI gap is not fully explained by missing `justfile` or
+`.just/**` on `develop` and `integrate/phase-A`.
+
+What the evidence does support:
+
+- missing `just` substrate on `develop` and `integrate/phase-A` explains why a
+  baseline workflow on those branches would fail immediately
+- zero-run behavior on A3-A6 is a separate registration problem because those
+  sprint branches do contain both `baseline.yml` and the required `just`
+  surface
+
+What the evidence does not yet explain:
+
+- why A3-A6 registered zero runs while A1-A2 registered runs with the same
+  named workflow and equivalent `just` invocation pattern
+
+The plan must therefore preserve this as an open incident rather than papering
+it over with a single-cause theory.
 
 ## Ground Rules
 
 - do not work on `main`
 - do not merge `feature/just-integration` wholesale
+- do not treat `develop` as the active accumulation branch for Phase A code
 - do not reintroduce exploratory `src/**` churn as part of Phase A
 - reuse only narrow proven pieces from `feature/just-integration`
 - `just` is the only local operator surface
@@ -91,6 +164,10 @@ immediately, not after an integration branch has accumulated multiple sprints.
 - compile checking and strict basic-unit coverage must land before local-code
   lint expansion or smoke-lane expansion
 - required PR CI must stay below 10 minutes in every implementation sprint
+- every sprint evidence package must include:
+  - workflow registration proof
+  - workflow execution proof
+  - CI timings
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
 - the Phase A baseline lanes become the stable upstream-regression contract
 - future ATM-owned lanes must layer in additively through `just lint` and
@@ -212,15 +289,15 @@ These notes remain valid even though the old rollout plan was superseded.
 
 ## Corrected Sprint Sequence
 
-| Sprint | Branch | Worktree | Single deliverable | Required PR CI after merge |
-|---|---|---|---|---|
-| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | minimal `just` + compile/unit-baseline workflow | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` |
-| A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
-| A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | smoke regression lane through `just test` | A2 + `just test baseline` |
-| A4 | `sprint-a-4-add-taxonomy-helpers` | `../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers` | taxonomy helpers only | unchanged from A3 |
-| A5 | `sprint-a-5-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes` | optional local lanes only | unchanged from A3 |
-| A6 | `sprint-a-6-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing` | freeze SSOT and refresh timing evidence | unchanged from A3 |
-| A7 | `sprint-a-7-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft` | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 on merge PRs |
+| Sprint | Branch | Worktree | Live PR base | Live PR state | Single deliverable | Required PR CI after merge |
+|---|---|---|---|---|---|---|
+| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | `integrate/phase-A` | open PR #12; earlier merged PR #9 | minimal `just` + compile/unit-baseline workflow | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` |
+| A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | `sprint-a-1-establish-minimal-baseline-gate` | open PR #11; earlier merged PR #10 to `integrate/phase-A` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
+| A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | `sprint-a-2-add-local-code-lint` | open PR #13 | smoke regression lane through `just test` | A2 + `just test baseline` |
+| A4 | `sprint-a-4-add-taxonomy-helpers` | `../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers` | `sprint-a-3-add-smoke-baseline` | open PR #14 | taxonomy helpers only | unchanged from A3 |
+| A5 | `sprint-a-5-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes` | `sprint-a-4-add-taxonomy-helpers` | open PR #15 | optional local lanes only | unchanged from A3 |
+| A6 | `sprint-a-6-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing` | `integrate/phase-A` | open PR #16 | freeze SSOT and refresh timing evidence | unchanged from A3 |
+| A7 | `sprint-a-7-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft` | `feature/atm-graft-integration` | open PR #17 | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 on merge PRs |
 
 ### Sprint A1
 
@@ -232,10 +309,11 @@ Deliverable:
 Outcome:
 
 - old heavyweight PR workflows stop running on ordinary PRs
-- required PR CI becomes `baseline` immediately
+- required PR CI becomes `baseline` on the A1 branch path
 - the first required baseline proves compile health before lint expansion
 - the first required baseline proves a strict basic-unit subset rather than the
   whole broad `[suite.unit]` bucket
+- the live PR target for A1 is `integrate/phase-A`, not `develop`
 
 ### Sprint A2
 
@@ -318,14 +396,18 @@ No implementation sprint begins until team-lead reviews:
   lanes
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
+- the evidence-backed correction that live sprint PRs are stacked and do use
+  `integrate/phase-A`
+- the open CI-registration incident affecting A3-A6
 
 ### Team-Lead Review Record
 
 Reviewer: `team-lead`
 Review date: `2026-07-03`
-Confirmation: team-lead reviewed and approved this Phase A plan on
-`2026-07-03`; the review gate is closed and implementation may begin from this
-approved planning baseline.
+Confirmation: the previous approval text is now stale because the branch model
+and CI state encoded in this doc were contradicted by live git/GitHub evidence
+collected on `2026-07-04`. Implementation remains blocked until the corrected
+branch model and CI-registration gap are reviewed again.
 
 Review-item record:
 
@@ -352,8 +434,10 @@ Review-item record:
 
 Implementation-start rule:
 
-- `Status: complete` now applies because team-lead explicitly closed every
-  review item above on `2026-07-03` and the review gate is satisfied
+- this plan is not complete while the live branch model in GitHub and the doc
+  content disagree
+- this plan remains blocked until the corrected branch model and A3-A6
+  registration gap are explicitly reviewed
 
 ## Upstream Workflow Trigger Reconciliation
 
@@ -380,6 +464,10 @@ Phase A is complete when:
 - `baseline` stays below 10 minutes
 - local `just` commands and required PR CI share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs
+- `integrate/phase-A` actually contains the proven baseline substrate
 - the verified baseline is merged into `feature/atm-graft-integration`
+- the sprint docs and live PR bases agree
+- the unresolved A3-A6 zero-run registration gap is either fixed or
+  independently explained with evidence
 - the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
   crates without broad upstream churn

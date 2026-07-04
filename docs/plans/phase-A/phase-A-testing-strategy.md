@@ -1,13 +1,18 @@
 # Phase A - Testing Strategy
 
-Date: 2026-07-03
-Status: approved
+Date: 2026-07-04
+Status: approved for lane design; branch-state reconciliation still required
 
 ## Purpose
 
 Define the specific testing strategy that Phase A will implement so every
 increment starts from something working, required PR CI stays under 10 minutes,
 and local commands and CI share one source of truth.
+
+This document governs lane design and rollout shape. Live branch targets, live
+PR state, and the current CI-registration incident are tracked by
+`docs/plans/phase-A/phase-A-just-ci-recovery.md` and must be re-verified from
+git/GitHub evidence before implementation claims are treated as complete.
 
 ## Strategy Rules
 
@@ -475,8 +480,9 @@ Team-lead approval should explicitly confirm:
 
 Reviewer: `team-lead`
 Review date: `2026-07-03`
-Approval state: team-lead approved this testing strategy on `2026-07-03`; the
-strategy is the approved control document for Phase A implementation.
+Approval state: team-lead approved the lane strategy on `2026-07-03`, but that
+approval does not override later branch-state contradictions found in live
+git/GitHub evidence on `2026-07-04`.
 
 Checklist record:
 

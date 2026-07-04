@@ -1,10 +1,11 @@
 ---
 id: A7
 title: Merge Baseline Into Atm-Graft
-status: planned
+status: open
 branch: sprint-a-7-merge-baseline-into-atm-graft
 worktree: ../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft
 target: feature/atm-graft-integration
+pr: 17
 ---
 
 # Sprint A7 — Merge Baseline Into Atm-Graft
@@ -16,7 +17,9 @@ target: feature/atm-graft-integration
 
 ## Hard Dependencies
 
-- Sprint A6 merged into `develop`
+- the current open PR for A7 targets `feature/atm-graft-integration`
+- the planned input is the proven Phase A baseline rather than anything merged
+  into `develop`
 - `feature/atm-graft-integration` is the active integration branch
 
 ## Unblocks
@@ -46,7 +49,8 @@ silently dropped or partially deferred.
 
 ## Required Work
 
-- merge the corrected Phase A baseline forward from `develop`
+- merge the corrected Phase A baseline forward from the proven Phase A sprint
+  chain rather than assuming `develop` is the source of truth
 - resolve conflicts without pulling exploratory `feature/just-integration`
   source churn back in
 - keep `baseline` as the required PR workflow on the merged branch
@@ -62,7 +66,7 @@ silently dropped or partially deferred.
 ## Explicit Code Samples
 
 ```text
-develop
+develop bootstrap
   -> sprint-a-1
   -> sprint-a-2
   -> sprint-a-3
@@ -76,7 +80,7 @@ develop
 merge surfaces to preserve
   -> Cargo.toml: atm-graft + atm_core dependency wiring
   -> vendor/atm-daemon-bootstrap-shim/Cargo.toml
-  -> baseline just/CI files from develop
+  -> baseline just/CI files from the proven Phase A sprint chain
 ```
 
 ## This Sprint Does Not Close

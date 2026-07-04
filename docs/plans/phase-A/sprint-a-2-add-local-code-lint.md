@@ -1,10 +1,12 @@
 ---
 id: A2
 title: Add Local-Code Lint
-status: planned
+status: open
 branch: sprint-a-2-add-local-code-lint
 worktree: ../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint
-target: develop
+target: sprint-a-1-establish-minimal-baseline-gate
+pr: 11
+previous_merged_pr: 10
 ---
 
 # Sprint A2 — Add Local-Code Lint
@@ -16,7 +18,8 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A1 merged into `develop`
+- the live PR stack for A2 targets
+  `sprint-a-1-establish-minimal-baseline-gate`, not `develop`
 
 ## Unblocks
 

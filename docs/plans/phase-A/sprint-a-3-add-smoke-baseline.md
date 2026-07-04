@@ -1,10 +1,11 @@
 ---
 id: A3
 title: Add Smoke Baseline
-status: planned
+status: open
 branch: sprint-a-3-add-smoke-baseline
 worktree: ../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline
-target: develop
+target: sprint-a-2-add-local-code-lint
+pr: 13
 ---
 
 # Sprint A3 — Add Smoke Baseline
@@ -16,7 +17,8 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A2 merged into `develop`
+- the live PR stack for A3 targets `sprint-a-2-add-local-code-lint`, not
+  `develop`
 
 ## Unblocks
 

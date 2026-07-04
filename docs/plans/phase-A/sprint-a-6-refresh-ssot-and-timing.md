@@ -1,10 +1,11 @@
 ---
 id: A6
 title: Refresh SSOT And Timing
-status: planned
+status: open
 branch: sprint-a-6-refresh-ssot-and-timing
 worktree: ../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing
-target: develop
+target: integrate/phase-A
+pr: 16
 ---
 
 # Sprint A6 — Refresh SSOT And Timing
@@ -19,7 +20,9 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A5 merged into `develop`
+- the current open PR for A6 targets `integrate/phase-A`
+- the intended logical dependency remains the A5 baseline state, but the live
+  GitHub base branch is not `develop`
 
 ## Unblocks
 

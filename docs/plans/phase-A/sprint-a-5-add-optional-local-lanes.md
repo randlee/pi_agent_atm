@@ -1,10 +1,11 @@
 ---
 id: A5
 title: Add Optional Local Lanes
-status: planned
+status: open
 branch: sprint-a-5-add-optional-local-lanes
 worktree: ../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes
-target: develop
+target: sprint-a-4-add-taxonomy-helpers
+pr: 15
 ---
 
 # Sprint A5 — Add Optional Local Lanes
@@ -15,7 +16,8 @@ target: develop
 
 ## Hard Dependencies
 
-- Sprint A4 merged into `develop`
+- the live PR stack for A5 targets `sprint-a-4-add-taxonomy-helpers`, not
+  `develop`
 
 ## Unblocks
 
