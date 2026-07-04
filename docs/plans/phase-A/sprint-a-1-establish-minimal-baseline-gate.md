@@ -43,6 +43,8 @@ target: develop
 - `.github/workflows/bench.yml` (`isolation: trigger-only-edit`)
 - `.github/workflows/semver.yml` (`isolation: trigger-only-edit`)
 - `.github/workflows/model-catalog-drift.yml` (`isolation: trigger-only-edit`)
+- `docs/BRANCH_PROTECTION.md` (`isolation: branch-protection-policy-sync`)
+- `scripts/check_branch_protection.sh` (`isolation: branch-protection-validation-sync`)
 
 ## Deliverables
 
@@ -93,6 +95,10 @@ silently dropped or partially deferred.
 - update the repository's required branch-protection status checks for ordinary
   PRs so `baseline` is the only required workflow after the Sprint A1 trigger
   reduction lands
+- update `docs/BRANCH_PROTECTION.md` so the checked-in required-status-check
+  policy matches the reduced Sprint A1 ordinary-PR gate
+- update `scripts/check_branch_protection.sh` so the checked-in enforcement
+  artifact validates the reduced Sprint A1 Required Status Checks set
 - prove each displaced upstream workflow is still manually runnable after the
   trigger edits and record that proof in the Sprint A1 PR notes
 - keep the Phase A baseline lane names stable so later ATM-owned lanes can
@@ -203,6 +209,7 @@ on:
 - `gh workflow run bench --ref <sprint-branch>`
 - `gh workflow run semver --ref <sprint-branch>`
 - `gh workflow run model-catalog-drift --ref <sprint-branch>`
+- `./scripts/check_branch_protection.sh --report`
 - verify ordinary-PR required status checks are reduced to `baseline` only
 - verify no ordinary PR run triggers `ci`, `conformance`, `fuzz`, `bench`,
   `semver`, or `Model Catalog Drift`

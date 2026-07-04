@@ -114,6 +114,8 @@ than ignore:
   - checks out sibling repositories and installs Bun / npm dependencies
 - `.github/workflows/fuzz.yml`
   - Linux fuzz PR workflow for PRs targeting `main`
+- `.github/workflows/bench.yml`
+  - benchmark PR workflow that remains outside ordinary required PR gating
 - `.github/workflows/semver.yml`
   - path-filtered PR API compatibility workflow
 - `.github/workflows/model-catalog-drift.yml`

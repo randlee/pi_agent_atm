@@ -26,11 +26,11 @@ target: develop
 
 ## Exact Targets
 
-- `justfile`
-- `.just/run_cargo.py`
-- `.just/run_lint.py`
-- `.just/lint_catalog.py`
-- `.github/workflows/baseline.yml`
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/run_cargo.py` (`isolation: reused-helper-surface`)
+- `.just/run_lint.py` (`isolation: required-lint-lane-surface`)
+- `.just/lint_catalog.py` (`isolation: required-lint-lane-surface`)
+- `.github/workflows/baseline.yml` (`isolation: required-pr-workflow-edit`)
 
 ## Deliverables
 

@@ -24,10 +24,10 @@ target: develop
 
 ## Exact Targets
 
-- `justfile`
-- `.just/lint_catalog.py`
-- `.just/test_catalog.py`
-- `.just/explain.py`
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/lint_catalog.py` (`isolation: optional-lint-lane-surface`)
+- `.just/test_catalog.py` (`isolation: optional-test-lane-surface`)
+- `.just/explain.py` (`isolation: helper-output-sync`)
 
 ## Deliverables
 

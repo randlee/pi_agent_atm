@@ -27,11 +27,11 @@ target: develop
 
 ## Exact Targets
 
-- `justfile`
-- `.just/run_test.py`
-- `.just/test_catalog.py`
-- `scripts/smoke.sh`
-- `.github/workflows/baseline.yml`
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/run_test.py` (`isolation: required-test-lane-surface`)
+- `.just/test_catalog.py` (`isolation: required-test-lane-surface`)
+- `scripts/smoke.sh` (`isolation: required-smoke-script-surface`)
+- `.github/workflows/baseline.yml` (`isolation: required-pr-workflow-edit`)
 
 ## Deliverables
 

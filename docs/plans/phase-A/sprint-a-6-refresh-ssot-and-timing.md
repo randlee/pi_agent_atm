@@ -28,20 +28,20 @@ target: develop
 
 ## Exact Targets
 
-- `docs/plans/phase-A/phase-A-testing-strategy.md`
-- `docs/plans/phase-A/phase-A-just-ci-recovery.md`
-- `docs/plans/phase-A/sprint-a-1-establish-minimal-baseline-gate.md`
-- `docs/plans/phase-A/sprint-a-2-add-local-code-lint.md`
-- `docs/plans/phase-A/sprint-a-3-add-smoke-baseline.md`
-- `docs/plans/phase-A/sprint-a-4-add-taxonomy-helpers.md`
-- `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md`
-- `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md`
-- `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md`
-- `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
-- `justfile`
-- `.just/lint_catalog.py`
-- `.just/test_catalog.py`
-- `.github/workflows/baseline.yml`
+- `docs/plans/phase-A/phase-A-testing-strategy.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/phase-A-just-ci-recovery.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-1-establish-minimal-baseline-gate.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-2-add-local-code-lint.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-3-add-smoke-baseline.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-4-add-taxonomy-helpers.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md` (`isolation: review-pack-doc`)
+- `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md` (`isolation: review-pack-doc`)
+- `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md` (`isolation: review-pack-report`)
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/lint_catalog.py` (`isolation: ssot-validation-surface`)
+- `.just/test_catalog.py` (`isolation: ssot-validation-surface`)
+- `.github/workflows/baseline.yml` (`isolation: required-pr-workflow-audit`)
 
 ## Deliverables
 

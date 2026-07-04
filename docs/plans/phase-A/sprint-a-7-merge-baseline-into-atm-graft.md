@@ -26,13 +26,14 @@ target: feature/atm-graft-integration
 
 ## Exact Targets
 
-- `feature/atm-graft-integration`
-- `justfile`
-- `.just/**`
-- `.github/workflows/baseline.yml`
-- `Cargo.toml`
-- `vendor/atm-daemon-bootstrap-shim/**`
+- `feature/atm-graft-integration` (`isolation: merge-target-branch`)
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/**` (`isolation: baseline-helper-surface`)
+- `.github/workflows/baseline.yml` (`isolation: required-pr-workflow-sync`)
+- `Cargo.toml` (`isolation: atm-dependency-wiring-surface`)
+- `vendor/atm-daemon-bootstrap-shim/**` (`isolation: atm-shim-surface`)
 - any additional merge-conflict files Git reports during the forward merge
+  (`isolation: merge-conflict-surface`)
 
 ## Deliverables
 

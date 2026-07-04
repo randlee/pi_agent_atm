@@ -26,9 +26,9 @@ target: develop
 
 ## Exact Targets
 
-- `justfile`
-- `.just/explain.py`
-- `.just/show_suites.py`
+- `justfile` (`isolation: baseline-command-surface`)
+- `.just/explain.py` (`isolation: taxonomy-helper-surface`)
+- `.just/show_suites.py` (`isolation: taxonomy-helper-surface`)
 
 ## Deliverables
 
