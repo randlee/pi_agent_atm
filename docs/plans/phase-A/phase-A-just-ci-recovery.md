@@ -83,7 +83,8 @@ Instead:
 - sprint worktrees:
   - one dedicated worktree per sprint branch
 
-Execution model:
+Execution model (**SUPERSEDED 2026-07-04, do not follow** -- see "Integration
+Branch Model (reconfirmed 2026-07-04)" below):
 
 1. team-lead reviews and approves the testing strategy
 2. Sprint A1 branches from `develop`
@@ -93,6 +94,8 @@ Execution model:
 
 This branch model is required because the first shipped baseline must land
 immediately, not after an integration branch has accumulated multiple sprints.
+
+**(end of superseded section -- resume authoritative content below)**
 
 ## Integration Branch Model (reconfirmed 2026-07-04)
 
@@ -407,8 +410,11 @@ Review-item record:
 
 Implementation-start rule:
 
-- `Status: complete` now applies because team-lead explicitly closed every
-  review item above on `2026-07-03` and the review gate is satisfied
+- the 2026-07-03 planning review gate above is closed -- team-lead explicitly
+  closed every review item on `2026-07-03` and implementation was cleared to
+  begin from that approved planning baseline. This is a separate, already-
+  satisfied gate from the top-level `Status: open` header, which reflects the
+  2026-07-04 CI-gap remediation added afterward, not this planning gate
 
 ## Upstream Workflow Trigger Reconciliation
 

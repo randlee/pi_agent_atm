@@ -15,7 +15,7 @@ target: integrate/phase-A
 
 ## Hard Dependencies
 
-- Sprint A3 merged into `integrate/phase-A` (stacked chain; see PR #14)
+- Sprint A3 merged into `integrate/phase-A` (stacked chain; see PR #13)
 
 ## Unblocks
 
