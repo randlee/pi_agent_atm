@@ -57,6 +57,10 @@ Applied interpretation for this phase:
   salvage chain is proven
 - no sprint should merge into `integrate/phase-A` without a recorded evidence
   package that includes registration, execution, and timing proof
+- every sprint PR must record both:
+  - local wall-clock timings for the sprint's in-scope commands
+  - equivalent CI step and total workflow timings for the same stage, or an
+    explicit `no ci equivalent by design` note for local-only lanes
 
 ## Branch And Worktree Model
 
@@ -176,6 +180,25 @@ Required backfill for each PR:
 If any PR cannot supply that evidence cleanly, it should be reset or re-cut
 from the last proven state instead of being treated as implicitly valid.
 
+## Sprint Timing Deliverable Contract
+
+Quality-mgr timing capture is a required artifact for every Phase A sprint PR.
+
+Each sprint PR must include:
+
+- a local timing table for every command added or validated in that sprint
+- a CI timing table for the equivalent `baseline` step set and total workflow
+  duration
+- an explicit `no ci equivalent by design` note for local-only helper or
+  optional lanes
+- links or identifiers for the exact CI runs used for timing capture
+
+Rollup requirements:
+
+- Sprint A6 review-pack materials must consolidate the timing tables for A1-A6
+- Sprint A7 phase conclusion materials must consolidate the timing tables for
+  A1-A7 and report the final progression of required baseline cost by sprint
+
 ## Ground Rules
 
 - do not work on `main`
@@ -192,6 +215,7 @@ from the last proven state instead of being treated as implicitly valid.
 - every sprint evidence package must include:
   - workflow registration proof
   - workflow execution proof
+  - local timings
   - CI timings
 - heavyweight workflows must not run on ordinary PRs after Sprint A1 lands
 - the Phase A baseline lanes become the stable upstream-regression contract
@@ -494,5 +518,6 @@ Phase A is complete when:
 - the sprint docs and live PR bases agree
 - the unresolved A3-A6 zero-run registration gap is either fixed or
   independently explained with evidence
+- the phase conclusion report includes the A1-A7 local and CI timing ledger
 - the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
   crates without broad upstream churn

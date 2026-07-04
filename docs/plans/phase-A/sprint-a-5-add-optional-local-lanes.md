@@ -44,6 +44,11 @@ silently dropped or partially deferred.
   - `just test integration`
   - `just test all`
   - `just lint all-local`
+- the Sprint A5 PR notes include:
+  - refreshed local and CI timing for the unchanged A3 baseline stage
+  - local timings for `just test unit`, `just test integration`,
+    `just test all`, and `just lint all-local`
+  - an explicit `no ci equivalent by design` note for the optional local lanes
 
 ## Required Work
 
@@ -88,6 +93,8 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 - this sprint does not add `just test vcr` or `just test e2e`
 - required `baseline` workflow is unchanged from Sprint A3
 - `baseline` remains green and under 10 minutes
+- the Sprint A5 PR notes record local and CI timings exactly as the sprint
+  timing contract requires
 
 ## Required Validation
 
@@ -97,3 +104,7 @@ OPTIONAL_LANES = ("unit", "integration", "all", "all-local")
 - `just test all`
 - `just lint all-local`
 - `gh workflow view baseline`
+- record local timings for `just test unit`, `just test integration`,
+  `just test all`, and `just lint all-local`
+- record refreshed CI step timings and total `baseline` workflow duration for
+  the unchanged A3 baseline stage

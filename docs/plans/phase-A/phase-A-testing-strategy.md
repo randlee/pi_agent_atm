@@ -34,6 +34,9 @@ git/GitHub evidence before implementation claims are treated as complete.
 11. Future ATM-owned integration in this repo should follow the actual
     `feature/atm-graft-integration` dependency model and bounded seam files
     rather than broad rewrites across upstream-owned files.
+12. Every sprint PR must include a timing table for local runs and equivalent
+    CI runs for that sprint's stage, and the phase conclusion must roll those
+    timings up across all sprints.
 
 ## Fork And Upstream Audit Baseline
 
@@ -137,6 +140,27 @@ Important interpretation:
   basic-unit health first.
 - A1 is a gate-reduction sprint, not a claim that the fork's broader testing
   unknowns have been solved.
+
+## Timing Capture Contract
+
+Each sprint PR must record, at minimum:
+
+- local wall-clock timing for every command added or re-validated in that
+  sprint
+- CI step timing for the equivalent `baseline` workflow steps
+- total `baseline` workflow wall time for that sprint stage
+
+When a sprint adds local-only commands without putting them into required PR CI:
+
+- the PR must still refresh the unchanged baseline CI timing table for that
+  sprint
+- local-only commands must be timed locally and marked `no ci equivalent by
+  design`
+
+Rollup ownership:
+
+- A6 must assemble an A1-A6 timing ledger in the review pack
+- A7 must publish the final A1-A7 timing ledger at phase conclusion
 
 ## Source Of Truth Policy
 
