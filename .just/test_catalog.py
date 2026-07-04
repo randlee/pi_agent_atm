@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import tomllib
 from unit_basic_audit import UNIT_BASIC_INCLUDE_PREFIXES
 from unit_basic_audit import UNIT_BASIC_SKIP_FILTERS_BY_PREFIX
 
@@ -12,6 +13,10 @@ class TestLane:
     name: str
     description: str
     kind: str
+    origin: str
+    owner: str
+    blocking: str
+    ssot: str
     commands: tuple[tuple[str, ...], ...] = ()
     script_args: tuple[str, ...] = ()
     documented_targets: tuple[str, ...] = ()
@@ -50,11 +55,23 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+SUITE_ORDER = ("unit", "vcr", "e2e")
+
+
+def load_suite_targets(suite: str) -> list[str]:
+    payload = tomllib.loads((repo_root() / "tests/suite_classification.toml").read_text())
+    return list(payload["suite"][suite]["files"])
+
+
 LANES = {
     "baseline": TestLane(
         name="baseline",
         description="Run the required six-target smoke baseline without lint.",
         kind="script",
+        origin="upstream",
+        owner=".just/test_catalog.py",
+        blocking="required",
+        ssot=".just/test_catalog.py",
         script_args=("./scripts/smoke.sh", "--skip-lint", "--no-rch", "--only", "unit"),
         documented_targets=(
             "model_serialization",
@@ -69,12 +86,20 @@ LANES = {
         name="compile",
         description="Run cargo check across all targets.",
         kind="cargo",
+        origin="upstream",
+        owner=".just/test_catalog.py",
+        blocking="required",
+        ssot=".just/test_catalog.py",
         commands=(("check", "--all-targets"),),
     ),
     "unit-basic": TestLane(
         name="unit-basic",
         description="Run the audited inline allowlist plus strict add-on tests.",
         kind="cargo",
+        origin="upstream",
+        owner=".just/test_catalog.py",
+        blocking="required",
+        ssot=".just/test_catalog.py",
         commands=(
             *unit_basic_inline_commands(),
             cargo_test("--test", "capability_policy_model", nocapture=True),
@@ -101,3 +126,13 @@ def resolve_lane(target: str) -> TestLane:
 
 def display_targets() -> list[tuple[str, str]]:
     return [(name, LANES[name].description) for name in DISPLAY_ORDER]
+
+
+def lane_command(lane: TestLane) -> str:
+    if lane.kind == "script":
+        return " ".join(lane.script_args)
+    if lane.name == "compile":
+        return "cargo " + " ".join(lane.commands[0])
+    if lane.name == "unit-basic":
+        return "multiple cargo test invocations; see .just/test_catalog.py"
+    return ""

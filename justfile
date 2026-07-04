@@ -31,3 +31,9 @@ lint target='all':
 
 test lane='':
     {{python_cmd}} .just/run_test.py {{lane}}
+
+explain domain='' lane='':
+    {{python_cmd}} .just/explain.py {{domain}} {{lane}}
+
+suites:
+    {{python_cmd}} .just/show_suites.py
