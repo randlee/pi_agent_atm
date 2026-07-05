@@ -136,6 +136,15 @@ run_cargo() {
     fi
 }
 
+unit_target_feature_args() {
+    local target="$1"
+    case "$target" in
+        hostcall_queue_loom)
+            printf '%s\n' "--features" "loom-tests"
+            ;;
+    esac
+}
+
 path_for_remote_runner() {
     local original="$1"
     if [[ "$original" == "$PROJECT_ROOT/"* ]]; then
@@ -832,12 +841,14 @@ build_tests() {
     local build_ok=true
 
     for target in "${SELECTED_UNIT_TARGETS[@]}"; do
+        local feature_args=()
+        mapfile -t feature_args < <(unit_target_feature_args "$target")
         if [[ ! -f "tests/${target}.rs" ]]; then
             echo "[build]   $target (unit target missing, skipping)"
             continue
         fi
         echo "[build]   unit:$target"
-        if ! run_cargo test --test "$target" --no-run 2>>"$build_log"; then
+        if ! run_cargo test "${feature_args[@]}" --test "$target" --no-run 2>>"$build_log"; then
             echo "[build]   unit:$target FAILED" >&2
             build_ok=false
         fi
@@ -872,6 +883,7 @@ run_unit_target() {
     local log_file="$target_dir/output.log"
     local result_file="$target_dir/result.json"
     local start_epoch exit_code duration_ms
+    local feature_args=()
 
     if [[ ! -f "tests/${target}.rs" ]]; then
         echo "[unit] $target: test file not found (tests/${target}.rs)"
@@ -879,6 +891,7 @@ run_unit_target() {
     fi
 
     mkdir -p "$target_dir"
+    mapfile -t feature_args < <(unit_target_feature_args "$target")
 
     echo "[unit] Running: $target"
     start_epoch=$(date +%s%N 2>/dev/null || date +%s)
@@ -892,6 +905,7 @@ run_unit_target() {
 
     set +e
     run_cargo test \
+        "${feature_args[@]}" \
         --test "$target" \
         -- \
         --test-threads="$PARALLELISM" \

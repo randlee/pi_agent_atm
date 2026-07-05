@@ -1,7 +1,7 @@
 # Phase A - Testing Strategy
 
 Date: 2026-07-04
-Status: approved for lane design; branch-state reconciliation still required
+Status: approved for lane design; current sprint-chain branch model recorded
 
 ## Purpose
 
@@ -278,14 +278,22 @@ Required rule:
 
 Required `unit-basic` starting point:
 
-1. `cargo test --all-targets --lib`
-2. Small curated deterministic add-on targets:
+1. Audited inline Rust unit tests only, executed from reviewed module prefixes
+   rather than a blind `cargo test --all-targets --lib` sweep
+2. Exact module-path collision reconciliation whenever cargo's substring filter
+   would otherwise drag non-audited tests into a lane
+3. Small curated deterministic add-on targets:
    - `capability_policy_model`
    - `policy_profile_hardening`
    - `extension_flag_passthrough`
    - `model_serialization`
    - `redaction_test`
    - `extension_scoring_ope`
+
+Required reconciliation rule:
+
+- PR evidence must report the audited inline count separately from explicit
+  add-on target counts so reviewers can verify what the lane actually ran
 
 Explicit early exclusions from `unit-basic`:
 
@@ -298,7 +306,6 @@ Explicit early exclusions from `unit-basic`:
 
 Named current examples that must stay out of `unit-basic` until separately
 reclassified or split:
-
 - `bench_schema`
 - `perf_regression`
 - `franken_node_compat_harness`
@@ -466,27 +473,75 @@ Minimum example:
 
 ## Retained Evidence
 
-Observed local macOS timings from `feature/just-integration`:
+Current A6 local timings were re-measured on 2026-07-05 from
+`sprint-a-6-refresh-ssot-and-timing` using a writable local target directory
+(`CARGO_TARGET_DIR=/tmp/pi_agent_rust_cargo/.../target-a6-seq`):
 
 | Command | Result | Observed wall time |
 |---|---|---:|
-| `just help` | pass | `<1s` |
-| `just fmt check` | pass | `12.46s` |
-| `just lint clippy-lib` | pass | `50.66s` |
-| `just lint clippy-bins` | pass | `2.87s` |
-| `just test baseline` | pass | `10.59s` |
-| `just lint clippy-tests` | incomplete | `>3m38s` before manual stop |
-| `just test unit` | incomplete | `>120s` before timeout |
-| `just test integration` | incomplete | `>120s` before timeout |
+| `just help` | pass | `1.96s` |
+| `just fmt check` | pass | `13.51s` |
+| `just test compile` | pass | `293.25s` |
+| `just test unit-basic` | pass | `94.14s` |
+| `just lint clippy-bins` | pass | `93.44s` |
+| `just lint clippy-lib` | pass | `0.99s` |
+| `just test baseline` | pass | `14.28s` |
+| aggregate (`just help` through `just test baseline`) | pass | `511.57s` (`~8m32s`) |
 
-Observed GitHub Actions timings from 2026-07-02:
+Current A6 GitHub Actions timings from baseline run `28734239450` attempt `2`
+for head `f3743c8eeebd63f949cd7a43baa8c301c94950ba` on 2026-07-05:
 
-| Workflow | Result | Approximate wall time |
+| Workflow / Step | Result | Observed wall time |
 |---|---|---:|
-| `baseline` | success | `~7m03s` |
-| `Extension Conformance` | success | `~6m25s` |
-| `Fuzz CI` | success | `~42m59s` |
-| old monolithic `ci` | cancelled | `~49m25s` before cancellation |
+| baseline total | success | `7m04s` |
+| Just help | success | `1m42s` |
+| Format gate | success | `16s` |
+| Compile gate | success | `1m45s` |
+| Basic unit gate | success | `1m25s` |
+| Clippy bins | success | `57s` |
+| Clippy lib | success | `<1s` |
+| Smoke baseline | success | `14s` |
+
+Same-head cache-spread note for A6:
+
+- run `28734239450` attempt `1` on the same SHA completed in `12m11s`
+- run `28734239450` attempt `2` on the same SHA completed in `7m04s`
+- Phase A timing records must keep both numbers visible so first-run or
+  cold-cache behavior is not mislabeled as steady state
+
+### A1-A6 Timing Ledger
+
+| Sprint | PR | Local timing evidence | CI timing evidence | CI total | Budget note |
+|---|---|---|---|---:|---|
+| A1 | [#12](https://github.com/randlee/pi_agent_atm/pull/12) | retained A1 local record: `just help` `0.06s`, `fmt` `13.63s`, `compile` `1.41s`, `unit-basic` `37.50s`, aggregate `52.60s` | [run `28698960460`](https://github.com/randlee/pi_agent_atm/actions/runs/28698960460) | `10m35s` | over target on the accepted A1 rerun |
+| A2 | [#11](https://github.com/randlee/pi_agent_atm/pull/11) | PR record: `compile` `436.40s`, `unit-basic` `531.82s`, `clippy-bins` `52.32s`, `clippy-lib` `0.43s`, local aggregate `~1021s`; `help` and `fmt` passed but were not timed separately | [run `28730331129`](https://github.com/randlee/pi_agent_atm/actions/runs/28730331129) | `6m55s` | CI met target; local cold compile remained heavy |
+| A3 | [#13](https://github.com/randlee/pi_agent_atm/pull/13) | PR record: `compile` `247.17s`, `unit-basic` `39.16s`, `clippy-bins` `111.76s`, `clippy-lib` `111.82s`, `baseline` `6.97s`, aggregate `~517s` | [run `28731407499`](https://github.com/randlee/pi_agent_atm/actions/runs/28731407499) | `7m09s` | steady-state required baseline first lands under target |
+| A4 | [#14](https://github.com/randlee/pi_agent_atm/pull/14) | PR record: `just explain lint clippy-lib` `2.21s`, `just explain test baseline` `0.45s`, `just suites` `0.53s`, unchanged-baseline smoke rerun `183.74s` | [run `28732090084`](https://github.com/randlee/pi_agent_atm/actions/runs/28732090084) | `7m27s` | helper sprint; CI baseline unchanged and still under target |
+| A5 | [#15](https://github.com/randlee/pi_agent_atm/pull/15) | PR record: `test unit` `3.39s` rc127, `test integration` `0.46s` rc127, `test all` `0.46s` rc127, `lint all-local` `246.77s` rc1, unchanged-baseline rerun `59.73s` pass | [run `28732849880`](https://github.com/randlee/pi_agent_atm/actions/runs/28732849880) | `7m03s` | required CI still met target; optional local lanes exposed follow-up gaps |
+| A6 | [#16](https://github.com/randlee/pi_agent_atm/pull/16) | current A6 local re-measure: `help` `1.96s`, `fmt` `13.51s`, `compile` `293.25s`, `unit-basic` `94.14s`, `clippy-bins` `93.44s`, `clippy-lib` `0.99s`, `baseline` `14.28s`, aggregate `511.57s` | [run `28734239450`](https://github.com/randlee/pi_agent_atm/actions/runs/28734239450) attempt `2` | `7m04s` | same-SHA attempt `1` was `12m11s`; rerun confirms the accepted steady-state path is under target |
+
+Current budget status from the A1-A6 ledger:
+
+- A1 proves the first minimal gate can still exceed the 10-minute CI target if
+  cold-cache behavior is taken as the only measurement
+- A2 through A5 each have an accepted green CI run under 10 minutes
+- A6's first same-SHA run exceeded the target, but the same-SHA rerun came in
+  at `7m04s`, so the review pack must carry both numbers rather than hide the
+  spread
+- the phase evidence package should treat CI budget claims as dated
+  measurements, not timeless assumptions
+
+## Merge-Forward Record
+
+merge-forwarded from integrate/phase-A base a99911f0, confirmed current as of this commit.
+
+`just test unit-basic` currently reconciles as:
+
+- 1,797 audited inline tests
+- 244 explicit add-on target tests
+- 2,041 total executed tests in the lane
+- 15 substring-collision exclusions under `session::tests` for
+  `interactive::ext_session::*`
 
 ## Team-Lead Review Checklist
 
@@ -508,37 +563,38 @@ Team-lead approval should explicitly confirm:
 ### Team-Lead Approval Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-03`
-Approval state: team-lead approved the lane strategy on `2026-07-03`, but that
-approval does not override later branch-state contradictions found in live
-git/GitHub evidence on `2026-07-04`.
+Review date: `2026-07-04`
+Approval state: the `2026-07-03` lane-strategy approval was superseded by the
+live sprint-chain evidence review on `2026-07-04`. This document now records
+the current branch model and lane strategy. Sprint implementation claims still
+require per-PR git/GitHub evidence.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `compile` lane definition
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `unit-basic` allowlist and exclusion list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the steady-state `baseline` command list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the per-sprint rollout table
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the SSOT owner files for lint and test lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the list of local-only and manual-only lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 
 ## Exit Criteria
 

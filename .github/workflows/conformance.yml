@@ -1,7 +1,6 @@
 name: Extension Conformance
 
 on:
-  pull_request:
   schedule:
     # Nightly full official conformance (02:00 UTC)
     - cron: "0 2 * * *"
