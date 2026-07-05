@@ -484,16 +484,19 @@ on 2026-07-04:
 | `just test compile` | pass | `1.41s` |
 | `just test unit-basic` | pass | `37.50s` |
 
-Observed GitHub Actions timings from baseline run `28721756193` for head SHA
-`4e28691b49c6bc28954f639ab36ca3dcf9c5b911` on 2026-07-04:
+Observed GitHub Actions timings from baseline run 28722267950 for head SHA 869928bf3a1623d8a106d763dd75fb1ce6231142 on 2026-07-04:
 
 | Workflow / Step | Result | Approximate wall time |
 |---|---|---:|
-| `baseline` total | success | `~6m09s` |
-| `Just help` | success | `<1s` |
-| `Format gate` | success | `~17s` |
-| `Compile gate` | success | `~1m55s` |
-| `Basic unit gate` | success | `~3m07s` |
+| baseline total | success | ~6m23s |
+| Just help | success | <1s |
+| Format gate | success | 17s |
+| Compile gate | success | 1m52s |
+| Basic unit gate | success | 3m15s |
+
+## Merge-Forward Record
+
+merge-forwarded from integrate/phase-A base a99911f0, confirmed current as of this commit.
 
 `just test unit-basic` currently reconciles as:
 
