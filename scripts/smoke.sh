@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/smoke.sh — Fast local smoke suite with structured JSONL logs.
 #
-# Runs a curated subset of unit, VCR, and E2E tests designed to catch
-# common regressions in under 60 seconds on a development machine.
+# Runs a curated subset of unit and VCR tests designed to catch
+# common regressions quickly on a development machine.
 #
 # Usage:
 #   ./scripts/smoke.sh                    # default: all smoke targets
@@ -51,9 +51,11 @@ SEEN_REQUIRE_RCH=false
 # ─── Smoke Target Selection ──────────────────────────────────────────────────
 #
 # Curated subset covering critical paths:
-#   Unit:  model serialization, config, session, error types, compaction
+#   Unit:  model serialization, config, session, error types, compaction,
+#          security budgets
 #   VCR:   provider streaming, error handling, HTTP client, SSE compliance
-#   (No E2E in smoke — those require tmux/providers and are too slow)
+#   Required PR baseline uses `--only unit`, so VCR and E2E stay out of the
+#   mandatory lane even though this helper can run an optional VCR subset.
 
 SMOKE_UNIT_TARGETS=(
     model_serialization
@@ -217,6 +219,36 @@ emit_event "pi.smoke.session_start.v1" \
 echo "──── Runner ────"
 echo "  cargo runner: $CARGO_RUNNER_MODE (request=$CARGO_RUNNER_REQUEST)"
 
+run_with_timeout() {
+    local seconds="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${seconds}s" "$@"
+        return
+    fi
+
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "${seconds}s" "$@"
+        return
+    fi
+
+    python3 - "$seconds" "$@" <<'PY'
+import subprocess
+import sys
+
+timeout_seconds = float(sys.argv[1])
+command = sys.argv[2:]
+
+try:
+    completed = subprocess.run(command, timeout=timeout_seconds, check=False)
+except subprocess.TimeoutExpired:
+    raise SystemExit(124)
+
+raise SystemExit(completed.returncode)
+PY
+}
+
 run_split_clippy() {
     local log_file="$1"
     : > "$log_file"
@@ -344,10 +376,11 @@ for i in "${!TARGETS[@]}"; do
     # Run with timeout.
     set +e
     if [[ "$VERBOSE" == true ]]; then
-        timeout "${TIMEOUT}s" "${CARGO_RUNNER_ARGS[@]}" test --test "$target" -- --test-threads=1 2>&1 | tee "$output_file"
-        exit_code=${PIPESTATUS[0]}
+        run_with_timeout "$TIMEOUT" "${CARGO_RUNNER_ARGS[@]}" test --test "$target" -- --test-threads=1 > "$output_file" 2>&1
+        exit_code=$?
+        cat "$output_file"
     else
-        timeout "${TIMEOUT}s" "${CARGO_RUNNER_ARGS[@]}" test --test "$target" -- --test-threads=1 > "$output_file" 2>&1
+        run_with_timeout "$TIMEOUT" "${CARGO_RUNNER_ARGS[@]}" test --test "$target" -- --test-threads=1 > "$output_file" 2>&1
         exit_code=$?
     fi
     set -e
