@@ -1,7 +1,7 @@
 # Phase A - Testing Strategy
 
 Date: 2026-07-04
-Status: approved for lane design; branch-state reconciliation still required
+Status: approved for lane design; current sprint-chain branch model recorded
 
 ## Purpose
 
@@ -278,14 +278,22 @@ Required rule:
 
 Required `unit-basic` starting point:
 
-1. `cargo test --all-targets --lib`
-2. Small curated deterministic add-on targets:
+1. Audited inline Rust unit tests only, executed from reviewed module prefixes
+   rather than a blind `cargo test --all-targets --lib` sweep
+2. Exact module-path collision reconciliation whenever cargo's substring filter
+   would otherwise drag non-audited tests into a lane
+3. Small curated deterministic add-on targets:
    - `capability_policy_model`
    - `policy_profile_hardening`
    - `extension_flag_passthrough`
    - `model_serialization`
    - `redaction_test`
    - `extension_scoring_ope`
+
+Required reconciliation rule:
+
+- PR evidence must report the audited inline count separately from explicit
+  add-on target counts so reviewers can verify what the lane actually ran
 
 Explicit early exclusions from `unit-basic`:
 
@@ -298,7 +306,6 @@ Explicit early exclusions from `unit-basic`:
 
 Named current examples that must stay out of `unit-basic` until separately
 reclassified or split:
-
 - `bench_schema`
 - `perf_regression`
 - `franken_node_compat_harness`
@@ -466,27 +473,37 @@ Minimum example:
 
 ## Retained Evidence
 
-Observed local macOS timings from `feature/just-integration`:
+Observed local macOS timings from `sprint-a-1-establish-minimal-baseline-gate`
+on 2026-07-04:
 
 | Command | Result | Observed wall time |
 |---|---|---:|
-| `just help` | pass | `<1s` |
-| `just fmt check` | pass | `12.46s` |
-| `just lint clippy-lib` | pass | `50.66s` |
-| `just lint clippy-bins` | pass | `2.87s` |
-| `just test baseline` | pass | `10.59s` |
-| `just lint clippy-tests` | incomplete | `>3m38s` before manual stop |
-| `just test unit` | incomplete | `>120s` before timeout |
-| `just test integration` | incomplete | `>120s` before timeout |
+| `just help` | pass | `0.06s` |
+| `just fmt check` | pass | `13.63s` |
+| `just test compile` | pass | `1.41s` |
+| `just test unit-basic` | pass | `37.50s` |
 
-Observed GitHub Actions timings from 2026-07-02:
+Observed GitHub Actions timings from baseline run 28722267950 for head SHA 869928bf3a1623d8a106d763dd75fb1ce6231142 on 2026-07-04:
 
-| Workflow | Result | Approximate wall time |
+| Workflow / Step | Result | Approximate wall time |
 |---|---|---:|
-| `baseline` | success | `~7m03s` |
-| `Extension Conformance` | success | `~6m25s` |
-| `Fuzz CI` | success | `~42m59s` |
-| old monolithic `ci` | cancelled | `~49m25s` before cancellation |
+| baseline total | success | ~6m23s |
+| Just help | success | <1s |
+| Format gate | success | 17s |
+| Compile gate | success | 1m52s |
+| Basic unit gate | success | 3m15s |
+
+## Merge-Forward Record
+
+merge-forwarded from integrate/phase-A base a99911f0, confirmed current as of this commit.
+
+`just test unit-basic` currently reconciles as:
+
+- 1,797 audited inline tests
+- 244 explicit add-on target tests
+- 2,041 total executed tests in the lane
+- 15 substring-collision exclusions under `session::tests` for
+  `interactive::ext_session::*`
 
 ## Team-Lead Review Checklist
 
@@ -508,37 +525,38 @@ Team-lead approval should explicitly confirm:
 ### Team-Lead Approval Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-03`
-Approval state: team-lead approved the lane strategy on `2026-07-03`, but that
-approval does not override later branch-state contradictions found in live
-git/GitHub evidence on `2026-07-04`.
+Review date: `2026-07-04`
+Approval state: the `2026-07-03` lane-strategy approval was superseded by the
+live sprint-chain evidence review on `2026-07-04`. This document now records
+the current branch model and lane strategy. Sprint implementation claims still
+require per-PR git/GitHub evidence.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `compile` lane definition
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `unit-basic` allowlist and exclusion list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the steady-state `baseline` command list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the per-sprint rollout table
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the rule that required PR CI stays under 10 minutes in every sprint
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the SSOT owner files for lint and test lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the list of local-only and manual-only lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 
 ## Exit Criteria
 
