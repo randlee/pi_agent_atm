@@ -24,9 +24,10 @@ The Phase A ordinary PR baseline is intentionally narrow:
 1. **`just help`** — Confirms the minimal shared operator surface is present.
 2. **`just fmt check`** — Confirms formatting compliance.
 3. **`just test compile`** — Confirms `cargo check --all-targets` succeeds.
-4. **`just test unit-basic`** — Confirms the full library test sweep plus the
-   strict basic-unit add-on targets succeed, with only the
-   testing-strategy exclusions carved out.
+4. **`just test unit-basic`** — Confirms the audited inline-test taxonomy plus
+   the strict basic-unit add-on targets succeed, using the reviewed
+   `unit_basic_audit.py` allowlist and exact module-path reconciliation rather
+   than a broad full-library sweep minus ad hoc exclusions.
 
 ## GitHub Branch Protection Settings
 

@@ -67,6 +67,15 @@ silently dropped or partially deferred.
   - `just test compile`
   - `just test unit-basic`
   - total `baseline` workflow duration
+- the Sprint A1 PR notes include a registration and execution evidence block
+  for the exact head SHA being reviewed:
+  - GitHub Actions registration proof for `baseline`
+  - CI run URL/ID
+  - step timings and final conclusion
+  - merge-forward proof against the current `integrate/phase-A` target tip
+- the Sprint A1 PR notes reconcile the `unit-basic` audited inline-test count
+  against the executed inline lane count and separately report any explicit
+  add-on targets
 
 ## Required Work
 
@@ -80,8 +89,11 @@ silently dropped or partially deferred.
   - `just test unit-basic`
 - define `just test compile` as `cargo check --all-targets`
 - define `just test unit-basic` as:
-  - `cargo test --all-targets --lib`
-  - plus the explicit strict add-on allowlist from the testing strategy
+  - the audited inline-test allowlist from the testing strategy, executed by
+    reviewed module-prefix commands rather than a blind broad library sweep
+  - explicit exact-module-path collision reconciliation whenever a cargo test
+    substring filter would pull in tests outside the audited allowlist
+  - the explicit strict add-on allowlist from the testing strategy
 - do not treat all of `[suite.unit]` as the first baseline unit lane
 - confirm the testing strategy already inventories every currently PR-triggered
   upstream workflow before any trigger changes land
@@ -205,11 +217,17 @@ on:
   the Sprint A1 operational update lands
 - the new `baseline` workflow does not call any raw cargo command directly
 - `unit-basic` is explicitly narrower than the full broad `[suite.unit]` bucket
+- `unit-basic` executed inline counts reconcile with the audited inline
+  allowlist after substring-collision exclusions are applied
 - required PR CI is green and comfortably under 10 minutes
 - the Sprint A1 PR notes record local and CI timings for every A1 baseline
   command plus total workflow duration
 - the Sprint A1 PR notes record the exact CI run URL/ID used for each timing
   measurement
+- the Sprint A1 PR notes record baseline registration proof for the reviewed
+  head SHA instead of assuming workflow presence implies a run exists
+- the Sprint A1 PR notes record the exact `integrate/phase-A` base SHA merged
+  into the sprint branch before final evidence collection
 
 ## Required Validation
 
@@ -219,6 +237,7 @@ on:
 - `just test unit-basic`
 - `gh workflow view baseline`
 - `gh run list --workflow baseline --limit 5`
+- `gh api repos/randlee/pi_agent_atm/actions/runs?head_sha=<sprint-head-sha>`
 - `gh workflow view ci`
 - `gh workflow view conformance`
 - `gh workflow view fuzz`
