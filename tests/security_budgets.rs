@@ -15,6 +15,14 @@ fn config_with_limits(limits: PiJsRuntimeLimits) -> PiJsRuntimeConfig {
     }
 }
 
+fn tight_memory_limit_bytes() -> usize {
+    if cfg!(target_os = "macos") {
+        2 * 1024 * 1024
+    } else {
+        1024 * 1024
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Interrupt budget (CPU time watchdog)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -181,9 +189,9 @@ fn interrupt_budget_preserves_state_after_trip() {
 fn memory_limit_prevents_large_allocation() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 2MB memory limit — low enough to force OOM on the test payload,
-            // but high enough for QuickJS bridge initialization on macOS ARM64.
-            memory_limit_bytes: Some(2 * 1024 * 1024),
+            // Keep the original 1MB rigor on CI platforms; macOS needs 2MB
+            // for stable QuickJS bridge bootstrap on Apple Silicon.
+            memory_limit_bytes: Some(tight_memory_limit_bytes()),
             ..Default::default()
         });
 
@@ -261,8 +269,8 @@ fn memory_limit_tracks_usage_in_stats() {
 fn memory_limit_gradual_growth_triggers_oom() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // Very tight: 2MB
-            memory_limit_bytes: Some(2 * 1024 * 1024),
+            // Very tight: 1MB on CI platforms, 2MB on macOS for QuickJS bootstrap.
+            memory_limit_bytes: Some(tight_memory_limit_bytes()),
             ..Default::default()
         });
 
@@ -414,8 +422,9 @@ fn combined_limits_all_enforced() {
 fn memory_limit_with_interrupt_budget_oom_before_budget() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 2MB memory limit — enough for QuickJS GC to work, but OOM on bulk alloc
-            memory_limit_bytes: Some(2 * 1024 * 1024),
+            // Preserve the original 1MB budget on required CI platforms while
+            // allowing 2MB on macOS where QuickJS bootstrap needs more headroom.
+            memory_limit_bytes: Some(tight_memory_limit_bytes()),
             // Generous interrupt budget
             interrupt_budget: Some(10_000_000),
             ..Default::default()
