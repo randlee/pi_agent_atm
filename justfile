@@ -18,5 +18,16 @@ _fmt-write:
 fmt mode='check':
     {{python_cmd}} .just/run_fmt.py {{mode}}
 
+[private]
+_lint-clippy-bins:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --bins -- -D warnings
+
+[private]
+_lint-clippy-lib:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --lib -- -D warnings
+
+lint target='all':
+    {{python_cmd}} .just/run_lint.py {{target}}
+
 test lane='':
     {{python_cmd}} .just/run_test.py {{lane}}
