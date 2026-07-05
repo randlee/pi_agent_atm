@@ -15,6 +15,7 @@ class TestLane:
     owner: str
     blocking: str
     ssot: str
+    verify_args: tuple[str, ...] = ()
     commands: tuple[tuple[str, ...], ...] = ()
     script_args: tuple[str, ...] = ()
     documented_targets: tuple[str, ...] = ()
@@ -110,9 +111,41 @@ LANES = {
             cargo_test("--test", "extension_scoring_ope", nocapture=True),
         ),
     ),
+    "unit": TestLane(
+        name="unit",
+        description="Run the optional local quick profile for inline lib tests plus the classified unit suite.",
+        kind="verify",
+        origin="local",
+        owner=".just/test_catalog.py",
+        blocking="optional",
+        ssot=".just/test_catalog.py",
+        verify_args=("--profile", "quick", "--skip-lint"),
+    ),
+    "integration": TestLane(
+        name="integration",
+        description="Run the optional local non-E2E integration profile.",
+        kind="verify",
+        origin="local",
+        owner=".just/test_catalog.py",
+        blocking="optional",
+        ssot=".just/test_catalog.py",
+        verify_args=("--profile", "ci", "--skip-lint", "--skip-e2e"),
+    ),
+    "all": TestLane(
+        name="all",
+        description="Run the optional local full verification profile.",
+        kind="verify",
+        origin="local",
+        owner=".just/test_catalog.py",
+        blocking="optional",
+        ssot=".just/test_catalog.py",
+        verify_args=("--profile", "full", "--skip-lint"),
+    ),
 }
 
-DISPLAY_ORDER = ("compile", "unit-basic", "baseline")
+OPTIONAL_LANES = ("unit", "integration", "all")
+
+DISPLAY_ORDER = ("compile", "unit-basic", "baseline", "unit", "integration", "all")
 
 
 def resolve_lane(target: str) -> TestLane:
@@ -131,6 +164,8 @@ def display_targets() -> list[tuple[str, str]]:
 def lane_command(lane: TestLane) -> str:
     if lane.kind == "script":
         return " ".join(lane.script_args)
+    if lane.kind == "verify":
+        return "./verify " + " ".join(lane.verify_args)
     if lane.name == "compile":
         return "cargo " + " ".join(lane.commands[0])
     if lane.name == "unit-basic":

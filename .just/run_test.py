@@ -59,6 +59,20 @@ def run_script_lane(target: str) -> int:
     return completed.returncode
 
 
+def run_verify_lane(target: str) -> int:
+    lane = resolve_lane(target)
+    command = ["./verify", *lane.verify_args]
+    print_lane_header(lane.name, command)
+    completed = subprocess.run(
+        command,
+        cwd=repo_root(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        print("next=inspect verify artifacts or narrow the optional lane intentionally")
+    return completed.returncode
+
+
 def main() -> int:
     target = sys.argv[1] if len(sys.argv) > 1 else ""
     lane = resolve_lane(target)
@@ -66,6 +80,8 @@ def main() -> int:
         return run_cargo_lane(target)
     if lane.kind == "script":
         return run_script_lane(target)
+    if lane.kind == "verify":
+        return run_verify_lane(target)
     raise SystemExit(f"unsupported test lane kind: {lane.kind}")
 
 

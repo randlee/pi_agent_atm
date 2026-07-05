@@ -26,6 +26,18 @@ _lint-clippy-bins:
 _lint-clippy-lib:
     {{python_cmd}} .just/run_cargo.py clippy --no-deps --lib -- -D warnings
 
+[private]
+_lint-clippy-tests:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --tests -- -D warnings
+
+[private]
+_lint-clippy-benches:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --benches -- -D warnings
+
+[private]
+_lint-clippy-examples:
+    {{python_cmd}} .just/run_cargo.py clippy --no-deps --examples -- -D warnings
+
 lint target='all':
     {{python_cmd}} .just/run_lint.py {{target}}
 
