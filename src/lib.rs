@@ -66,6 +66,8 @@ pub mod agent_cx;
 #[doc(hidden)]
 pub mod app;
 #[doc(hidden)]
+pub mod atm_graft;
+#[doc(hidden)]
 pub mod auth;
 #[doc(hidden)]
 pub mod autocomplete;
