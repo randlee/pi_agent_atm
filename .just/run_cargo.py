@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from typing import Any
 import os
 from pathlib import Path
 import subprocess
@@ -90,10 +91,11 @@ def run_cargo(
     *args: str,
     scrub_credentials: bool = False,
     check: bool = True,
-) -> subprocess.CompletedProcess[bytes]:
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[Any]:
     command = cargo_command(*args)
     env = cargo_env(scrub_credentials=scrub_credentials)
-    return subprocess.run(command, cwd=repo_root(), check=check, env=env)
+    return subprocess.run(command, cwd=repo_root(), check=check, env=env, **kwargs)
 
 
 def main() -> int:

@@ -4,8 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
-from unit_basic_audit import UNIT_BASIC_INCLUDE_PREFIXES
-from unit_basic_audit import UNIT_BASIC_SKIP_FILTERS_BY_PREFIX
 
 
 @dataclass(frozen=True)
@@ -40,13 +38,15 @@ def cargo_test(
 
 
 def unit_basic_inline_commands() -> tuple[tuple[str, ...], ...]:
+    from unit_basic_audit import unit_basic_inline_commands as audited_unit_basic_commands
+
     commands: list[tuple[str, ...]] = []
-    for prefix in UNIT_BASIC_INCLUDE_PREFIXES:
+    for prefix, skip_filters in audited_unit_basic_commands():
         commands.append(
             cargo_test(
                 "--lib",
                 prefix,
-                skip_filters=UNIT_BASIC_SKIP_FILTERS_BY_PREFIX.get(prefix, ()),
+                skip_filters=skip_filters,
             )
         )
     return tuple(commands)
