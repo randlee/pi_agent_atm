@@ -36,6 +36,13 @@ SECTIONS = (
             + [(f"test {name}", description) for name, description in display_targets()]
         ),
     ),
+    (
+        "Taxonomy",
+        (
+            ("explain <domain> <lane>", "Show lane taxonomy metadata from the SSOT catalog."),
+            ("suites", "Show suite taxonomy and required-lane grouping metadata."),
+        ),
+    ),
 )
 
 

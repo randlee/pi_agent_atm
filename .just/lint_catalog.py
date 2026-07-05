@@ -8,6 +8,10 @@ from dataclasses import dataclass
 class LintLane:
     name: str
     description: str
+    origin: str
+    owner: str
+    blocking: str
+    ssot: str
     children: tuple[str, ...] = ()
     recipe: str | None = None
     cargo_args: tuple[str, ...] = ()
@@ -17,17 +21,29 @@ LANES = {
     "all": LintLane(
         name="all",
         description="Run the required local-code lint lanes.",
+        origin="upstream",
+        owner=".just/lint_catalog.py",
+        blocking="local-aggregate",
+        ssot=".just/lint_catalog.py",
         children=("clippy-bins", "clippy-lib"),
     ),
     "clippy-bins": LintLane(
         name="clippy-bins",
         description="Run Clippy on binary targets only.",
+        origin="upstream",
+        owner=".just/lint_catalog.py",
+        blocking="required",
+        ssot=".just/lint_catalog.py",
         recipe="_lint-clippy-bins",
         cargo_args=("clippy", "--no-deps", "--bins", "--", "-D", "warnings"),
     ),
     "clippy-lib": LintLane(
         name="clippy-lib",
         description="Run Clippy on the library target only.",
+        origin="upstream",
+        owner=".just/lint_catalog.py",
+        blocking="required",
+        ssot=".just/lint_catalog.py",
         recipe="_lint-clippy-lib",
         cargo_args=("clippy", "--no-deps", "--lib", "--", "-D", "warnings"),
     ),
@@ -50,3 +66,11 @@ def resolve_lane(target: str) -> LintLane:
 
 def display_lanes() -> list[tuple[str, str]]:
     return [(name, LANES[name].description) for name in DISPLAY_ORDER]
+
+
+def lane_command(lane: LintLane) -> str:
+    if lane.cargo_args:
+        return "cargo " + " ".join(lane.cargo_args)
+    if lane.children:
+        return ", ".join(lane.children)
+    return ""
