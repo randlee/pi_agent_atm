@@ -13,6 +13,7 @@ target: sprint-a-10-expose-runnable-broad-test-surfaces
 
 - attach actual or conservative timing evidence to the broad categories
 - remove "unknown runtime" as a reason Phase A remains hard to evaluate
+- decide which broad categories are bounded enough to belong in `long-ci`
 
 ## Hard Dependencies
 
@@ -24,14 +25,21 @@ target: sprint-a-10-expose-runnable-broad-test-surfaces
 
 - updated timing evidence for:
   - `unit-full`
+  - `integration-broad`
   - `vcr-fixture`
   - `e2e-ci-smoke`
   - `e2e-full`
-  - `conformance`
+  - `extension-sharded`
+  - `parity`
+  - `security`
+  - `perf-benchmark`
+  - `conformance-fast`
   - `fuzz`
-  - `benchmark`
+  - `benchmark-full`
   - `semver`
   - `model-catalog-drift`
+- proposed `long-ci` membership with timing justification for each included or
+  excluded category
 - notes identifying which categories are CI-friendly, local-only, or
   manual/scheduled only
 
@@ -39,4 +47,6 @@ target: sprint-a-10-expose-runnable-broad-test-surfaces
 
 - every category row in the evidence table has a non-empty timing cell
 - timing provenance is labeled as measured, capped observation, or estimate
+- the plan states explicitly which categories fit inside `long-ci` and which do
+  not
 - long-running categories remain outside the ordinary PR required gate

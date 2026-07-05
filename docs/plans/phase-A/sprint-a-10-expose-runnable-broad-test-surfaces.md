@@ -15,6 +15,7 @@ target: sprint-a-9-measure-unit-category-coverage
   blockers
 - restore the clearer split the earlier abandoned Phase A attempt had between
   unit, integration, fuzz, benchmark, and conformance surfaces
+- make every retained category available through a named `just` lane
 
 ## Hard Dependencies
 
@@ -26,14 +27,21 @@ target: sprint-a-9-measure-unit-category-coverage
 
 - authoritative mapping for:
   - `unit-full`
+  - `integration-broad`
   - `vcr-fixture`
   - `e2e-ci-smoke`
   - `e2e-full`
-  - `conformance`
+  - `extension-sharded`
+  - `parity`
+  - `security`
+  - `perf-benchmark`
+  - `conformance-fast`
   - `fuzz`
-  - `benchmark`
+  - `benchmark-full`
   - `semver`
   - `model-catalog-drift`
+- named `just test ...` lanes for every mapped category
+- first draft of the bounded `long-ci` aggregate and the categories it includes
 - explicit "run now" vs "can run" status for each broad category
 - updated evidence table rows for every broad category
 
@@ -42,5 +50,7 @@ target: sprint-a-9-measure-unit-category-coverage
 - the docs no longer force an operator to infer broad categories from
   `./verify --profile ...` comments alone
 - broad categories are named in a way that matches what they actually test
+- every retained broad category has a named `just` lane, even if it is not part
+  of the required PR baseline
 - required PR CI remains unchanged unless a separate sprint explicitly changes
   it

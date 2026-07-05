@@ -377,9 +377,9 @@ inventory. The active continuation plan begins at A8.
 |---|---|---|
 | A8 | publish the readable test category ledger and per-sprint evidence table template | docs that say what runs now vs what can run |
 | A9 | measure unit-category timings and coverage | unit coverage and maintainability evidence |
-| A10 | expose broad runnable categories clearly | restored unit / VCR / E2E / conformance / fuzz / bench / semver / drift visibility |
-| A11 | measure broad-category timings | actual or conservative timing evidence across the broad surfaces |
-| A12 | freeze required vs runnable split | final Phase A gate definition and ATM regression handoff |
+| A10 | expose broad runnable categories clearly | restored PR #1-style category visibility as named `just` lanes plus `long-ci` candidates |
+| A11 | measure broad-category timings | actual or conservative timing evidence across the broad surfaces and proposed `long-ci` set |
+| A12 | freeze required vs runnable split | final required baseline, final `long-ci` set, and ATM regression handoff |
 
 Rule for A8-A12:
 
@@ -387,6 +387,7 @@ Rule for A8-A12:
 - every sprint must say what changed in:
   - what runs now on ordinary PRs
   - what can run in CI outside the required gate
+  - what belongs in the bounded `long-ci` set
   - what can run locally only
   - what coverage and timing evidence exists for the affected categories
 

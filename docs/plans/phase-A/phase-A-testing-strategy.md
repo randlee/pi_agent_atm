@@ -34,21 +34,27 @@ git/GitHub evidence before implementation claims are treated as complete.
 9. Do not invent new top-level `just` commands for Phase A. Use the established
    `just help`, `just fmt`, `just lint`, `just test`, `just explain`, and
    `just suites` surfaces only.
-10. Future ATM-owned lanes must be additive and must not silently redefine the
+10. Every category retained in this strategy must map to a named `just` lane,
+    even when that category is not part of ordinary PR CI.
+11. Phase A lane ownership must stay explicit across four blocking classes:
+    `required`, `long-ci`, `local`, and `manual/scheduled`.
+12. `long-ci` is a deliberate longer-timeout CI set for broad but still useful
+    categories; it is not the ordinary PR baseline.
+13. Future ATM-owned lanes must be additive and must not silently redefine the
     semantics of the upstream baseline lanes established in Phase A.
-11. Future ATM-owned integration in this repo should follow the actual
+14. Future ATM-owned integration in this repo should follow the actual
     `feature/atm-graft-integration` dependency model and bounded seam files
     rather than broad rewrites across upstream-owned files.
-12. Every sprint PR must include a timing table for local runs and equivalent
+15. Every sprint PR must include a timing table for local runs and equivalent
     CI runs for that sprint's stage, and the phase conclusion must roll those
     timings up across all sprints.
-13. Runtime budget constrains which lanes are required; it does not justify
+16. Runtime budget constrains which lanes are required; it does not justify
     inventing brittle or difficult-to-maintain test selection logic.
-14. A small smoke list is acceptable; a large hand-maintained list of specific
+17. A small smoke list is acceptable; a large hand-maintained list of specific
     tests is not an acceptable side effect of chasing the 10m goal.
-15. A Linux-only fast check is an intermediate milestone, not the Phase A end
+18. A Linux-only fast check is an intermediate milestone, not the Phase A end
     state.
-16. Phase A closes only when the merged required gate has measured Linux,
+19. Phase A closes only when the merged required gate has measured Linux,
     macOS, and Windows timings and those timings are recorded in the phase
     conclusion evidence.
 
@@ -102,7 +108,7 @@ Supporting evidence for this strategy lives in:
 
 ## Testing Framework
 
-This strategy uses four testing tiers. The point is to keep the framework easy
+This strategy uses five testing tiers. The point is to keep the framework easy
 to reason about rather than turning the 10m goal into a maze of custom test
 calls.
 
@@ -110,8 +116,9 @@ calls.
 |---|---|---|---|---|
 | `build-safety` | prove the repo still formats, compiles, and lints cleanly | every PR | format, compile, local-code lint | always required |
 | `upstream-fast` | prove we did not break the fork's core upstream behavior | every PR | deterministic basic-unit lane + smoke lane | always required |
-| `upstream-broad` | prove broader upstream behavior that is too expensive for every PR | risky PRs, pre-merge to important branches, or nightly | broader integration, VCR, cross-platform full CI | not ordinary-PR required by default |
-| `specialty-evidence` | deep confidence beyond ordinary gating | manual or schedule | conformance, fuzz, benchmarks, semver, drift | never the default PR gate |
+| `long-ci` | prove the broad CI-friendly categories with a longer timeout than `baseline` | sprint closeout, risky PRs, pre-merge, or nightly | full unit, integration, parity, security, perf, bounded conformance | not ordinary-PR required by default |
+| `upstream-broad-local` | keep every broad category runnable from `just` even when not worth routine CI time | local review and targeted debugging | the same categories as `long-ci` plus local-only variants | category-dependent |
+| `specialty-evidence` | deep confidence beyond ordinary gating | manual or schedule | full E2E, fuzz, heavy conformance, benchmarks, semver, drift | never the default PR gate |
 
 This is the framework Phase A should communicate to operators. The strategy is
 not "optimize for a green Linux check at any cost." The strategy is:
@@ -140,6 +147,36 @@ At a high level, the repo already contains these test surfaces:
 Operators should understand the repo through those surfaces first. They should
 not need to memorize hundreds of individual test files to understand the
 strategy.
+
+## Historical PR #1 Breakout To Preserve
+
+The abandoned PR #1 attempt had a better category breakout than the current
+collapsed surface. The fix is to keep that category clarity while changing only
+the blocking policy.
+
+Historical evidence anchors:
+
+- `baseline` run `28736534784` on SHA
+  `2bbd5d16f02c1e2613f31132852d04938ecb697d`
+- broad `ci` run `28631117871` on SHA
+  `211c4012384c9c1ba93e58f18f90f89611e01922`
+
+The useful PR #1 broad categories were:
+
+- `unit`
+- `integration`
+- `e2e`
+- `extension`
+- `parity`
+- `security`
+- `perf`
+
+Phase A salvage should therefore do three things at once:
+
+1. keep those categories visible as named `just` lanes
+2. keep only the small baseline in ordinary PR CI
+3. define a separate `long-ci` set for the broad categories that are still
+   worth running in CI with a longer timeout
 
 ## Sprint Evidence Table Template
 
@@ -191,15 +228,20 @@ question "what is run now versus what can be run?"
 | `unit-curated-files` | not currently first-class | six explicit `cargo test --test ...` invocations | no | yes | yes | `6` files, `4.84%` of `[suite.unit]` file inventory | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; naming should reflect that it is curated |
 | `unit-curated-fast` | `just test unit-basic` | multiple inline-prefix cargo tests plus six explicit unit files | yes | yes | yes | `32` audited inline prefixes + `6` explicit test files + `80` exclusions in current audit | `40.26s` warm instrumented rerun; retained non-instrumented about `94s-104s` | `1m23s` Linux retained | current unit-only coverage not yet isolated | partial | current required fast unit gate; maintainability risk is high because it is curated and exclusion-heavy |
 | `smoke-baseline` | `just test baseline` | `./scripts/smoke.sh --skip-lint --no-rch --only unit` | yes | yes | yes | `6` documented smoke targets | `12.88s` warm instrumented rerun; retained non-instrumented about `14s-16s` | `13s` Linux retained | combined required-lane coverage currently measured only with `unit-curated-fast` | partial | tiny smoke slice, not a broad unit/integration proof |
-| `unit-full` | `just test unit` | `./verify --profile quick --skip-lint` | no | yes | yes | `[suite.unit]` = `124` files | `>120s` capped observation retained | no clean retained CI timing in Phase A evidence | A9 measure | capped observation | includes many tests that are not "basic unit" in any normal sense |
-| `vcr-fixture` | no first-class Phase A lane yet | `./verify --profile ci --skip-lint --skip-e2e` or `VCR_MODE=playback cargo test --all-targets` | no | yes | yes | `[suite.vcr]` = `138` files | no clean retained local timing | no clean retained CI timing | `n/a` for Phase A today | missing | should be represented explicitly in A10 instead of hidden inside broad verify profiles |
-| `e2e-ci-smoke` | implicit in `verify` CI profile | `./scripts/e2e/run_all.sh --profile ci` | no | yes | prereqs | `1` default suite in profile ci | no clean retained local timing | bundled inside old CI, no isolated retained timing | `n/a` | missing | current CI profile includes one E2E suite by default |
-| `e2e-full` | existing E2E harness | `PI_E2E=1 cargo test ...` or `./scripts/e2e/run_all.sh --profile full` | no | manual/scheduled only | prereqs | `[suite.e2e]` = `39` files | estimate: long | estimate: long | `n/a` | estimated | real network/provider/tmux prerequisites make this a separate category |
-| `conformance` | `.github/workflows/conformance.yml` | extension conformance workflow | no | manual/scheduled only | prereqs | extension matrix workload | no retained local timing in Phase A | `~6m25s` fast sample retained | `n/a` | partial | current fast sample exists, but Phase A does not expose it clearly in the operator surface |
+| `unit-full` | planned `just test unit-full` | `./scripts/e2e/run_all.sh --profile quick --skip-lint` | no | yes (`long-ci`) | yes | `[suite.unit]` = `124` files | `>120s` capped observation retained | `6m41s` execute-lane time on old `qa-shard (unit)` from run `28631117871` | A9 measure | partial | broad unit should be visible again as a named lane even though it is not ordinary-PR required |
+| `integration-broad` | planned `just test integration` | `./scripts/e2e/run_all.sh --profile ci --skip-lint --skip-e2e` | no | yes (`long-ci`) | yes | broad non-E2E shard over `suite.unit` plus `suite.vcr` | no clean retained local timing | one shard completed in `8m01s`, the other was cancelled after about `5h59m` in run `28631117871` | `n/a` for Phase A today | capped observation | this is the category that most clearly needs splitting and better bounds before promotion |
+| `vcr-fixture` | planned `just test vcr-fixture` | VCR-only playback lane to be split out of current integration broad run | no | yes (`long-ci`) | yes | `[suite.vcr]` = `138` files | no clean retained local timing | current retained evidence is only the mixed integration broad lane above | `n/a` for Phase A today | estimated | A10 should expose this as its own lane instead of leaving it buried inside integration |
+| `e2e-ci-smoke` | planned `just test e2e-ci-smoke` | bounded CI E2E smoke profile | no | yes (`long-ci`) | prereqs | `1` default suite in profile ci today | no clean retained local timing | no isolated retained timing yet; measure after A10 makes it first-class | `n/a` | missing | acceptable `long-ci` candidate only if it stays bounded and isolated |
+| `e2e-full` | planned `just test e2e-full` | `./scripts/e2e/run_all.sh --profile full` | no | manual/scheduled only | prereqs | `[suite.e2e]` = `39` files | estimate: long | two shards were cancelled after about `5h59m-6h00m` in run `28631117871` | `n/a` | capped observation | too unbounded for ordinary PR CI or early `long-ci` promotion |
+| `extension-sharded` | planned `just test extension-sharded` | sharded `ext_conformance_generated` matrix | no | yes (`long-ci`) | prereqs | `4` old shards | no clean retained local timing | retained execute-lane times `3m50s`, `4m41s`, `4m46s`, `4m42s` on run `28631117871` | `n/a` | measured | good candidate for a bounded `long-ci` category once exposed through `just` |
+| `parity` | planned `just test parity` | parity cargo-test bundle from old `qa-shard (parity)` | no | yes (`long-ci`) | yes | `5` explicit parity test targets in old CI | no clean retained local timing | `3m52s` execute-lane time on run `28631117871` | `n/a` | measured | category was understandable in PR #1 and should stay visible |
+| `security` | planned `just test security` | security cargo-test bundle from old `qa-shard (security)` | no | yes (`long-ci`) | yes | `3` explicit security test targets in old CI | no clean retained local timing | `3m41s` execute-lane time on run `28631117871` | `n/a` | measured | bounded and readable, unlike the current collapsed surface |
+| `perf-benchmark` | planned `just test perf-benchmark` | perf cargo-build plus perf cargo-test bundle from old `qa-shard (perf)` | no | yes (`long-ci`) | yes | `4` explicit perf test targets in old CI | no clean retained local timing | `5m57s` execute-lane time on run `28631117871` | `n/a` | measured | broader than ordinary baseline but still CI-tractable |
+| `conformance-fast` | planned `just test conformance-fast` | bounded fast conformance profiles | no | yes (`long-ci`) | prereqs | fast profile variants | no retained local timing in Phase A | fast-negative job `4m26s`, fast-official run step `3m52s`, fast-generated run step `22m10s` on run `28631117865` | `n/a` | partial | keep fast variants exposed separately; generated matrix is already pushing beyond the target band |
 | `fuzz` | `.github/workflows/fuzz.yml` | fuzz workflow | no | manual/scheduled only | prereqs | fuzz targets | estimate: long | `~42m59s` retained | `n/a` | partial | clearly outside ordinary PR gate |
-| `benchmark` | `.github/workflows/bench.yml` / perf scripts | `./scripts/perf/orchestrate.sh --profile ci|full` | no | manual only | yes | benchmark registry | estimate: long | no clean retained Phase A timing | `n/a` | estimated | should remain clearly separate from correctness categories |
-| `semver` | `.github/workflows/semver.yml` | semver workflow | no | manual only | yes | path-filtered API surface | estimate: medium | no clean retained Phase A timing | `n/a` | estimated | API compatibility check, not behavior coverage |
-| `model-catalog-drift` | `.github/workflows/model-catalog-drift.yml` | drift workflow | no | manual/scheduled only | yes | path-filtered catalog surface | estimate: low-medium | no clean retained Phase A timing | `n/a` | estimated | advisory drift detection, not runtime behavior coverage |
+| `benchmark-full` | planned `just test benchmark-full` and `.github/workflows/bench.yml` | `./scripts/perf/orchestrate.sh --profile full` | no | manual only | yes | benchmark registry | estimate: long | no clean retained Phase A timing | `n/a` | estimated | keep a separate heavy benchmark category apart from the bounded `perf-benchmark` lane |
+| `semver` | planned `just test semver` and `.github/workflows/semver.yml` | semver workflow | no | yes (`long-ci`) | yes | path-filtered API surface | estimate: medium | `24s` semver-check step and `2m38s` total job on run `28631117866` | `n/a` | measured | API compatibility check, not behavior coverage |
+| `model-catalog-drift` | planned `just test model-catalog-drift` and `.github/workflows/model-catalog-drift.yml` | drift workflow | no | manual/scheduled only | yes | path-filtered catalog surface | estimate: low-medium | `15s` retained from latest drift run on reverted head | `n/a` | partial | advisory drift detection, not runtime behavior coverage |
 
 ## Current Unit Category Breakdown
 
@@ -233,13 +275,30 @@ they mean.
 | `just lint clippy-bins` | build-safety | local binary-target lint health | tests, benches, examples, dependency lint | every PR after A2 |
 | `just lint clippy-lib` | build-safety | local library-target lint health | tests, benches, examples, dependency lint | every PR after A2 |
 | `just test baseline` | upstream-fast | the tiny required smoke subset still works | full unit, full integration, VCR, E2E, fuzz, bench, semver, drift | every PR after A3 |
-| `just test unit` | upstream-broad local lane | broader deterministic unit inventory | VCR, E2E, live-provider coverage | local/manual only in Phase A |
-| `just test integration` | upstream-broad local lane | explicit seam and broader integration checks | live E2E and heavyweight specialty workflows | local/manual only in Phase A |
+| `just test unit-full` | long-ci candidate | broad deterministic unit inventory | VCR, E2E, generated conformance, fuzz | local and `long-ci` |
+| `just test integration` | long-ci candidate | broad non-E2E integration and seam behavior | full E2E, fuzz, generated conformance | local and `long-ci` |
+| `just test vcr-fixture` | long-ci candidate | VCR playback behavior separated from generic integration | live-provider and full E2E behavior | local and `long-ci` |
+| `just test parity` | long-ci candidate | parity bundle that was visible in PR #1 | full E2E and generated conformance | local and `long-ci` |
+| `just test security` | long-ci candidate | bounded security regression surface | fuzz and heavyweight policy workflows | local and `long-ci` |
+| `just test perf-benchmark` | long-ci candidate | bounded perf regression bundle from PR #1 | full benchmark orchestration | local and `long-ci` |
+| `just test extension-sharded` | long-ci candidate | bounded sharded extension matrix | weekly community and heavy generated variants | local/prereqs and `long-ci` |
+| `just test conformance-fast` | long-ci candidate | fast conformance profiles with explicit prerequisites | generated matrix and weekly community variants | local/prereqs and `long-ci` |
+| `just test e2e-ci-smoke` | long-ci candidate | one bounded E2E smoke profile | full E2E inventory | local/prereqs and `long-ci` |
+| `just test e2e-full` | specialty-evidence | full E2E inventory | nothing | local/prereqs and manual/scheduled CI |
+| `just test fuzz` | specialty-evidence | fuzz smoke and fuzz depth lanes | unrelated correctness categories | local/prereqs and manual/scheduled CI |
+| `just test semver` | specialty-evidence | API compatibility check | runtime behavior coverage | local and `long-ci` |
+| `just test model-catalog-drift` | specialty-evidence | catalog drift visibility | runtime behavior coverage | local and manual/scheduled CI |
+| `just test long-ci` | long-ci aggregate | bounded CI-friendly broad categories in one documented bundle | unbounded E2E, fuzz, and other known long-tail categories | sprint closeout, risky PRs, and nightly |
 | `just test all` | upstream-broad local lane | convenience aggregation for local confidence | specialty scheduled/manual workflows | local/manual only in Phase A |
 | `just lint all-local` | upstream-broad local lane | optional broader local lint surface | dependency lint and scheduled specialty checks | local/manual only in Phase A |
 
 This table is intentionally simple. The goal is to let an operator answer
 "what am I proving?" without reverse-engineering the workflow YAML.
+
+`just test long-ci` is the key correction to the current confusion. It should
+aggregate the broad categories that were useful in PR #1 and keep them
+available in CI with a longer timeout, while excluding the clearly unbounded
+categories that hit multi-hour cancellations.
 
 ## Recommended Regression Framework For ATM Work
 
@@ -255,8 +314,8 @@ Once Phase A has landed, regression policy should be:
    upstream required baseline
 3. PRs touching the seam between upstream fork code and ATM-owned additions run
    explicit integration lanes in addition to the upstream required baseline
-4. broad upstream confidence surfaces stay available as local, manual, nightly,
-   or pre-merge lanes rather than being silently discarded
+4. broad upstream confidence surfaces stay available as named `just` lanes and
+   can be promoted into `long-ci` without being silently discarded
 
 The safety model is additive:
 
@@ -266,8 +325,9 @@ The safety model is additive:
 
 ## Current Quantified Baseline Table
 
-This is the single table Phase A should use for review. It mixes scope, timing,
-and coverage in one place instead of scattering them across PR bodies.
+This is the required-baseline subset of the authoritative category matrix
+above. It keeps the ordinary PR gate easy to review without losing the broader
+category ledger.
 
 Current measured state:
 
@@ -328,6 +388,36 @@ Per-step budget targets:
 
 These are budget allocations, not historical facts. Sprint validation must
 measure and refresh them as each step is added.
+
+## Proposed Long-CI Set
+
+`long-ci` is the bounded broader CI set that sits between the tiny required
+baseline and the clearly unbounded specialty workflows.
+
+Initial candidate membership:
+
+- `just test unit-full`
+- `just test integration`
+- `just test parity`
+- `just test security`
+- `just test perf-benchmark`
+- `just test extension-sharded`
+- `just test semver`
+
+Initial exclusions until they are split or bounded better:
+
+- `just test e2e-full`
+- `just test fuzz`
+- `just test benchmark-full`
+- `just test conformance-fast` generated variant
+
+Initial planning rule:
+
+- `long-ci` may use a longer timeout than `baseline`
+- `long-ci` is allowed on sprint closeout, risky PRs, pre-merge, and nightly
+- `long-ci` does not replace the ordinary PR `baseline`
+- a category joins `long-ci` only after its timing cell is backed by measured
+  or capped evidence in the matrix above
 
 ## Incremental Rollout By Sprint
 
