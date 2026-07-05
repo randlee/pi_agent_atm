@@ -1,5 +1,5 @@
 # Benchmark CI workflow
-# Runs on pushes to main and PRs to detect performance regressions
+# Manual benchmark workflow for performance regression checks
 name: Benchmarks
 
 on:
