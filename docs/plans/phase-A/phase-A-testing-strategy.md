@@ -141,6 +141,82 @@ Operators should understand the repo through those surfaces first. They should
 not need to memorize hundreds of individual test files to understand the
 strategy.
 
+## Sprint Evidence Table Template
+
+Every active Phase A sprint from A8 onward must update the same evidence table
+shape in both the sprint PR notes and the strategy/review-pack docs.
+
+Required columns:
+
+| Category | Backing lane or workflow | Exact command or profile | Runs now on ordinary PRs | Can run in CI | Can run locally | Surface size | Local time | CI time | Coverage | Evidence status | Notes |
+|---|---|---|---|---|---|---:|---:|---:|---|---|---|
+
+Column rules:
+
+- `Category`
+  - stable human-readable category name, not an implementation nickname
+- `Backing lane or workflow`
+  - `just` lane, `verify` profile, or workflow name that actually runs it
+- `Exact command or profile`
+  - literal command or profile invocation
+- `Runs now on ordinary PRs`
+  - `yes` only if it is part of the current required PR gate
+- `Can run in CI`
+  - `yes`, `manual/scheduled only`, or `no`
+- `Can run locally`
+  - `yes`, `prereqs`, or `no`
+- `Surface size`
+  - file count, suite count, explicit target count, or `n/a`
+- `Local time`
+  - measured wall clock, capped observation, or conservative estimate
+- `CI time`
+  - measured job or step time, capped observation, or conservative estimate
+- `Coverage`
+  - `n/a`, measured coverage, or `A9 measurement required`
+- `Evidence status`
+  - `measured`, `estimated`, `capped observation`, or `missing`
+- `Notes`
+  - why the category is narrow, expensive, flaky, prerequisite-heavy, or not
+    yet trustworthy
+
+## Authoritative Test Category Matrix
+
+This is the category list the plan should expose to operators. It answers the
+question "what is run now versus what can be run?"
+
+| Category | Backing lane or workflow | Exact command or profile | Runs now on ordinary PRs | Can run in CI | Can run locally | Surface size | Local time | CI time | Coverage | Evidence status | Notes |
+|---|---|---|---|---|---|---:|---:|---:|---|---|---|
+| `compile-check` | `just test compile` | `cargo check --all-targets` | yes | yes | yes | `n/a` | about `159s-293s` retained | `3m29s` Linux retained | `n/a` | measured | compile safety only, not a test pass signal |
+| `unit-inline-core` | not currently first-class | `cargo test --all-targets --lib` | no | yes | yes | inline lib tests under `src/**` | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; should be reported separately |
+| `unit-curated-files` | not currently first-class | six explicit `cargo test --test ...` invocations | no | yes | yes | `6` files, `4.84%` of `[suite.unit]` file inventory | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; naming should reflect that it is curated |
+| `unit-curated-fast` | `just test unit-basic` | multiple inline-prefix cargo tests plus six explicit unit files | yes | yes | yes | `32` audited inline prefixes + `6` explicit test files + `80` exclusions in current audit | `40.26s` warm instrumented rerun; retained non-instrumented about `94s-104s` | `1m23s` Linux retained | current unit-only coverage not yet isolated | partial | current required fast unit gate; maintainability risk is high because it is curated and exclusion-heavy |
+| `smoke-baseline` | `just test baseline` | `./scripts/smoke.sh --skip-lint --no-rch --only unit` | yes | yes | yes | `6` documented smoke targets | `12.88s` warm instrumented rerun; retained non-instrumented about `14s-16s` | `13s` Linux retained | combined required-lane coverage currently measured only with `unit-curated-fast` | partial | tiny smoke slice, not a broad unit/integration proof |
+| `unit-full` | `just test unit` | `./verify --profile quick --skip-lint` | no | yes | yes | `[suite.unit]` = `124` files | `>120s` capped observation retained | no clean retained CI timing in Phase A evidence | A9 measure | capped observation | includes many tests that are not "basic unit" in any normal sense |
+| `vcr-fixture` | no first-class Phase A lane yet | `./verify --profile ci --skip-lint --skip-e2e` or `VCR_MODE=playback cargo test --all-targets` | no | yes | yes | `[suite.vcr]` = `138` files | no clean retained local timing | no clean retained CI timing | `n/a` for Phase A today | missing | should be represented explicitly in A10 instead of hidden inside broad verify profiles |
+| `e2e-ci-smoke` | implicit in `verify` CI profile | `./scripts/e2e/run_all.sh --profile ci` | no | yes | prereqs | `1` default suite in profile ci | no clean retained local timing | bundled inside old CI, no isolated retained timing | `n/a` | missing | current CI profile includes one E2E suite by default |
+| `e2e-full` | existing E2E harness | `PI_E2E=1 cargo test ...` or `./scripts/e2e/run_all.sh --profile full` | no | manual/scheduled only | prereqs | `[suite.e2e]` = `39` files | estimate: long | estimate: long | `n/a` | estimated | real network/provider/tmux prerequisites make this a separate category |
+| `conformance` | `.github/workflows/conformance.yml` | extension conformance workflow | no | manual/scheduled only | prereqs | extension matrix workload | no retained local timing in Phase A | `~6m25s` fast sample retained | `n/a` | partial | current fast sample exists, but Phase A does not expose it clearly in the operator surface |
+| `fuzz` | `.github/workflows/fuzz.yml` | fuzz workflow | no | manual/scheduled only | prereqs | fuzz targets | estimate: long | `~42m59s` retained | `n/a` | partial | clearly outside ordinary PR gate |
+| `benchmark` | `.github/workflows/bench.yml` / perf scripts | `./scripts/perf/orchestrate.sh --profile ci|full` | no | manual only | yes | benchmark registry | estimate: long | no clean retained Phase A timing | `n/a` | estimated | should remain clearly separate from correctness categories |
+| `semver` | `.github/workflows/semver.yml` | semver workflow | no | manual only | yes | path-filtered API surface | estimate: medium | no clean retained Phase A timing | `n/a` | estimated | API compatibility check, not behavior coverage |
+| `model-catalog-drift` | `.github/workflows/model-catalog-drift.yml` | drift workflow | no | manual/scheduled only | yes | path-filtered catalog surface | estimate: low-medium | no clean retained Phase A timing | `n/a` | estimated | advisory drift detection, not runtime behavior coverage |
+
+## Current Unit Category Breakdown
+
+The current plan should stop pretending `unit-basic` is a natural category. It
+is a composed lane that hides three different unit surfaces.
+
+| Unit category | Current backing surface | Surface size | Current timing evidence | Current coverage evidence | Maintenance risk |
+|---|---|---:|---:|---|---|
+| `unit-inline-core` | inline `#[cfg(test)]` lib tests | current fast audit includes `32` inline prefixes | A9 measure | A9 measure | medium |
+| `unit-curated-files` | explicit `tests/*.rs` subset | `6` files from `[suite.unit]` = `4.84%` of listed unit files | A9 measure | A9 measure | high |
+| `unit-curated-fast` | current `just test unit-basic` lane | inline core + curated file subset + `80` exclusions | `1m23s` Linux retained | not yet isolated from smoke in current coverage evidence | high |
+| `unit-full` | current `./verify --profile quick --skip-lint` | full `[suite.unit]` = `124` files | `>120s` capped local observation retained | A9 measure | medium-high |
+
+The explicit `6`-file curated subset confirms the current required fast lane is
+not a representative stand-in for the full `suite.unit` inventory. The plan
+must treat that as a deliberate fast gate, not as "the unit test category."
+
 ## Planned Phase A Operator Surface
 
 The easiest way to understand Phase A is by the planned `just` lanes and what

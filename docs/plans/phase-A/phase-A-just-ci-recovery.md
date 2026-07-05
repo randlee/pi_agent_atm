@@ -46,6 +46,11 @@ This phase uses:
   - `docs/plans/phase-A/sprint-a-5-add-optional-local-lanes.md`
   - `docs/plans/phase-A/sprint-a-6-refresh-ssot-and-timing.md`
   - `docs/plans/phase-A/sprint-a-7-merge-baseline-into-atm-graft.md`
+  - `docs/plans/phase-A/sprint-a-8-publish-test-category-ledger.md`
+  - `docs/plans/phase-A/sprint-a-9-measure-unit-category-coverage.md`
+  - `docs/plans/phase-A/sprint-a-10-expose-runnable-broad-test-surfaces.md`
+  - `docs/plans/phase-A/sprint-a-11-measure-broad-test-surface-timings.md`
+  - `docs/plans/phase-A/sprint-a-12-finalize-required-vs-runnable-gate.md`
 
 Only these docs are authoritative for corrected Phase A.
 
@@ -362,6 +367,28 @@ These notes remain valid even though the old rollout plan was superseded.
 
 The table above is the execution contract. If implementation diverges from it,
 the docs must be revised before more work happens.
+
+## Active Continuation Sequence
+
+A1-A7 are now best treated as a historical failed attempt plus evidence
+inventory. The active continuation plan begins at A8.
+
+| Sprint | Purpose | Primary output |
+|---|---|---|
+| A8 | publish the readable test category ledger and per-sprint evidence table template | docs that say what runs now vs what can run |
+| A9 | measure unit-category timings and coverage | unit coverage and maintainability evidence |
+| A10 | expose broad runnable categories clearly | restored unit / VCR / E2E / conformance / fuzz / bench / semver / drift visibility |
+| A11 | measure broad-category timings | actual or conservative timing evidence across the broad surfaces |
+| A12 | freeze required vs runnable split | final Phase A gate definition and ATM regression handoff |
+
+Rule for A8-A12:
+
+- every sprint must update the same category evidence table template
+- every sprint must say what changed in:
+  - what runs now on ordinary PRs
+  - what can run in CI outside the required gate
+  - what can run locally only
+  - what coverage and timing evidence exists for the affected categories
 
 ### Sprint A1
 
