@@ -348,8 +348,8 @@ echo "──── Smoke Tests (${#TARGETS[@]} targets) ────"
 PASSED=0
 FAILED=0
 SKIPPED=0
-FAILED_NAMES=()
-TARGET_RESULTS=()
+declare -a FAILED_NAMES=()
+declare -a TARGET_RESULTS=()
 TOTAL_TEST_DURATION=0
 overall_start=$(date +%s)
 
@@ -437,7 +437,7 @@ results_json+="]"
 # Build failed names JSON array.
 failed_json="["
 first=true
-for name in "${FAILED_NAMES[@]}"; do
+for name in "${FAILED_NAMES[@]-}"; do
     if ! $first; then failed_json+=","; fi
     failed_json+="\"$name\""
     first=false
@@ -483,7 +483,7 @@ echo "──── Summary ────"
 echo "  Verdict:  $VERDICT"
 echo "  Passed:   $PASSED / $TOTAL"
 if [[ $FAILED -gt 0 ]]; then
-    echo "  Failed:   $FAILED (${FAILED_NAMES[*]})"
+    echo "  Failed:   $FAILED (${FAILED_NAMES[*]-})"
 fi
 if [[ $SKIPPED -gt 0 ]]; then
     echo "  Skipped:  $SKIPPED"
@@ -501,7 +501,7 @@ fi
 if [[ $FAILED -gt 0 ]]; then
     echo ""
     echo "Verbose logs for failed targets:"
-    for name in "${FAILED_NAMES[@]}"; do
+    for name in "${FAILED_NAMES[@]-}"; do
         echo "  $ARTIFACT_DIR/$name/output.log"
     done
 fi

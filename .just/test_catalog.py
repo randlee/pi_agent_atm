@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
@@ -17,6 +18,7 @@ class TestLane:
     ssot: str
     verify_args: tuple[str, ...] = ()
     commands: tuple[tuple[str, ...], ...] = ()
+    commands_factory: Callable[[], tuple[tuple[str, ...], ...]] | None = None
     script_args: tuple[str, ...] = ()
     documented_targets: tuple[str, ...] = ()
     requires_readiness_env: str | None = None
@@ -103,7 +105,7 @@ LANES = {
         owner=".just/test_catalog.py",
         blocking="required",
         ssot=".just/test_catalog.py",
-        commands=(
+        commands_factory=lambda: (
             *unit_basic_inline_commands(),
             cargo_test("--test", "capability_policy_model", nocapture=True),
             cargo_test("--test", "policy_profile_hardening", nocapture=True),
@@ -163,6 +165,12 @@ def resolve_lane(target: str) -> TestLane:
 
 def display_targets() -> list[tuple[str, str]]:
     return [(name, LANES[name].description) for name in DISPLAY_ORDER]
+
+
+def lane_commands(lane: TestLane) -> tuple[tuple[str, ...], ...]:
+    if lane.commands_factory is not None:
+        return lane.commands_factory()
+    return lane.commands
 
 
 def lane_command(lane: TestLane) -> str:

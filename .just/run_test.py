@@ -6,6 +6,7 @@ import sys
 import os
 
 from run_cargo import cargo_command, run_cargo
+from test_catalog import lane_commands
 from test_catalog import repo_root
 from test_catalog import resolve_lane
 
@@ -28,7 +29,7 @@ def print_lane_header(
 
 def run_cargo_lane(target: str) -> int:
     lane = resolve_lane(target)
-    for command_args in lane.commands:
+    for command_args in lane_commands(lane):
         command = cargo_command(*command_args)
         print_lane_header(lane.name, command)
         completed = run_cargo(
