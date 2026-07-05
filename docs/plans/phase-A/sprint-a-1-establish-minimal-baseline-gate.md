@@ -5,8 +5,6 @@ status: open
 branch: sprint-a-1-establish-minimal-baseline-gate
 worktree: ../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate
 target: integrate/phase-A
-pr: 12
-previous_merged_pr: 9
 ---
 
 # Sprint A1 — Establish Minimal Baseline Gate
@@ -23,6 +21,8 @@ previous_merged_pr: 9
 - team-lead reviews `docs/plans/phase-A/phase-A-testing-strategy.md`
 - a bootstrap worktree may start from current `develop`, but the live delivery
   target for A1 is `integrate/phase-A`
+- this sprint must be replayed from a clean bootstrap; historical A1 PRs are
+  reference material only
 
 ## Unblocks
 

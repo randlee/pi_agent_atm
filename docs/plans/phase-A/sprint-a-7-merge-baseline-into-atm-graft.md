@@ -5,7 +5,6 @@ status: open
 branch: sprint-a-7-merge-baseline-into-atm-graft
 worktree: ../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft
 target: feature/atm-graft-integration
-pr: 17
 ---
 
 # Sprint A7 — Merge Baseline Into Atm-Graft
@@ -17,7 +16,7 @@ pr: 17
 
 ## Hard Dependencies
 
-- the current open PR for A7 targets `feature/atm-graft-integration`
+- A7 must branch from the last proven A6 replay state
 - the planned input is the proven Phase A baseline rather than anything merged
   into `develop`
 - `feature/atm-graft-integration` is the active integration branch
@@ -50,6 +49,8 @@ silently dropped or partially deferred.
   combining every sprint's local timing table and CI timing table into one
   final progression summary with links back to each sprint PR timing table and
   CI run URL/ID
+- the Sprint A7 PR notes include final Linux, macOS, and Windows timings for
+  the merged required gate and the final parallel wall-clock figure
 
 ## Required Work
 
@@ -66,6 +67,8 @@ silently dropped or partially deferred.
 - preserve the existing `atm-graft`, `atm_core`, and
   `atm-daemon-bootstrap-shim` dependency/glue surfaces while merging the Phase A
   baseline
+- record the final merged-target multi-platform timing evidence and run IDs as
+  part of the handoff
 
 ## Explicit Code Samples
 
@@ -108,6 +111,8 @@ merge surfaces to preserve
 - the Sprint A7 PR notes publish the final A1-A7 local and CI timing ledger
 - the Sprint A7 PR notes record the exact CI run URL/ID used for each timing
   measurement in that ledger
+- the Sprint A7 PR notes record final Linux, macOS, and Windows timings for
+  the merged required gate and the final parallel wall-clock figure
 
 ## Required Validation
 

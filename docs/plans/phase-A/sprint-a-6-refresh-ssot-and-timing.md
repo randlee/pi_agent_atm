@@ -4,8 +4,7 @@ title: Refresh SSOT And Timing
 status: open
 branch: sprint-a-6-refresh-ssot-and-timing
 worktree: ../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing
-target: integrate/phase-A
-pr: 16
+target: sprint-a-5-add-optional-local-lanes
 ---
 
 # Sprint A6 — Refresh SSOT And Timing
@@ -20,9 +19,9 @@ pr: 16
 
 ## Hard Dependencies
 
-- the current open PR for A6 targets `integrate/phase-A`
-- the intended logical dependency remains the A5 baseline state, but the live
-  GitHub base branch is not `develop`
+- A6 must branch from the last proven A5 replay state
+- A6 is a merge-forward review-pack sprint; replay should target the A5 branch
+  and only update `integrate/phase-A` after proof is accepted
 
 ## Unblocks
 

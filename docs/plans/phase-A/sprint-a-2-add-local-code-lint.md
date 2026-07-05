@@ -5,8 +5,6 @@ status: open
 branch: sprint-a-2-add-local-code-lint
 worktree: ../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint
 target: sprint-a-1-establish-minimal-baseline-gate
-pr: 11
-previous_merged_pr: 10
 ---
 
 # Sprint A2 — Add Local-Code Lint
@@ -18,8 +16,8 @@ previous_merged_pr: 10
 
 ## Hard Dependencies
 
-- the live PR stack for A2 targets
-  `sprint-a-1-establish-minimal-baseline-gate`, not `develop`
+- A2 must branch from the last proven A1 replay state, not from stale
+  historical branch state
 
 ## Unblocks
 

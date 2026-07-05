@@ -5,7 +5,6 @@ status: open
 branch: sprint-a-5-add-optional-local-lanes
 worktree: ../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes
 target: sprint-a-4-add-taxonomy-helpers
-pr: 15
 ---
 
 # Sprint A5 — Add Optional Local Lanes
@@ -16,8 +15,8 @@ pr: 15
 
 ## Hard Dependencies
 
-- the live PR stack for A5 targets `sprint-a-4-add-taxonomy-helpers`, not
-  `develop`
+- A5 must branch from the last proven A4 replay state, not from stale
+  historical branch state
 
 ## Unblocks
 

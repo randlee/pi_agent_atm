@@ -5,7 +5,6 @@ status: open
 branch: sprint-a-4-add-taxonomy-helpers
 worktree: ../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers
 target: sprint-a-3-add-smoke-baseline
-pr: 14
 ---
 
 # Sprint A4 — Add Taxonomy Helpers
@@ -16,8 +15,8 @@ pr: 14
 
 ## Hard Dependencies
 
-- the live PR stack for A4 targets `sprint-a-3-add-smoke-baseline`, not
-  `develop`
+- A4 must branch from the last proven A3 replay state, not from stale
+  historical branch state
 
 ## Unblocks
 

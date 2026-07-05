@@ -1,18 +1,28 @@
 # Phase A - Minimal Just / CI Recovery
 
-Date: 2026-07-04
-Status: blocked pending branch-and-ci reconciliation
-Branch: `docs/phase-a-plan-updates`
-Worktree: `../pi_agent_atm-worktrees/docs/phase-a-plan-updates`
-PR target: `develop`
-Authoritative scope: corrected Phase A planning
+Date: 2026-07-05
+Status: replay plan ready for review
+Branch: `plan/phase-A-attempt-3`
+Worktree: `../pi_agent_atm-worktrees/plan/phase-A-attempt-3`
+Planning target: docs only
+Implementation target model: `integrate/phase-A` accumulation branch, `feature/atm-graft-integration` consumer
+Authoritative scope: corrected Phase A salvage and replay plan
 
 ## Purpose
 
-Phase A recovers the `just` + CI effort by starting from a minimal working
-baseline and then adding one small production-ready increment at a time.
+Phase A recovers the `just` + CI effort by replaying it as a measured,
+evidence-gated sprint chain:
 
-This corrected plan replaces the invalid rollout merged by PR #5.
+1. start with the smallest green baseline that still proves compile health and
+   strict basic-unit health
+2. add one small production-ready increment at a time
+3. keep broader upstream test contracts available outside the narrow required
+   gate
+4. end with a measured multi-platform required gate, not just one fast Linux
+   job
+
+This corrected plan replaces the earlier failed execution attempt as the
+authoritative operational model.
 
 Supporting evidence for this correction:
 
@@ -39,7 +49,33 @@ This phase uses:
 
 Only these docs are authoritative for corrected Phase A.
 
-## Planning Rules
+## Current Diagnosis
+
+The failed attempt showed the same root problem repeatedly: docs, branch
+targets, workflow registration, and run evidence drifted apart.
+
+Phase A replay must verify each sprint at six independent layers:
+
+1. content parity
+   - do the `just` files and workflow files on the branch actually match the
+     intended source of truth
+2. registration
+   - did GitHub Actions register a workflow run for the exact head SHA
+3. execution
+   - if a run exists, did it pass, and what actually ran
+4. timing
+   - are the reported numbers warm, cold, local, CI, per-step, and total
+     clearly labeled
+5. target-branch reality
+   - does the PR base branch actually contain the prerequisites the workflow
+     expects
+6. doc-vs-reality parity
+   - do the planning docs describe the branch model and execution shape that
+     were actually used
+
+No single layer implies any of the others.
+
+## Non-Negotiable Rules
 
 This phase follows:
 
@@ -52,7 +88,7 @@ Applied interpretation for this phase:
 - each sprint must land production-ready for the scope it claims
 - no sprint may rely on the old heavyweight PR workflow surface remaining active
 - no sprint may silently carry a required deliverable forward
-- every sprint must preserve green required PR CI under 10 minutes
+- every sprint must preserve green required PR CI for the stage it introduces
 - no implementation code should merge back into `develop` until the Phase A
   salvage chain is proven
 - no sprint should merge into `integrate/phase-A` without a recorded evidence
@@ -61,127 +97,91 @@ Applied interpretation for this phase:
   - local wall-clock timings for the sprint's in-scope commands
   - equivalent CI step and total workflow timings for the same stage, or an
     explicit `no ci equivalent by design` note for local-only lanes
+- the historical A1-A7 branch and PR stack is evidence inventory only; it is
+  not execution authority for this replay
+- Phase A is not complete if it ends with only a Linux-required check; final
+  closure requires Linux, macOS, and Windows timing evidence for the merged
+  required gate
 
-## Branch And Worktree Model
+## Authoritative Branch Model
 
-The previously documented branch model was incorrect.
+The previous docs mixed planning branches, sprint branches, integration
+branches, and historical PR numbers in a way that made execution harder to
+understand than the code itself.
 
-Live evidence collected on 2026-07-04 shows:
+The authoritative branch roles are now:
 
-- Sprint A1 open PR #12 targets `integrate/phase-A`
-- Sprint A2 open PR #11 targets `sprint-a-1-establish-minimal-baseline-gate`
-- Sprint A3 open PR #13 targets `sprint-a-2-add-local-code-lint`
-- Sprint A4 open PR #14 targets `sprint-a-3-add-smoke-baseline`
-- Sprint A5 open PR #15 targets `sprint-a-4-add-taxonomy-helpers`
-- Sprint A6 open PR #16 targets `integrate/phase-A`
-- Sprint A7 open PR #17 targets `feature/atm-graft-integration`
-- earlier merged PRs also exist for A1 and A2 into `integrate/phase-A`
-  (PR #9 and PR #10), so the live state is a mixed merge history plus an open
-  stacked chain, not a clean one-pass rollout from `develop`
+| Branch or branch family | Role | Allowed action |
+|---|---|---|
+| `plan/phase-A-attempt-3` | planning branch only | docs updates only |
+| `develop` | bootstrap and upstream-sync reference | no Phase A implementation merges |
+| `sprint-a-1-*` through `sprint-a-7-*` | execution branches | one sprint each, evidence-gated |
+| `integrate/phase-A` | accumulation branch for proven Phase A outputs | merge only after sprint proof |
+| `feature/atm-graft-integration` | consumer branch for final baseline handoff | receives proven A7 output only |
 
-Additional branch-state evidence:
+Historical PR numbers from the failed first attempt are intentionally not part
+of the replay contract. They may be referenced during forensics, but they are
+not the source of truth for execution.
 
-- `origin/develop` currently contains none of:
-  - `justfile`
-  - `.just/**`
-  - `.github/workflows/baseline.yml`
-- `origin/integrate/phase-A` currently contains none of:
-  - `justfile`
-  - `.just/**`
-  - `.github/workflows/baseline.yml`
+## Sprint Replay Model
 
-The current sprint branches themselves do contain the `just` surface and
-`baseline.yml`, so the plan has to distinguish between:
+Sprint replay is a clean forward chain:
 
-- branch-local sprint content that exists on the sprint branches
-- missing substrate on `origin/develop` and `origin/integrate/phase-A`
-- a separate GitHub Actions registration gap on A3-A6
+```text
+develop bootstrap
+  -> A1 branch, PR target integrate/phase-A
+  -> A2 branch from proven A1, PR target A1
+  -> A3 branch from proven A2, PR target A2
+  -> A4 branch from proven A3, PR target A3
+  -> A5 branch from proven A4, PR target A4
+  -> A6 branch from proven A5, PR target A5
+  -> A7 branch from proven A6, PR target feature/atm-graft-integration
+```
 
-Historical reality, as verified, is therefore:
+Interpretation:
 
-1. Phase A has in practice been executed as a stacked PR chain, not as direct
-   merge-backs to `develop`
-2. `integrate/phase-A` has been used as an integration target in the actual PR
-   history
-3. the current docs were encoding the wrong branch model and were a source of
-   confusion
+- A1 is the only sprint that targets `integrate/phase-A` directly.
+- A2-A6 are replayed as a strict merge-forward proof chain.
+- `integrate/phase-A` is updated only after the corresponding sprint is proven.
+- A7 is the handoff sprint that carries the proven baseline into
+  `feature/atm-graft-integration`.
 
-Salvage model going forward:
+## Historical Attempt Handling
 
-1. a bootstrap worktree may be created from `develop` because that branch holds
-   the current planning docs
-2. that bootstrap does not authorize merging unproven Phase A implementation
-   code back into `develop`
-3. Phase A implementation should continue as a proof-first merge chain where
-   each sprint branch demonstrates real CI progression before merge-forward
-4. `integrate/phase-A` should be treated as the accumulation branch for proven
-   Phase A sprint outputs
-5. `feature/atm-graft-integration` remains the Phase A consumer branch in A7
+The old Phase A sprint branches and PRs created useful evidence, but they also
+created confusion. Replay treats them this way:
 
-## Live CI Registration Findings
+- keep them as forensic evidence and patch-source inventory
+- do not treat them as automatically mergeable
+- do not use their PR numbers as proof that the sprint is valid
+- if a replay sprint cannot quickly prove content parity plus CI registration,
+  execution, and timing, re-cut it from the last proven state instead of
+  repairing the stale stack indefinitely
 
-Evidence collected on 2026-07-04 shows this split:
+This is the clean-up plan for the current branch clutter: freeze the old stack
+as evidence, then execute the replay chain from a clean bootstrap.
 
-- `sprint-a-1-establish-minimal-baseline-gate`
-  - registered runs present
-  - latest sampled result: `baseline` success
-- `sprint-a-2-add-local-code-lint`
-  - registered runs present
-  - latest sampled result: `baseline` success
-- `sprint-a-3-add-smoke-baseline`
-  - zero registered runs
-- `sprint-a-4-add-taxonomy-helpers`
-  - zero registered runs
-- `sprint-a-5-add-optional-local-lanes`
-  - zero registered runs
-- `sprint-a-6-refresh-ssot-and-timing`
-  - zero registered runs
+## Sprint Evidence Gate
 
-This means the current CI gap is not fully explained by missing `justfile` or
-`.just/**` on `develop` and `integrate/phase-A`.
+Every replay sprint must ship an evidence package before merge-forward:
 
-What the evidence does support:
+- content parity proof
+  - exact file diff against the documented sprint scope
+- registration proof
+  - GitHub Actions run exists for the exact head SHA
+- execution proof
+  - run result and failed-log review if not green
+- timing proof
+  - local timings for in-scope commands
+  - CI step timings and total workflow duration
+  - exact run ID and SHA recorded in the PR notes
+- target-branch proof
+  - PR base branch contains the prerequisites the workflow expects
+- doc parity proof
+  - sprint doc, strategy doc, and PR notes all describe the same lane set and
+    same branch model
 
-- missing `just` substrate on `develop` and `integrate/phase-A` explains why a
-  baseline workflow on those branches would fail immediately
-- zero-run behavior on A3-A6 is a separate registration problem because those
-  sprint branches do contain both `baseline.yml` and the required `just`
-  surface
-
-What the evidence does not yet explain:
-
-- why A3-A6 registered zero runs while A1-A2 registered runs with the same
-  named workflow and equivalent `just` invocation pattern
-
-The plan must therefore preserve this as an open incident rather than papering
-it over with a single-cause theory.
-
-## Remediation Tasks
-
-Before Phase A can be considered back on track, these live PRs must each carry
-their own evidence package or be reset and re-cut:
-
-- PR #11 `sprint-a-2-add-local-code-lint`
-- PR #12 `sprint-a-1-establish-minimal-baseline-gate`
-- PR #13 `sprint-a-3-add-smoke-baseline`
-- PR #14 `sprint-a-4-add-taxonomy-helpers`
-- PR #15 `sprint-a-5-add-optional-local-lanes`
-- PR #16 `sprint-a-6-refresh-ssot-and-timing`
-- PR #17 `sprint-a-7-merge-baseline-into-atm-graft`
-
-Required backfill for each PR:
-
-- workflow registration proof for the exact head SHA
-- workflow execution proof, including failed-log review if red
-- timing tables that follow the Sprint Timing Deliverable Contract:
-  - local wall-clock measurements for the sprint's in-scope commands
-  - CI step and total workflow measurements
-  - exact CI run URL/ID recorded for each timing measurement
-- confirmation that the PR base branch actually contains the expected baseline
-  substrate after merge-forward
-
-If any PR cannot supply that evidence cleanly, it should be reset or re-cut
-from the last proven state instead of being treated as implicitly valid.
+If any layer fails, the sprint is not proven.
 
 ## Sprint Timing Deliverable Contract
 
@@ -205,6 +205,8 @@ Rollup requirements:
 - Sprint A6 review-pack materials must consolidate the timing tables for A1-A6
 - Sprint A7 phase conclusion materials must consolidate the timing tables for
   A1-A7 and report the final progression of required baseline cost by sprint
+- Sprint A7 phase conclusion materials must also record the final merged-target
+  Linux, macOS, and Windows timings for the required gate
 
 ## Ground Rules
 
@@ -218,7 +220,8 @@ Rollup requirements:
   call `just` commands rather than bespoke cargo command strings
 - compile checking and strict basic-unit coverage must land before local-code
   lint expansion or smoke-lane expansion
-- required PR CI must stay below 10 minutes in every implementation sprint
+- required PR CI must stay within the sprint-stage budget in every
+  implementation sprint
 - every sprint evidence package must include:
   - workflow registration proof
   - workflow execution proof
@@ -231,6 +234,8 @@ Rollup requirements:
 - future ATM integration should follow the actual
   `feature/atm-graft-integration` model: root `Cargo.toml` dependency wiring to
   `atm-core` crates plus narrowly scoped local shim/integration surfaces
+- no sprint may claim success with timing numbers that were not tied to a
+  concrete command, run ID, and SHA
 
 ## Upstream Fork Testing Reality
 
@@ -343,17 +348,20 @@ Implications:
 
 These notes remain valid even though the old rollout plan was superseded.
 
-## Corrected Sprint Sequence
+## Replay Sequence
 
-| Sprint | Branch | Worktree | Live PR base | Live PR state | Single deliverable | Required PR CI after merge |
-|---|---|---|---|---|---|---|
-| A1 | `sprint-a-1-establish-minimal-baseline-gate` | `../pi_agent_atm-worktrees/sprint-a-1-establish-minimal-baseline-gate` | `integrate/phase-A` | open PR #12; earlier merged PR #9 | minimal `just` + compile/unit-baseline workflow | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` |
-| A2 | `sprint-a-2-add-local-code-lint` | `../pi_agent_atm-worktrees/sprint-a-2-add-local-code-lint` | `sprint-a-1-establish-minimal-baseline-gate` | open PR #11; earlier merged PR #10 to `integrate/phase-A` | local-code lint through `just lint` | A1 + `just lint clippy-bins`, `just lint clippy-lib` |
-| A3 | `sprint-a-3-add-smoke-baseline` | `../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline` | `sprint-a-2-add-local-code-lint` | open PR #13 | smoke regression lane through `just test` | A2 + `just test baseline` |
-| A4 | `sprint-a-4-add-taxonomy-helpers` | `../pi_agent_atm-worktrees/sprint-a-4-add-taxonomy-helpers` | `sprint-a-3-add-smoke-baseline` | open PR #14 | taxonomy helpers only | unchanged from A3 |
-| A5 | `sprint-a-5-add-optional-local-lanes` | `../pi_agent_atm-worktrees/sprint-a-5-add-optional-local-lanes` | `sprint-a-4-add-taxonomy-helpers` | open PR #15 | optional local lanes only | unchanged from A3 |
-| A6 | `sprint-a-6-refresh-ssot-and-timing` | `../pi_agent_atm-worktrees/sprint-a-6-refresh-ssot-and-timing` | `integrate/phase-A` | open PR #16 | freeze SSOT and refresh timing evidence | unchanged from A3 |
-| A7 | `sprint-a-7-merge-baseline-into-atm-graft` | `../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft` | `feature/atm-graft-integration` | open PR #17 | merge verified baseline into `feature/atm-graft-integration` | unchanged from A3 on merge PRs |
+| Sprint | Branch base | PR target | New required gate content after sprint | New deliverable in sprint |
+|---|---|---|---|---|
+| A1 | `develop` bootstrap | `integrate/phase-A` | `just help`, `just fmt check`, `just test compile`, `just test unit-basic` | introduce the minimal baseline gate |
+| A2 | proven A1 | A1 branch | A1 + `just lint clippy-bins`, `just lint clippy-lib` | add required local-code lint |
+| A3 | proven A2 | A2 branch | A2 + `just test baseline` | add required smoke lane |
+| A4 | proven A3 | A3 branch | unchanged from A3 | add taxonomy helpers only |
+| A5 | proven A4 | A4 branch | unchanged from A3 | add optional local lanes only |
+| A6 | proven A5 | A5 branch | unchanged from A3 | freeze SSOT and consolidate timing evidence |
+| A7 | proven A6 | `feature/atm-graft-integration` | unchanged from A3 | hand off the proven baseline into ATM integration |
+
+The table above is the execution contract. If implementation diverges from it,
+the docs must be revised before more work happens.
 
 ### Sprint A1
 
@@ -452,48 +460,51 @@ No implementation sprint begins until team-lead reviews:
   lanes
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-- the evidence-backed correction that live sprint PRs are stacked and do use
-  `integrate/phase-A`
-- the open CI-registration incident affecting A3-A6
+- the evidence-backed correction that replay uses a clean stacked proof chain
+  and `integrate/phase-A` is only an accumulation branch for proven work
+- the requirement that final closure includes multi-platform timing evidence,
+  not Linux-only proof
 
 ### Team-Lead Review Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-03`
-Confirmation: the previous approval text is now stale because the branch model
-and CI state encoded in this doc were contradicted by live git/GitHub evidence
-collected on `2026-07-04`. Implementation remains blocked until the corrected
-branch model and CI-registration gap are reviewed again.
+Review date: pending replay-plan review
+Confirmation: prior approval history is intentionally not reused. This replay
+plan requires a fresh review because the prior execution mixed historical PR
+state, branch roles, and CI evidence in a way that no longer serves execution.
 
 Review-item record:
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the exact baseline command list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the workflow files removed from ordinary PR gating
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the upstream PR-workflow inventory and its post-A1 trigger classification
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the `unit-basic` allowlist and exclusion rationale
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the sprint ordering that makes Sprint A1 establish the required PR gate
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the A4 / A5 split between taxonomy helpers and optional local lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
+- the replay branch model and accumulation-branch rules
+  - status: PENDING fresh review
+- the final multi-platform timing requirement
+  - status: PENDING fresh review
 
 Implementation-start rule:
 
-- this plan is not complete while the live branch model in GitHub and the doc
-  content disagree
-- this plan remains blocked until the corrected branch model and A3-A6
-  registration gap are explicitly reviewed
+- this plan is not complete while the execution branches, doc text, and
+  evidence gate disagree
+- this plan remains blocked until the replay model is explicitly reviewed
 
 ## Upstream Workflow Trigger Reconciliation
 
@@ -517,14 +528,14 @@ Phase A is complete when:
 - `baseline` is the only required branch-protection status check for ordinary
   PRs once the Sprint A1 operational branch-protection update lands
 - required PR CI on ordinary PRs is limited to the `baseline` workflow surface
-- `baseline` stays below 10 minutes
+- `baseline` stays within the sprint-stage budget throughout the replay
 - local `just` commands and required PR CI share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs
 - `integrate/phase-A` actually contains the proven baseline substrate
 - the verified baseline is merged into `feature/atm-graft-integration`
-- the sprint docs and live PR bases agree
-- the unresolved A3-A6 zero-run registration gap is either fixed or
-  independently explained with evidence
+- the sprint docs and replay branch bases agree
 - the phase conclusion report includes the A1-A7 local and CI timing ledger
+- the phase conclusion report includes the final Linux, macOS, and Windows
+  timings for the merged required gate
 - the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
   crates without broad upstream churn

@@ -1,13 +1,18 @@
 # Phase A - Testing Strategy
 
-Date: 2026-07-04
-Status: approved for lane design; branch-state reconciliation still required
+Date: 2026-07-05
+Status: draft attempt 3; strategy consolidation in progress
 
 ## Purpose
 
-Define the specific testing strategy that Phase A will implement so every
-increment starts from something working, required PR CI stays under 10 minutes,
-and local commands and CI share one source of truth.
+Define the specific testing strategy that Phase A will implement so:
+
+- the available test surfaces are easy to understand
+- required PR CI stays within a sane budget instead of drifting toward 3-hour CI
+- local commands and CI share one source of truth
+- ATM-owned code can be added without regressing upstream fork behavior
+- final Phase A success means a measured 10-20 minute parallel multi-platform
+  required gate with clear coverage boundaries, not merely one fast Linux check
 
 This document governs lane design and rollout shape. Live branch targets, live
 PR state, and the current CI-registration incident are tracked by
@@ -37,6 +42,15 @@ git/GitHub evidence before implementation claims are treated as complete.
 12. Every sprint PR must include a timing table for local runs and equivalent
     CI runs for that sprint's stage, and the phase conclusion must roll those
     timings up across all sprints.
+13. Runtime budget constrains which lanes are required; it does not justify
+    inventing brittle or difficult-to-maintain test selection logic.
+14. A small smoke list is acceptable; a large hand-maintained list of specific
+    tests is not an acceptable side effect of chasing the 10m goal.
+15. A Linux-only fast check is an intermediate milestone, not the Phase A end
+    state.
+16. Phase A closes only when the merged required gate has measured Linux,
+    macOS, and Windows timings and those timings are recorded in the phase
+    conclusion evidence.
 
 ## Fork And Upstream Audit Baseline
 
@@ -85,6 +99,132 @@ Supporting evidence for this strategy lives in:
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
 - `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
+
+## Testing Framework
+
+This strategy uses four testing tiers. The point is to keep the framework easy
+to reason about rather than turning the 10m goal into a maze of custom test
+calls.
+
+| Tier | Purpose | Trigger | Typical scope | Budget rule |
+|---|---|---|---|---|
+| `build-safety` | prove the repo still formats, compiles, and lints cleanly | every PR | format, compile, local-code lint | always required |
+| `upstream-fast` | prove we did not break the fork's core upstream behavior | every PR | deterministic basic-unit lane + smoke lane | always required |
+| `upstream-broad` | prove broader upstream behavior that is too expensive for every PR | risky PRs, pre-merge to important branches, or nightly | broader integration, VCR, cross-platform full CI | not ordinary-PR required by default |
+| `specialty-evidence` | deep confidence beyond ordinary gating | manual or schedule | conformance, fuzz, benchmarks, semver, drift | never the default PR gate |
+
+This is the framework Phase A should communicate to operators. The strategy is
+not "optimize for a green Linux check at any cost." The strategy is:
+
+1. keep one easy-to-understand required baseline
+2. measure that baseline honestly
+3. keep broader upstream contracts available outside the narrow required gate
+4. layer ATM-owned checks additively rather than redefining the upstream gate
+
+## Current Test Surfaces
+
+At a high level, the repo already contains these test surfaces:
+
+- compile/build checks
+- lint checks
+- deterministic fast tests
+- broader integration / VCR / conformance tests
+- E2E / workflow tests
+- specialty evidence jobs:
+  - extension conformance
+  - fuzz
+  - benchmarks
+  - semver
+  - model-catalog drift
+
+Operators should understand the repo through those surfaces first. They should
+not need to memorize hundreds of individual test files to understand the
+strategy.
+
+## Planned Phase A Operator Surface
+
+The easiest way to understand Phase A is by the planned `just` lanes and what
+they mean.
+
+| Command | Tier | What it proves | What it intentionally excludes | Normal use |
+|---|---|---|---|---|
+| `just help` | metadata | the operator surface is discoverable and cheap | any compile or test proof | every local session and first CI step |
+| `just explain <domain> <lane>` | metadata | lane semantics, ownership, blocking level, and source of truth are inspectable | any compile or test proof | pre-change review and PR documentation |
+| `just suites` | metadata | upstream suite taxonomy is readable from one place | any compile or test proof | audit and classification review |
+| `just fmt check` | build-safety | formatting is clean | compile and test behavior | every PR |
+| `just test compile` | build-safety | the repo still compiles across all targets | runtime behavior and test semantics | every PR |
+| `just test unit-basic` | upstream-fast | the narrow deterministic upstream core still works | broad `[suite.unit]`, VCR, E2E, binary-launching, audit, perf, and benchmark tests | every PR |
+| `just lint clippy-bins` | build-safety | local binary-target lint health | tests, benches, examples, dependency lint | every PR after A2 |
+| `just lint clippy-lib` | build-safety | local library-target lint health | tests, benches, examples, dependency lint | every PR after A2 |
+| `just test baseline` | upstream-fast | the tiny required smoke subset still works | full unit, full integration, VCR, E2E, fuzz, bench, semver, drift | every PR after A3 |
+| `just test unit` | upstream-broad local lane | broader deterministic unit inventory | VCR, E2E, live-provider coverage | local/manual only in Phase A |
+| `just test integration` | upstream-broad local lane | explicit seam and broader integration checks | live E2E and heavyweight specialty workflows | local/manual only in Phase A |
+| `just test all` | upstream-broad local lane | convenience aggregation for local confidence | specialty scheduled/manual workflows | local/manual only in Phase A |
+| `just lint all-local` | upstream-broad local lane | optional broader local lint surface | dependency lint and scheduled specialty checks | local/manual only in Phase A |
+
+This table is intentionally simple. The goal is to let an operator answer
+"what am I proving?" without reverse-engineering the workflow YAML.
+
+## Recommended Regression Framework For ATM Work
+
+Once Phase A has landed, regression policy should be:
+
+1. every PR runs the upstream required baseline
+   - `just fmt check`
+   - `just test compile`
+   - `just test unit-basic`
+   - required lint lanes
+   - `just test baseline`
+2. PRs touching ATM-owned crates run ATM-owned lanes in addition to the
+   upstream required baseline
+3. PRs touching the seam between upstream fork code and ATM-owned additions run
+   explicit integration lanes in addition to the upstream required baseline
+4. broad upstream confidence surfaces stay available as local, manual, nightly,
+   or pre-merge lanes rather than being silently discarded
+
+The safety model is additive:
+
+- upstream baseline proves "we did not break the fork"
+- ATM-owned lanes prove "we did not break our additions"
+- integration lanes prove "we did not break the seam between them"
+
+## Current Quantified Baseline Table
+
+This is the single table Phase A should use for review. It mixes scope, timing,
+and coverage in one place instead of scattering them across PR bodies.
+
+Current measured state:
+
+- lane-specific production-code coverage was measured for the final required
+  test lanes only:
+  - `just test unit-basic`
+  - `just test baseline`
+- coverage numbers below are **not** repo-wide historical numbers; they are the
+  measured result for the current narrow required test lanes
+- compile and lint rows do not execute tests, so coverage is `n/a`
+
+| Lane | Purpose | Exact command | Protects | Required | Local time | CI Linux | CI macOS | CI Windows | Coverage |
+|---|---|---|---|---|---:|---:|---:|---:|---|
+| `help` | operator surface check | `just help` | operator ergonomics, command discovery | yes | `0.09s` after lazy-load fix | previously inflated to `4m29s` on merged target branch due to import-time cargo bug | not yet measured on final branch | not yet measured on final branch | `n/a` |
+| `fmt check` | formatting guard | `just fmt check` | formatting correctness | yes | about `13s` in retained measurements | `16s` on merged target Linux run | not yet measured on final branch | not yet measured on final branch | `n/a` |
+| `compile` | compile health | `just test compile` | build regressions across all targets | yes | about `159s-293s` in retained measurements depending on branch/cache state | `3m29s` on merged target Linux run | not yet measured on final branch | not yet measured on final branch | `n/a` |
+| `unit-basic` | deterministic core upstream regression gate | `just test unit-basic` | core upstream logic without broad integration surfaces | yes | `40.26s` warm instrumented rerun; non-instrumented retained runs about `94s-104s` | `1m23s` on merged target Linux run | not yet measured on final branch | not yet measured on final branch | part of combined required test-lane coverage |
+| `clippy-bins` | local-code binary lint | `just lint clippy-bins` | binary-target lint regressions | yes | about `57s-97s` in retained measurements | `1m51s` on merged target Linux run | not yet measured on final branch | not yet measured on final branch | `n/a` |
+| `clippy-lib` | local-code library lint | `just lint clippy-lib` | library-target lint regressions | yes | about `1s` in retained measurements | `<1s` on merged target Linux run | not yet measured on final branch | not yet measured on final branch | `n/a` |
+| `baseline` | small upstream smoke lane | `just test baseline` | core model/config/session/error/compaction/security smoke | yes | `12.88s` warm instrumented run; non-instrumented retained runs about `14s-16s` | `13s` on merged target Linux run | not yet measured on final branch | not yet measured on final branch | part of combined required test-lane coverage |
+| `required baseline total` | final narrow PR gate | `baseline.yml` step sequence | build-safety + upstream-fast | yes | not a single local command | `12m33s` on merged target Linux run before `just help` fix; projected about `8m04s` after removing bogus `4m29s` help cost | not yet measured on final branch | not yet measured on final branch | line `22.90%`, function `23.39%`, region `21.73%` across the required test lanes only |
+
+Interpretation:
+
+- the current required baseline is a narrow smoke/regression gate, not a
+  high-coverage proof gate
+- the current required **test** lanes cover about `22.90%` of production lines
+  and about `23.39%` of production functions
+- this is far below the historical repo-wide coverage baseline and should be
+  described honestly
+- the merged-target Linux run still needs re-measurement after the `just help`
+  lazy-load fix
+- macOS and Windows final-branch timings are still missing
 
 ## Steady-State Required PR Baseline
 
@@ -140,6 +280,8 @@ Important interpretation:
   basic-unit health first.
 - A1 is a gate-reduction sprint, not a claim that the fork's broader testing
   unknowns have been solved.
+- The Phase A endpoint is still a measured multi-platform gate; the narrow
+  Linux baseline is only the first controlled step toward that endpoint.
 
 ## Timing Capture Contract
 
@@ -162,6 +304,15 @@ Rollup ownership:
 - A6 must assemble an A1-A6 timing ledger in the review pack
 - A7 must publish the final A1-A7 timing ledger at phase conclusion
 
+For final closure, the same table shape must be refreshed on the merged target
+branch with:
+
+- Linux timing
+- macOS timing
+- Windows timing
+- exact run IDs and SHAs
+- the final parallel wall-clock figure for the required multi-platform gate
+
 ## Source Of Truth Policy
 
 Target end state:
@@ -173,6 +324,13 @@ Target end state:
 - `.just/show_suites.py` reports suite taxonomy from
   `tests/suite_classification.toml`
 - the required `baseline` workflow invokes only `just ...` commands
+
+Important guardrail:
+
+- `just help` and other metadata commands must stay cheap
+- they must never trigger cargo compilation or test enumeration during import
+- if a lane requires expensive discovery work, that work must happen only when
+  the lane is executed, not when help or explanation is rendered
 
 One lane, one owner:
 
@@ -225,9 +383,8 @@ Recommended catalog metadata for future hardening:
 - `paths`: primary source paths the lane protects
 - `promotion_rule`: evidence required before the lane can become blocking
 
-`just explain` should eventually print this metadata so operators can tell
-whether a lane protects upstream parity, ATM-owned code, or the seam between
-them.
+`just explain` should print this metadata so operators can tell whether a lane
+protects upstream parity, ATM-owned code, or the seam between them.
 
 ## Repository Layering Framework For ATM Additions
 
@@ -272,9 +429,17 @@ Phase A must distinguish three different ideas that the repo currently blurs:
 
 Required rule:
 
-- `unit-basic` is an explicit allowlist lane
+- `unit-basic` is currently an explicit allowlist lane because upstream
+  `[suite.unit]` is too broad for an early deterministic gate
 - `unit-basic` must not blindly expand to all of `[suite.unit]`
 - `compile` is an explicit lane that runs `cargo check --all-targets`
+
+Maintenance rule:
+
+- the long-term strategy is stable category-driven lane semantics plus a small
+  smoke list
+- the strategy is **not** "keep growing a giant brittle list of specific test
+  names forever"
 
 Required `unit-basic` starting point:
 
@@ -488,6 +653,16 @@ Observed GitHub Actions timings from 2026-07-02:
 | `Fuzz CI` | success | `~42m59s` |
 | old monolithic `ci` | cancelled | `~49m25s` before cancellation |
 
+Measured lane-specific coverage for the final required test lanes on
+2026-07-05:
+
+| Scope | Line coverage | Function coverage | Region coverage |
+|---|---:|---:|---:|
+| `just test unit-basic` + `just test baseline` | `22.90%` | `23.39%` | `21.73%` |
+
+This is the honest current coverage story for the required test lanes. It is a
+narrow upstream-regression gate, not a broad proof of repo correctness.
+
 ## Team-Lead Review Checklist
 
 Team-lead approval should explicitly confirm:
@@ -508,37 +683,37 @@ Team-lead approval should explicitly confirm:
 ### Team-Lead Approval Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-03`
-Approval state: team-lead approved the lane strategy on `2026-07-03`, but that
-approval does not override later branch-state contradictions found in live
-git/GitHub evidence on `2026-07-04`.
+Review date: pending replay-plan review
+Approval state: prior approval history is intentionally not reused. This
+strategy now requires a fresh review because the earlier execution mixed stale
+branch assumptions with incomplete CI evidence.
 
 Checklist record:
 
 - the upstream ordinary-PR workflow inventory and post-A1 trigger plan
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the `compile` lane definition
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the `unit-basic` allowlist and exclusion list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the steady-state `baseline` command list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the per-sprint rollout table
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the decision to remove heavyweight workflows from ordinary PRs in Sprint A1
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
-- the rule that required PR CI stays under 10 minutes in every sprint
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
+- the staged budget rule during rollout and the final multi-platform timing goal
+  - status: PENDING fresh review
 - the SSOT owner files for lint and test lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the list of local-only and manual-only lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the rule that Phase A does not invent new top-level `just` commands
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the future lane taxonomy for `upstream`, `atm`, and `integration`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 - the intended repository layering surfaces for ATM-owned crates and glue code
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: PENDING fresh review
 
 ## Exit Criteria
 
@@ -547,7 +722,10 @@ The strategy is implemented when:
 - required PR CI is exactly one workflow named `baseline`
 - `baseline` is the only required branch-protection status check for ordinary
   PRs once the Sprint A1 operational branch-protection update lands
-- `baseline` stays under 10 minutes
+- the rollout-stage required baseline stays within its documented budget at
+  every sprint
+- the final merged required gate has recorded Linux, macOS, and Windows
+  timings plus the final parallel wall-clock figure
 - CI and local execution share the same lane definitions
 - heavyweight workflows no longer run on ordinary PRs
 - timing data is refreshed after each baseline expansion sprint

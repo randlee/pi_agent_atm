@@ -5,7 +5,6 @@ status: open
 branch: sprint-a-3-add-smoke-baseline
 worktree: ../pi_agent_atm-worktrees/sprint-a-3-add-smoke-baseline
 target: sprint-a-2-add-local-code-lint
-pr: 13
 ---
 
 # Sprint A3 — Add Smoke Baseline
@@ -17,8 +16,8 @@ pr: 13
 
 ## Hard Dependencies
 
-- the live PR stack for A3 targets `sprint-a-2-add-local-code-lint`, not
-  `develop`
+- A3 must branch from the last proven A2 replay state, not from stale
+  historical branch state
 
 ## Unblocks
 
