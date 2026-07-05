@@ -1,11 +1,11 @@
 # Phase A - Minimal Just / CI Recovery
 
 Date: 2026-07-04
-Status: blocked pending branch-and-ci reconciliation
-Branch: `docs/phase-a-plan-updates`
-Worktree: `../pi_agent_atm-worktrees/docs/phase-a-plan-updates`
-PR target: `develop`
-Authoritative scope: corrected Phase A planning
+Status: active sprint-chain recovery plan; sprint PR evidence governs execution
+Branch: `integrate/phase-A` plus stacked `sprint-a-*` delivery branches
+Worktree: `../pi_agent_atm-worktrees/sprint-a-*`
+PR target: `integrate/phase-A`
+Authoritative scope: corrected Phase A planning and sprint-chain execution model
 
 ## Purpose
 
@@ -459,41 +459,41 @@ No implementation sprint begins until team-lead reviews:
 ### Team-Lead Review Record
 
 Reviewer: `team-lead`
-Review date: `2026-07-03`
-Confirmation: the previous approval text is now stale because the branch model
-and CI state encoded in this doc were contradicted by live git/GitHub evidence
-collected on `2026-07-04`. Implementation remains blocked until the corrected
-branch model and CI-registration gap are reviewed again.
+Review date: `2026-07-04`
+Confirmation: the previous `2026-07-03` approval text was superseded by the
+live sprint-chain evidence review on `2026-07-04`. This document now records
+the current branch model and recovery workflow. Sprint implementation claims
+still require per-PR git/GitHub evidence.
 
 Review-item record:
 
 - `docs/plans/phase-A/phase-A-testing-strategy.md`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the exact baseline command list
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the workflow files removed from ordinary PR gating
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the upstream PR-workflow inventory and its post-A1 trigger classification
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the `unit-basic` allowlist and exclusion rationale
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the sprint ordering that makes Sprint A1 establish the required PR gate
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the A4 / A5 split between taxonomy helpers and optional local lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the future `just` lane taxonomy for upstream, ATM-owned, and integration
   lanes
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 - the planned dependency and glue surfaces already present on
   `feature/atm-graft-integration`
-  - status: SUPERSEDED -- re-review required 2026-07-04; previously approved by team-lead, 2026-07-03
+  - status: current on 2026-07-04; sprint PR evidence still required
 
 Implementation-start rule:
 
-- this plan is not complete while the live branch model in GitHub and the doc
-  content disagree
-- this plan remains blocked until the corrected branch model and A3-A6
-  registration gap are explicitly reviewed
+- this plan is not complete while sprint PR evidence and checked-in
+  requirements disagree
+- every sprint must re-verify registration, execution, timing, and merge-base
+  proof on the reviewed head SHA
 
 ## Upstream Workflow Trigger Reconciliation
 
