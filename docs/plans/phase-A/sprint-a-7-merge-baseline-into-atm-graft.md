@@ -1,7 +1,7 @@
 ---
 id: A7
 title: Merge Baseline Into Atm-Graft
-status: open
+status: complete
 branch: sprint-a-7-merge-baseline-into-atm-graft
 worktree: ../pi_agent_atm-worktrees/sprint-a-7-merge-baseline-into-atm-graft
 target: feature/atm-graft-integration
