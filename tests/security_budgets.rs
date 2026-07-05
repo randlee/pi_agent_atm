@@ -15,14 +15,6 @@ fn config_with_limits(limits: PiJsRuntimeLimits) -> PiJsRuntimeConfig {
     }
 }
 
-fn quickjs_bootstrap_memory_limit_bytes() -> usize {
-    2 * 1024 * 1024
-}
-
-fn quickjs_bootstrap_stack_limit_bytes() -> usize {
-    512 * 1024
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Interrupt budget (CPU time watchdog)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -189,9 +181,8 @@ fn interrupt_budget_preserves_state_after_trip() {
 fn memory_limit_prevents_large_allocation() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 2MB is the current proven QuickJS bootstrap floor on both
-            // ubuntu-latest CI and macOS local runs.
-            memory_limit_bytes: Some(quickjs_bootstrap_memory_limit_bytes()),
+            // 1MB memory limit
+            memory_limit_bytes: Some(1024 * 1024),
             ..Default::default()
         });
 
@@ -269,8 +260,8 @@ fn memory_limit_tracks_usage_in_stats() {
 fn memory_limit_gradual_growth_triggers_oom() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // Very tight, but still above the current QuickJS bootstrap floor.
-            memory_limit_bytes: Some(quickjs_bootstrap_memory_limit_bytes()),
+            // Very tight: 2MB
+            memory_limit_bytes: Some(2 * 1024 * 1024),
             ..Default::default()
         });
 
@@ -304,8 +295,9 @@ for (let i = 0; i < 100000; i++) {
 fn stack_limit_prevents_deep_recursion() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // 512KB is the current proven QuickJS bootstrap stack floor.
-            max_stack_bytes: Some(quickjs_bootstrap_stack_limit_bytes()),
+            // Small stack: 512KB — bridge JS init needs >256KB on macOS ARM64
+            // after recent bridge code growth (regex operations during init).
+            max_stack_bytes: Some(512 * 1024),
             ..Default::default()
         });
 
@@ -421,8 +413,8 @@ fn combined_limits_all_enforced() {
 fn memory_limit_with_interrupt_budget_oom_before_budget() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            // Keep the bootstrap floor consistent with the smoke lane.
-            memory_limit_bytes: Some(quickjs_bootstrap_memory_limit_bytes()),
+            // 2MB memory limit — enough for QuickJS GC to work, but OOM on bulk alloc
+            memory_limit_bytes: Some(2 * 1024 * 1024),
             // Generous interrupt budget
             interrupt_budget: Some(10_000_000),
             ..Default::default()
@@ -472,7 +464,8 @@ fn budget_exceeded_error_is_descriptive() {
 fn stack_overflow_error_is_not_budget_error() {
     futures::executor::block_on(async {
         let config = config_with_limits(PiJsRuntimeLimits {
-            max_stack_bytes: Some(quickjs_bootstrap_stack_limit_bytes()),
+            // 512KB: bridge JS init needs >256KB on macOS ARM64
+            max_stack_bytes: Some(512 * 1024),
             // No interrupt budget — so stack overflow should be separate error
             interrupt_budget: None,
             ..Default::default()

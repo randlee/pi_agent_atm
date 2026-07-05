@@ -46,6 +46,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
+use std::io::Read as _;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
@@ -17652,8 +17653,6 @@ impl<C: SchedulerClock + 'static> PiJsRuntime<C> {
 
                             #[cfg(not(target_os = "linux"))]
                             {
-                                use std::io::Read;
-
                                 let checked_path = crate::extensions::safe_canonicalize(&requested_abs);
 
                                 // Allow reads from workspace root or any registered

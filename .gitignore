@@ -6,12 +6,6 @@ a.out
 rustc-ice-*.txt
 *.snap.new
 
-# macOS Finder metadata
-**/.DS_Store
-
-# sc-* local tooling state
-.sc/
-
 # bv (beads viewer) local config and caches
 .bv/
 
@@ -121,7 +115,6 @@ pi-session-*.html
 
 # E2E test run results (timestamped, ephemeral)
 tests/e2e_results/
-tests/smoke_results/
 tests/evidence_bundle/
 !tests/evidence_bundle/
 tests/evidence_bundle/*
@@ -140,6 +133,16 @@ __pycache__/
 
 # Ephemeral agent progress trackers
 claude-upgrade-progress.json
+
+# Claude Code IDE config
+# Ignore contents of .claude/ (not the dir itself) so we can un-ignore the
+# installer-managed skill below — `.claude/` would prevent re-inclusion.
+.claude/*
+# …but track the installer-managed skill tree (referenced by
+# scripts/skill-smoke.sh and tests/installer_regression.sh — must exist in
+# clean CI checkouts so the release workflow's installer regression passes).
+!.claude/skills/
+!.claude/skills/**
 
 # Clippy/lint output logs
 clippy.log

@@ -1,8 +1,12 @@
 # Benchmark CI workflow
-# Manual benchmark workflow for performance regression checks
+# Runs on pushes to main and PRs to detect performance regressions
 name: Benchmarks
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:  # Allow manual triggering
 
 env:
