@@ -473,25 +473,63 @@ Minimum example:
 
 ## Retained Evidence
 
-Observed local macOS timings from `sprint-a-1-establish-minimal-baseline-gate`
-on 2026-07-04:
+Current A6 local timings were re-measured on 2026-07-05 from
+`sprint-a-6-refresh-ssot-and-timing` using a writable local target directory
+(`CARGO_TARGET_DIR=/tmp/pi_agent_rust_cargo/.../target-a6-seq`):
 
 | Command | Result | Observed wall time |
 |---|---|---:|
-| `just help` | pass | `0.06s` |
-| `just fmt check` | pass | `13.63s` |
-| `just test compile` | pass | `1.41s` |
-| `just test unit-basic` | pass | `37.50s` |
+| `just help` | pass | `1.96s` |
+| `just fmt check` | pass | `13.51s` |
+| `just test compile` | pass | `293.25s` |
+| `just test unit-basic` | pass | `94.14s` |
+| `just lint clippy-bins` | pass | `93.44s` |
+| `just lint clippy-lib` | pass | `0.99s` |
+| `just test baseline` | pass | `14.28s` |
+| aggregate (`just help` through `just test baseline`) | pass | `511.57s` (`~8m32s`) |
 
-Observed GitHub Actions timings from baseline run 28722267950 for head SHA 869928bf3a1623d8a106d763dd75fb1ce6231142 on 2026-07-04:
+Current A6 GitHub Actions timings from baseline run `28734239450` attempt `2`
+for head `f3743c8eeebd63f949cd7a43baa8c301c94950ba` on 2026-07-05:
 
-| Workflow / Step | Result | Approximate wall time |
+| Workflow / Step | Result | Observed wall time |
 |---|---|---:|
-| baseline total | success | ~6m23s |
-| Just help | success | <1s |
-| Format gate | success | 17s |
-| Compile gate | success | 1m52s |
-| Basic unit gate | success | 3m15s |
+| baseline total | success | `7m04s` |
+| Just help | success | `1m42s` |
+| Format gate | success | `16s` |
+| Compile gate | success | `1m45s` |
+| Basic unit gate | success | `1m25s` |
+| Clippy bins | success | `57s` |
+| Clippy lib | success | `<1s` |
+| Smoke baseline | success | `14s` |
+
+Same-head cache-spread note for A6:
+
+- run `28734239450` attempt `1` on the same SHA completed in `12m11s`
+- run `28734239450` attempt `2` on the same SHA completed in `7m04s`
+- Phase A timing records must keep both numbers visible so first-run or
+  cold-cache behavior is not mislabeled as steady state
+
+### A1-A6 Timing Ledger
+
+| Sprint | PR | Local timing evidence | CI timing evidence | CI total | Budget note |
+|---|---|---|---|---:|---|
+| A1 | [#12](https://github.com/randlee/pi_agent_atm/pull/12) | retained A1 local record: `just help` `0.06s`, `fmt` `13.63s`, `compile` `1.41s`, `unit-basic` `37.50s`, aggregate `52.60s` | [run `28698960460`](https://github.com/randlee/pi_agent_atm/actions/runs/28698960460) | `10m35s` | over target on the accepted A1 rerun |
+| A2 | [#11](https://github.com/randlee/pi_agent_atm/pull/11) | PR record: `compile` `436.40s`, `unit-basic` `531.82s`, `clippy-bins` `52.32s`, `clippy-lib` `0.43s`, local aggregate `~1021s`; `help` and `fmt` passed but were not timed separately | [run `28730331129`](https://github.com/randlee/pi_agent_atm/actions/runs/28730331129) | `6m55s` | CI met target; local cold compile remained heavy |
+| A3 | [#13](https://github.com/randlee/pi_agent_atm/pull/13) | PR record: `compile` `247.17s`, `unit-basic` `39.16s`, `clippy-bins` `111.76s`, `clippy-lib` `111.82s`, `baseline` `6.97s`, aggregate `~517s` | [run `28731407499`](https://github.com/randlee/pi_agent_atm/actions/runs/28731407499) | `7m09s` | steady-state required baseline first lands under target |
+| A4 | [#14](https://github.com/randlee/pi_agent_atm/pull/14) | PR record: `just explain lint clippy-lib` `2.21s`, `just explain test baseline` `0.45s`, `just suites` `0.53s`, unchanged-baseline smoke rerun `183.74s` | [run `28732090084`](https://github.com/randlee/pi_agent_atm/actions/runs/28732090084) | `7m27s` | helper sprint; CI baseline unchanged and still under target |
+| A5 | [#15](https://github.com/randlee/pi_agent_atm/pull/15) | PR record: `test unit` `3.39s` rc127, `test integration` `0.46s` rc127, `test all` `0.46s` rc127, `lint all-local` `246.77s` rc1, unchanged-baseline rerun `59.73s` pass | [run `28732849880`](https://github.com/randlee/pi_agent_atm/actions/runs/28732849880) | `7m03s` | required CI still met target; optional local lanes exposed follow-up gaps |
+| A6 | [#16](https://github.com/randlee/pi_agent_atm/pull/16) | current A6 local re-measure: `help` `1.96s`, `fmt` `13.51s`, `compile` `293.25s`, `unit-basic` `94.14s`, `clippy-bins` `93.44s`, `clippy-lib` `0.99s`, `baseline` `14.28s`, aggregate `511.57s` | [run `28734239450`](https://github.com/randlee/pi_agent_atm/actions/runs/28734239450) attempt `2` | `7m04s` | same-SHA attempt `1` was `12m11s`; rerun confirms the accepted steady-state path is under target |
+
+Current budget status from the A1-A6 ledger:
+
+- A1 proves the first minimal gate can still exceed the 10-minute CI target if
+  cold-cache behavior is taken as the only measurement
+- A2 through A5 each have an accepted green CI run under 10 minutes
+- A6's first same-SHA run exceeded the target, but the same-SHA rerun came in
+  at `7m04s`, so the review pack must carry both numbers rather than hide the
+  spread
+- the phase evidence package should treat CI budget claims as dated
+  measurements, not timeless assumptions
 
 ## Merge-Forward Record
 
