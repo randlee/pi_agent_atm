@@ -1,20 +1,34 @@
 # Just Integration Plan
 
-Date: 2026-07-03
+Date: 2026-07-05
 Branch: `feature/just-integration`
 Status: draft
 
 ## Purpose
 
-This document captures the integration plan requested by team-lead for adding a
-repo-local `just` task surface to `pi_agent_atm`. It is intentionally scoped to:
+This document is the constrained planning output requested by team-lead for
+integrating a repo-local `just` task runner into `pi_agent_atm`.
+
+It is intentionally limited to:
 
 - the `sc-just` package guidance
-- the existing `atm-core` `Justfile` / `.just/` pattern
-- the current exploratory `feature/just-integration` branch
+- the established `atm-core` `Justfile` / `.just/` design pattern
+- the currently explored `feature/just-integration` branch as a reference,
+  not as a merge-wholesale candidate
 
-It does not resolve open product or QA policy questions that belong to jen.
-Those are listed explicitly instead of being guessed at here.
+It does not settle unresolved product, CI-policy, or layering decisions that
+belong to jen. Those decisions are called out explicitly as decision gates.
+
+## Output Boundary
+
+This plan is for adoption sequencing and file selection only.
+
+It is not:
+
+- a request to merge `feature/just-integration` wholesale
+- approval to change required CI policy
+- approval to redefine test taxonomy
+- approval to standardize future ATM crate layering details without jen
 
 ## Evidence Reviewed
 
@@ -25,13 +39,14 @@ Those are listed explicitly instead of being guessed at here.
 - `packages/sc-just/skills/setting-up-just/references/template-catalog.md`
 - `packages/sc-just/skills/setting-up-just/assets/templates/rust/Justfile`
 
-Key constraints from that package:
+Observed package rules:
 
-- keep the root `Justfile`/`justfile` thin
+- keep the root `Justfile` thin and readable
 - move orchestration into `.just/*.py` once recipes stop being trivial
-- prefer repo-specific command wiring over helper rewrites
-- reuse existing scripts instead of re-implementing them inside `just`
-- verify with safe commands first (`just help`, formatting, lint, test)
+- prefer adapting repo-specific command wiring before rewriting helpers
+- reuse existing scripts rather than re-implementing them inside recipes
+- verify safe entry points first: `just help`, formatting, lint, test
+- prefer the `atm-core` shape for Cargo-first repositories
 
 ### `atm-core` reference
 
@@ -40,13 +55,14 @@ Key constraints from that package:
 
 Observed `atm-core` pattern:
 
-- readable top-level task file with small recipe names
-- private recipes for low-level invocations
-- Python helpers under `.just/` for dispatch and argument validation
-- repo-specific lint/test/view logic delegated out of the task file
-- `ci` recipe composed from smaller stable entry points
+- small stable top-level recipe names
+- private low-level recipes for raw invocations
+- Python dispatch helpers under `.just/`
+- repo-specific policy logic delegated out of the task file
+- `ci` composed from smaller stable entry points
+- broad repository-specific policy encoded in helpers, not in YAML duplication
 
-### Current exploratory branch
+### Current `feature/just-integration` branch
 
 - `justfile`
 - `.just/print_help.py`
@@ -63,38 +79,60 @@ Observed `atm-core` pattern:
 
 Observed branch facts:
 
-- the branch already proves that a thin `just` dispatch layer works in this repo
-- the branch also mixes in broad CI/test-policy decisions and unrelated source
-  changes, so it is not a safe merge-wholesale candidate
-- the current baseline workflow on this branch is `fmt + clippy-lib +
-  clippy-bins + smoke`, which is evidence of a working shape but not itself the
-  authoritative final gate policy
+- the branch demonstrates that a thin `just` surface is viable in this repo
+- the branch also contains broader CI, test-surface, and unrelated source
+  changes, so it is a reference branch, not an integration vehicle
+- the branch diverges from the generic `sc-just` package shape by using Python
+  catalogs instead of `.just/config.toml`
+- the branch uses lowercase `justfile`, while both `sc-just` and `atm-core`
+  use `Justfile`
+
+## Ground Truth Summary
+
+The available references support these conclusions without guessing:
+
+1. `pi_agent_atm` is a Cargo-first repo, so the `sc-just` Rust template is the
+   correct baseline reference.
+2. `atm-core` is the correct structural style reference for recipe shape and
+   helper delegation.
+3. `feature/just-integration` contains a usable extraction seam for a `just`
+   surface, but it is too broad to merge wholesale safely.
+4. The safe plan is to adopt a bounded task-runner layer first, then let jen
+   decide which policy-bearing lanes should become authoritative.
+
+## Planning Constraints
+
+These are the non-negotiable constraints this plan should preserve:
+
+- the `just` layer must unify existing commands, not invent new test policy
+- the root task file must stay thin
+- repo-specific behavior should live in `.just/*.py`
+- existing scripts such as `./verify` and `scripts/smoke.sh` remain the payload
+  where already authoritative
+- CI should call `just` entry points only after local equivalence is proven
+- upstream-regression confidence must remain separable from ATM-owned additions
 
 ## Recommended Integration Approach
 
-### 1. Treat `just` as a dispatch layer, not as new policy
+### 1. Treat `just` as a naming and dispatch layer
 
-Integrate `just` by standardizing entry points that call existing repo commands
-and scripts. Do not couple initial adoption to new test taxonomy, new lint
-policy, or broad workflow surgery unless those decisions already have separate
-approval.
+The initial adoption should standardize local entry points without bundling in
+new policy.
 
-Practical implication:
+Safe meaning of this rule:
 
-- reuse `cargo fmt`, `cargo clippy`, `cargo test`, `./verify`, and existing
-  scripts where they are already the source of truth
-- keep the `just` layer responsible for naming, composition, and basic argument
-  routing
-- keep QA scope decisions outside the task runner unless a separate policy doc
-  names them
+- `just` names commands consistently
+- `just` composes existing repo entry points
+- `just` does not by itself decide what the required CI baseline should be
+- `just` does not by itself decide whether `verify` or suite catalogs are the
+  final test taxonomy authority
 
-### 2. Promote only the `just` seam from this branch
+### 2. Extract only the `just` seam from the exploratory branch
 
-The exploratory branch shows the right seam, but too much unrelated surface is
-mixed into it. Promotion should happen by selecting the `just`-specific files,
-not by merging the whole branch.
+Promotion should happen by selective file extraction, not by merging the whole
+branch.
 
-Promotion candidates from this branch:
+Safe promotion candidates:
 
 - `justfile`
 - `.just/print_help.py`
@@ -107,170 +145,303 @@ Promotion candidates from this branch:
 - `.just/show_suites.py`
 - `.just/explain.py`
 
-Files that need separate review before any adoption:
+Files that require separate policy review before adoption:
 
 - `.github/workflows/*.yml`
 - `scripts/smoke.sh`
+- `verify`
 - `tests/suite_classification.toml`
-- any `src/**` or `tests/**` logic changes unrelated to dispatch
+- any `src/**` or `tests/**` changes unrelated to task-runner dispatch
 
-### 3. Keep the top-level task file close to the `atm-core` pattern
+### 3. Keep the top-level task surface minimal and stable
 
-The `atm-core` pattern is the correct structural reference:
-
-- top-level recipe names stay short and stable
-- helper scripts own branching logic
-- private recipes isolate raw Cargo or shell calls
-- composition stays visible at the top level
-
-For this repo, the stable user-facing surface should remain in the familiar
-family:
+The stable surface should remain a small family of recipes, close to
+`atm-core`, regardless of later lane growth:
 
 - `help`
 - `fmt`
 - `lint`
 - `test`
 - `ci`
-- optional repo-specific extras such as `bench` or `suites`
+- optional informational helpers such as `explain` or `suites`
 
-### 4. Prefer a reusable cargo runner helper
+This minimizes churn when the underlying lane catalog changes.
 
-This branch’s `.just/run_cargo.py` is a useful seam because it centralizes:
+### 4. Preserve catalog-driven lane definitions if jen approves them
 
-- `cargo` invocation shape
+The exploratory branch’s separation between catalog definitions and execution is
+structurally strong:
+
+- lint lanes in `.just/lint_catalog.py`
+- test lanes in `.just/test_catalog.py`
+- dispatch in `.just/run_lint.py` and `.just/run_test.py`
+- explanation/reporting in `.just/explain.py` and `.just/show_suites.py`
+
+This is a good fit for a repo with multiple distinct test surfaces, but the
+decision to keep catalogs instead of moving some configuration into
+`.just/config.toml` belongs to jen.
+
+### 5. Reuse a shared cargo runner helper
+
+The branch’s `.just/run_cargo.py` is the right central seam for:
+
 - optional `rch exec -- ...` wrapping
-- shared environment handling for task-runner commands
+- shared environment shaping
+- future workspace-wide cargo invocation rules
 
-That is strategically important once additional local crates are layered into
-`pi_agent_atm`, because it gives one place to evolve workspace-wide invocation
-rules instead of duplicating them across recipes.
+That is strategically useful once additional crates are layered into
+`pi_agent_atm`, because it keeps cargo behavior centralized instead of
+duplicated across recipes.
 
-### 5. Separate lane catalogs from execution
+### 6. Define success in terms of command equivalence
 
-The current branch already separates:
+The integration should prove that `just` wraps existing behavior correctly.
 
-- lint lane definitions in `.just/lint_catalog.py`
-- test lane definitions in `.just/test_catalog.py`
-- execution in `.just/run_lint.py` / `.just/run_test.py`
+Minimum equivalence expectations:
 
-That split should be preserved. It is the cleanest way to:
+- `just help` renders the intended surface
+- `just fmt check` matches direct formatting gate behavior
+- each `just lint ...` lane maps to an explicit underlying command
+- each `just test ...` lane maps to an explicit underlying command or script
+- any CI workflow that later switches to `just` remains traceable back to the
+  same underlying repo command surface
 
-- keep help output and behavior aligned
-- let lane naming evolve without rewriting the dispatcher
-- support future crate additions with minimal disruption
+## Proposed Adoption Phases
 
-### 6. Define regression checks around equivalence, not around wrapper code
+These are execution phases, not pre-approved code decisions. Any phase that
+depends on an unresolved decision gate waits for jen.
 
-The integration should prove that `just` does not introduce regression by
-checking wrapper equivalence against the underlying commands it dispatches.
+### Phase 0 — Decision framing
 
-Minimum verification framework:
+Goal:
 
-- `just help` renders the intended lane surface
-- `just fmt check` matches direct `cargo fmt --all --check`
-- each `just lint ...` lane maps to a known direct command
-- each `just test ...` lane maps to a known direct command or script
-- CI workflows call `just`, but the underlying payload remains traceable to
-  pre-existing commands
+- settle the few design choices that materially affect file shape
 
-This keeps upstream regression analysis focused on behavior, not on whether a
-wrapper exists.
+Deliverable:
 
-## Layering Framework For Future Local Crates
+- jen answers the decision-gate questions listed below
 
-The `just` surface should be one of the tools that keeps local additions
-layered on top of the upstream fork instead of scattering repo-specific policy.
+Why first:
 
-Recommended framework:
+- otherwise the implementation agent will end up re-deciding policy while
+  copying files
 
-### A. Keep workspace growth behind lane catalogs
+### Phase 1 — Thin task-runner skeleton only
 
-When new crates are added, extend lane catalogs rather than editing many
-workflow files or adding ad hoc commands.
+Scope:
 
-Examples of the intended layering seam:
+- root task file
+- `.just/print_help.py`
+- `.just/run_fmt.py`
+- `.just/run_cargo.py` if needed immediately
 
-- add new crate-aware lint slices in `.just/lint_catalog.py`
-- add new crate-aware test slices in `.just/test_catalog.py`
-- keep `justfile` recipe names stable
+Recommended command surface at this phase:
 
-### B. Keep workflow jobs thin
+- `just help`
+- `just fmt`
+- `just fmt check`
+- `just fmt write`
 
-GitHub Actions should call a small set of `just` entry points instead of
-re-encoding Cargo/test logic in YAML. That reduces drift between local and CI
-execution when new crates land.
+Guardrail:
 
-### C. Preserve an upstream-verifiable baseline
+- no CI workflow switch yet
+- no broad lane taxonomy promotion yet
 
-To show that local crates do not regress the upstream fork, keep at least one
-baseline lane defined only in terms of upstream-safe checks. Local-crate lanes
-can be added alongside it rather than replacing it.
+### Phase 2 — Minimal safe lint/test entry points
 
-The exact baseline contents are a policy decision for jen, but the structural
-rule should be:
+Scope:
 
-- one documented baseline lane for upstream-regression confidence
-- additional lanes for local-crate coverage
-- each lane declared in one catalog source of truth
+- add only the least controversial dispatch surfaces
+- prefer one or two lanes whose underlying commands are already stable
 
-## Open Questions For Jen
+Examples of safe early candidates:
 
-These questions affect policy or repo direction and should not be guessed at in
-implementation:
+- one default `just lint`
+- one default `just test`
 
-1. Should this repo standardize on `Justfile` to match `atm-core` and the
-   `sc-just` template, or keep the already-working lowercase `justfile`?
+Guardrail:
 
-2. Should repo-specific lane configuration stay in Python catalogs, or should
-   part of it move into a `.just/config.toml` layer closer to the generic
-   `sc-just` package model?
+- no attempt to solve every repo test mode in the first adoption round
+- no broad policy interpretation embedded in recipe names
 
-3. What is the authoritative required CI baseline for this fork:
-   compile/unit-first, smoke-first, or a staged sequence where the baseline
-   changes by sprint?
+### Phase 3 — Local equivalence proof
 
-4. Which test taxonomy source is authoritative for `just test` lanes:
-   `./verify` profiles, `tests/suite_classification.toml`, or a new documented
-   audit artifact?
+Scope:
 
-5. How should future local crates be represented:
-   folded into existing workspace-wide lanes, or exposed as separate
-   crate-specific lanes for phased rollout?
+- run direct-command vs `just` equivalence checks
+- verify that wrappers do not alter command payload semantics
 
-6. Is Windows parity in scope for the first adoption round, or is the initial
-   requirement Linux/macOS only?
+Deliverable:
 
-7. Should CI always invoke `cargo` directly in hosted runners, or should the
-   task-runner layer preserve optional `rch` wrapping semantics only for local
-   use?
+- a short verification note or checked-in report showing the wrapper is
+  behaviorally faithful
+
+### Phase 4 — First CI consumer
+
+Scope:
+
+- switch one workflow or one job from raw command strings to the approved
+  `just` surface
+
+Guardrail:
+
+- do not migrate every workflow at once
+- do not use CI migration to smuggle in new required gates
+
+### Phase 5 — Lane expansion and layering
+
+Scope:
+
+- only after jen settles taxonomy and crate-layering questions
+- extend lane catalogs or helper configuration for broader surfaces
+
+This is the phase where crate-aware or seam-aware lanes would grow, if approved.
+
+## Decision Gates For Jen
+
+These are the issues that should not be guessed at by the implementation agent.
+
+### 1. `Justfile` vs lowercase `justfile`
+
+Observed conflict:
+
+- `sc-just` and `atm-core` use `Justfile`
+- the exploratory branch uses `justfile`
+
+Need from jen:
+
+- the canonical filename to standardize on
+
+Why it matters:
+
+- avoids avoidable drift between this repo and the reference pattern
+
+### 2. Catalogs vs `.just/config.toml`
+
+Observed conflict:
+
+- `sc-just` prefers generic helpers plus `.just/config.toml`
+- this branch uses Python catalogs as the repo-specific source of truth
+
+Need from jen:
+
+- whether this repo should keep the catalog model
+- or move part of the configuration into a TOML layer closer to `sc-just`
+
+Why it matters:
+
+- determines whether helper extraction should preserve current branch structure
+  or refactor it
+
+### 3. Authoritative default `test` lane meaning
+
+Observed conflict:
+
+- branch default `test` target is `ci`
+- multiple possible authorities exist: `./verify`, `tests/suite_classification.toml`,
+  smoke scripts, or a future audited contract
+
+Need from jen:
+
+- what `just test` is allowed to mean in this repo
+
+Why it matters:
+
+- changing that meaning later creates the most user-visible churn
+
+### 4. CI baseline policy
+
+Need from jen:
+
+- whether the first CI consumer should be formatting-only, compile/test, smoke,
+  or another explicitly approved subset
+
+Why it matters:
+
+- the task runner should not encode branch-policy decisions by accident
+
+### 5. Future ATM crate lane model
+
+Need from jen:
+
+- whether future ATM-owned crates should be absorbed into workspace-wide lanes
+  or exposed first as explicit crate-specific or seam-specific lanes
+
+Why it matters:
+
+- determines whether lane catalogs need origin/owner metadata early
+
+### 6. Platform scope for first adoption
+
+Need from jen:
+
+- whether first-round support must cover Linux + macOS + Windows, or whether
+  Linux/macOS first is acceptable
+
+Why it matters:
+
+- affects helper branching and verification burden immediately
 
 ## Dependencies
 
-Known implementation dependencies:
+Hard dependencies:
 
 - `just >= 1.0`
 - `python3 >= 3.11`
-- a checked-in root task file plus `.just/` helper directory
-- an agreed authoritative test/lint policy outside the task runner itself
-- stable underlying repo entry points (`cargo`, `./verify`, existing scripts)
-- CI workflow ownership for whichever jobs will switch to `just`
+- one canonical task file name chosen by jen
+- stable underlying repo commands worth wrapping
+- CI owner agreement for the first workflow/job migration
+
+Soft dependencies:
+
+- clearer authoritative test taxonomy
+- clarified platform support target
+- clarified future ATM crate layering expectations
+
+## Safe File Selection Framework
+
+If implementation starts from this branch, file selection should follow this
+rule:
+
+1. copy the smallest file subset that provides the approved task surface
+2. preserve existing repo payload commands instead of rewriting them
+3. refuse unrelated `src/**`, `tests/**`, or workflow changes unless a
+   separate decision gate already approved them
+
+This is the core protection against pulling exploratory branch drift into the
+mainline.
+
+## Handoff Checklist For The Implementing Agent
+
+Before code changes begin, the implementing agent should have:
+
+- this plan
+- jen’s answers to the decision gates
+- the exact file allowlist for the adoption slice
+- the direct underlying commands each `just` lane is allowed to wrap
+- the first CI consumer scope
+
+If any of those are missing, implementation should stop and escalate rather
+than improvise architecture.
 
 ## Suggested Execution Order
 
-This is the safest order for actual implementation work once jen resolves the
-open questions:
+Once jen answers the decision gates, the safest order is:
 
-1. land the thin task-runner skeleton only
-2. wire `help`, `fmt`, and one or two uncontroversial lint/test entry points
-3. prove command equivalence locally
-4. switch one CI workflow to the new entry points
-5. expand lane catalogs only after the authoritative test policy is settled
+1. choose canonical filename: `Justfile` or `justfile`
+2. decide whether catalogs stay or partially collapse into `.just/config.toml`
+3. extract the thin task-runner skeleton only
+4. wire the minimal approved lint/test entry points
+5. verify local command equivalence
+6. migrate one approved CI consumer
+7. expand lane coverage only after the baseline task-runner adoption is proven
 
 ## Non-Goals
 
 This plan does not recommend:
 
-- merging the exploratory branch wholesale
-- treating current branch timings as final gate policy
-- changing core repo testing policy inside the task-runner workstream
-- inventing unresolved crate-layering or CI-policy decisions without jen
+- merging `feature/just-integration` wholesale
+- standardizing current exploratory branch CI policy as final
+- redefining repo test taxonomy inside the task-runner workstream
+- guessing at ATM crate layering policy
+- broad workflow rewrites as part of the initial `just` adoption
