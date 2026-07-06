@@ -105,6 +105,7 @@ Supporting evidence for this strategy lives in:
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
 - `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
+- `docs/plans/phase-A/phase-A-test-lane-report-template.md`
 
 ## Testing Framework
 
@@ -178,10 +179,34 @@ Phase A salvage should therefore do three things at once:
 3. define a separate `long-ci` set for the broad categories that are still
    worth running in CI with a longer timeout
 
+## Minimal Working Operator Model
+
+The minimal model that unblocks engineering is:
+
+- one always-on required gate:
+  - `just help`
+  - `just fmt check`
+  - `just test compile`
+  - `just test unit-basic`
+  - `just lint clippy-bins`
+  - `just lint clippy-lib`
+  - `just test baseline`
+- named `just` lanes for every broader retained category
+- one bounded `just test long-ci` aggregate
+- manual or scheduled handling for the categories that are known to run for
+  hours or require heavy external prerequisites
+
+This is the plan. The rest of the document exists only to make that model
+auditable.
+
 ## Sprint Evidence Table Template
 
 Every active Phase A sprint from A8 onward must update the same evidence table
 shape in both the sprint PR notes and the strategy/review-pack docs.
+
+Primary fill-in template:
+
+- `docs/plans/phase-A/phase-A-test-lane-report-template.md`
 
 Required columns:
 
@@ -225,8 +250,13 @@ question "what is run now versus what can be run?"
 |---|---|---|---|---|---|---:|---:|---:|---|---|---|
 | `compile-check` | `just test compile` | `cargo check --all-targets` | yes | yes | yes | `n/a` | about `159s-293s` retained | `3m29s` Linux retained | `n/a` | measured | compile safety only, not a test pass signal |
 | `unit-inline-core` | not currently first-class | `cargo test --all-targets --lib` | no | yes | yes | inline lib tests under `src/**` | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; should be reported separately |
+| `unit-app-logic` | not currently first-class | deterministic app-logic subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | intended to isolate model/config/session/provider/capability logic from broader infra and policy tests |
+| `unit-infra-tooling` | not currently first-class | deterministic CLI/RPC/SDK/CI/helper subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | supporting infrastructure and tool behavior belongs here rather than being implied as product logic |
+| `unit-security-policy` | not currently first-class | deterministic security/policy subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | budget, sandbox, scanner, and policy enforcement tests should be measured separately |
+| `unit-perf-policy` | not currently first-class | deterministic perf-budget subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | perf budget tests are not the same thing as core logic unit tests |
+| `unit-contract-parity` | not currently first-class | deterministic contract/parity subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | many `*_contract`, parity, and compatibility tests live in `suite.unit` today but are not best described as app-logic unit tests |
 | `unit-curated-files` | not currently first-class | six explicit `cargo test --test ...` invocations | no | yes | yes | `6` files, `4.84%` of `[suite.unit]` file inventory | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; naming should reflect that it is curated |
-| `unit-curated-fast` | `just test unit-basic` | multiple inline-prefix cargo tests plus six explicit unit files | yes | yes | yes | `32` audited inline prefixes + `6` explicit test files + `80` exclusions in current audit | `40.26s` warm instrumented rerun; retained non-instrumented about `94s-104s` | `1m23s` Linux retained | current unit-only coverage not yet isolated | partial | current required fast unit gate; maintainability risk is high because it is curated and exclusion-heavy |
+| `unit-curated-fast` | `just test unit-basic` | multiple inline-prefix cargo tests plus six explicit unit files | yes | yes | yes | `32` audited inline prefixes + `6` explicit test files + `80` exclusions in current audit | `40.26s` warm instrumented rerun; retained non-instrumented about `94s-104s` | `1m23s` Linux retained | current unit-only coverage not yet isolated | partial | this is the required fast gate; it overlaps `unit-inline-core` and a narrow curated slice of `[suite.unit]` and should not be treated as a natural category |
 | `smoke-baseline` | `just test baseline` | `./scripts/smoke.sh --skip-lint --no-rch --only unit` | yes | yes | yes | `6` documented smoke targets | `12.88s` warm instrumented rerun; retained non-instrumented about `14s-16s` | `13s` Linux retained | combined required-lane coverage currently measured only with `unit-curated-fast` | partial | tiny smoke slice, not a broad unit/integration proof |
 | `unit-full` | planned `just test unit-full` | `./scripts/e2e/run_all.sh --profile quick --skip-lint` | no | yes (`long-ci`) | yes | `[suite.unit]` = `124` files | `>120s` capped observation retained | `6m41s` execute-lane time on old `qa-shard (unit)` from run `28631117871` | A9 measure | partial | broad unit should be visible again as a named lane even though it is not ordinary-PR required |
 | `integration-broad` | planned `just test integration` | `./scripts/e2e/run_all.sh --profile ci --skip-lint --skip-e2e` | no | yes (`long-ci`) | yes | broad non-E2E shard over `suite.unit` plus `suite.vcr` | no clean retained local timing | one shard completed in `8m01s`, the other was cancelled after about `5h59m` in run `28631117871` | `n/a` for Phase A today | capped observation | this is the category that most clearly needs splitting and better bounds before promotion |
@@ -246,18 +276,61 @@ question "what is run now versus what can be run?"
 ## Current Unit Category Breakdown
 
 The current plan should stop pretending `unit-basic` is a natural category. It
-is a composed lane that hides three different unit surfaces.
+is a gate, not a taxonomy.
 
-| Unit category | Current backing surface | Surface size | Current timing evidence | Current coverage evidence | Maintenance risk |
-|---|---|---:|---:|---|---|
-| `unit-inline-core` | inline `#[cfg(test)]` lib tests | current fast audit includes `32` inline prefixes | A9 measure | A9 measure | medium |
-| `unit-curated-files` | explicit `tests/*.rs` subset | `6` files from `[suite.unit]` = `4.84%` of listed unit files | A9 measure | A9 measure | high |
-| `unit-curated-fast` | current `just test unit-basic` lane | inline core + curated file subset + `80` exclusions | `1m23s` Linux retained | not yet isolated from smoke in current coverage evidence | high |
-| `unit-full` | current `./verify --profile quick --skip-lint` | full `[suite.unit]` = `124` files | `>120s` capped local observation retained | A9 measure | medium-high |
+Current overlap:
 
-The explicit `6`-file curated subset confirms the current required fast lane is
+- `unit-basic` is a curated fast gate
+- it overlaps `unit-inline-core`
+- it also overlaps a tiny explicit subset of `[suite.unit]`
+- `unit-full` is the broader aggregate over the deterministic quick-profile
+  unit surface
+
+That means `unit-basic` and `unit-full` are intentionally overlapping today.
+The overlap exists for speed, not because those are clean categories.
+
+| Unit category | Current meaning in repo terms | Current backing surface | Current timing evidence | Current coverage evidence | Maintenance risk |
+|---|---|---|---:|---|---|
+| `unit-basic` | required fast gate, not a taxonomy | curated inline prefixes plus `6` explicit test files | `1m23s` Linux retained | not yet isolated from smoke in current coverage evidence | high |
+| `unit-inline-core` | inline `#[cfg(test)]` lib tests | audited inline prefix commands | A9 measure | A9 measure | medium |
+| `unit-app-logic` | deterministic product logic tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
+| `unit-infra-tooling` | deterministic CLI/RPC/SDK/CI/helper tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
+| `unit-security-policy` | deterministic security and policy tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
+| `unit-perf-policy` | deterministic perf-budget tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
+| `unit-contract-parity` | deterministic contract/parity/compat tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium-high |
+| `unit-curated-files` | explicit `tests/*.rs` subset inside the fast gate | `6` files from `[suite.unit]` = `4.84%` of listed unit files | A9 measure | A9 measure | high |
+| `unit-full` | aggregate deterministic unit surface | full `[suite.unit]` = `124` files plus quick-profile inline coverage | `>120s` capped local observation retained | A9 measure | medium-high |
+
+Examples that prove `suite.unit` is mixed rather than pure app logic:
+
+- infra/tooling style:
+  - `ci_artifact_retention`
+  - `ci_strict_gates_validation`
+  - `rch_artifact_sync_preflight`
+  - `sdk_api`
+  - `sdk_unit`
+  - `interactive_commands_unit`
+- security/policy style:
+  - `security_budgets`
+  - `security_conformance_benign`
+  - `install_time_security_scanner`
+  - `phase3_security_invariants`
+- perf/budget style:
+  - `perf_budgets`
+  - `perf_regression`
+  - `perf_comparison`
+  - `performance_comparison`
+- contract/parity style:
+  - `json_mode_parity`
+  - `cross_surface_parity`
+  - `vcr_parity_validation`
+  - `sec_compatibility_conformance`
+  - many `*_contract` files
+
+The explicit `6`-file curated subset confirms the current required fast gate is
 not a representative stand-in for the full `suite.unit` inventory. The plan
-must treat that as a deliberate fast gate, not as "the unit test category."
+must treat it as a deliberate fast regression gate, not as "the unit-test
+category."
 
 ## Planned Phase A Operator Surface
 
@@ -587,17 +660,21 @@ while still allowing additive ATM-specific code growth.
 
 ## Compile And Basic-Unit Policy
 
-Phase A must distinguish three different ideas that the repo currently blurs:
+Phase A must distinguish four different ideas that the repo currently blurs:
 
+- the required fast gate called `unit-basic`
 - inline Rust unit tests under `src/**`
 - the broad deterministic bucket currently called `[suite.unit]`
-- the strict early required gate Phase A needs first
+- the cleaner deterministic sub-buckets that should be measured inside
+  `[suite.unit]`
 
 Required rule:
 
 - `unit-basic` is currently an explicit allowlist lane because upstream
   `[suite.unit]` is too broad for an early deterministic gate
 - `unit-basic` must not blindly expand to all of `[suite.unit]`
+- `unit-basic` overlaps `unit-inline-core` and a narrow curated slice of
+  `[suite.unit]`; it is a gate, not a category
 - `compile` is an explicit lane that runs `cargo check --all-targets`
 
 Maintenance rule:
@@ -617,6 +694,20 @@ Required `unit-basic` starting point:
    - `model_serialization`
    - `redaction_test`
    - `extension_scoring_ope`
+
+Required A9 unit breakout target:
+
+- `unit-inline-core`
+- `unit-app-logic`
+- `unit-infra-tooling`
+- `unit-security-policy`
+- `unit-perf-policy`
+- `unit-contract-parity`
+- `unit-curated-files`
+- `unit-full`
+
+These sub-buckets may overlap the current `unit-basic` gate, but the report
+must make that overlap explicit rather than hiding it.
 
 Explicit early exclusions from `unit-basic`:
 

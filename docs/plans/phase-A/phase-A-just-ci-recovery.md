@@ -1,7 +1,7 @@
 # Phase A - Minimal Just / CI Recovery
 
 Date: 2026-07-05
-Status: replay plan ready for review
+Status: reduced working plan
 Branch: `plan/phase-A-attempt-3`
 Worktree: `../pi_agent_atm-worktrees/plan/phase-A-attempt-3`
 Planning target: docs only
@@ -10,19 +10,17 @@ Authoritative scope: corrected Phase A salvage and replay plan
 
 ## Purpose
 
-Phase A recovers the `just` + CI effort by replaying it as a measured,
-evidence-gated sprint chain:
+Phase A needs a usable CI + `just` plan, not another multi-day planning loop.
 
-1. start with the smallest green baseline that still proves compile health and
-   strict basic-unit health
-2. add one small production-ready increment at a time
-3. keep broader upstream test contracts available outside the narrow required
-   gate
-4. end with a measured multi-platform required gate, not just one fast Linux
-   job
+The working model is:
 
-This corrected plan replaces the earlier failed execution attempt as the
-authoritative operational model.
+1. one small always-on required PR gate
+2. every other retained category available as a readable named `just` lane
+3. one bounded `long-ci` set for broader CI-worthy categories
+4. manual or scheduled handling for the categories that are clearly too long or
+   too prerequisite-heavy for routine CI
+
+This document is the operational summary for that reduced plan.
 
 Supporting evidence for this correction:
 
@@ -38,6 +36,8 @@ This phase uses:
   - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
 - phase testing strategy:
   - `docs/plans/phase-A/phase-A-testing-strategy.md`
+- fill-in report template:
+  - `docs/plans/phase-A/phase-A-test-lane-report-template.md`
 - sprint plans:
   - `docs/plans/phase-A/sprint-a-1-establish-minimal-baseline-gate.md`
   - `docs/plans/phase-A/sprint-a-2-add-local-code-lint.md`
@@ -52,7 +52,80 @@ This phase uses:
   - `docs/plans/phase-A/sprint-a-11-measure-broad-test-surface-timings.md`
   - `docs/plans/phase-A/sprint-a-12-finalize-required-vs-runnable-gate.md`
 
-Only these docs are authoritative for corrected Phase A.
+Only these docs are authoritative for corrected Phase A. The strategy doc is
+the main source of truth; this overview exists to keep the execution model
+readable.
+
+## Current Working Plan
+
+### Always-On Required PR Gate
+
+`baseline.yml` is the only always-on required gate.
+
+It runs:
+
+- `just help`
+- `just fmt check`
+- `just test compile`
+- `just test unit-basic`
+- `just lint clippy-bins`
+- `just lint clippy-lib`
+- `just test baseline`
+
+### Named `just` Lanes That Must Exist
+
+Everything else stays available as named lanes so operators can see what exists
+without reverse-engineering workflows.
+
+Required baseline lanes:
+
+- `just help`
+- `just fmt check`
+- `just test compile`
+- `just test unit-basic`
+- `just lint clippy-bins`
+- `just lint clippy-lib`
+- `just test baseline`
+
+Broader named lanes:
+
+- `just test unit-full`
+- `just test integration`
+- `just test vcr-fixture`
+- `just test parity`
+- `just test security`
+- `just test perf-benchmark`
+- `just test extension-sharded`
+- `just test e2e-ci-smoke`
+- `just test e2e-full`
+- `just test fuzz`
+- `just test semver`
+- `just test model-catalog-drift`
+- `just test long-ci`
+
+### Long-CI
+
+`long-ci` is the bounded broader CI set.
+
+Current intended members:
+
+- `just test unit-full`
+- `just test integration`
+- `just test parity`
+- `just test security`
+- `just test perf-benchmark`
+- `just test extension-sharded`
+- `just test semver`
+
+Current non-members:
+
+- `just test e2e-full`
+- `just test fuzz`
+- heavy generated conformance variants
+- full benchmark runs
+
+These stay as local, manual, or scheduled surfaces until they are proven
+bounded.
 
 ## Current Diagnosis
 
@@ -368,28 +441,19 @@ These notes remain valid even though the old rollout plan was superseded.
 The table above is the execution contract. If implementation diverges from it,
 the docs must be revised before more work happens.
 
-## Active Continuation Sequence
+## Documentation Backlog
 
-A1-A7 are now best treated as a historical failed attempt plus evidence
-inventory. The active continuation plan begins at A8.
+A1-A7 remain the historical implementation attempt and evidence inventory.
 
-| Sprint | Purpose | Primary output |
-|---|---|---|
-| A8 | publish the readable test category ledger and per-sprint evidence table template | docs that say what runs now vs what can run |
-| A9 | measure unit-category timings and coverage | unit coverage and maintainability evidence |
-| A10 | expose broad runnable categories clearly | restored PR #1-style category visibility as named `just` lanes plus `long-ci` candidates |
-| A11 | measure broad-category timings | actual or conservative timing evidence across the broad surfaces and proposed `long-ci` set |
-| A12 | freeze required vs runnable split | final required baseline, final `long-ci` set, and ATM regression handoff |
+A8-A12 should be treated as optional documentation cleanup tasks, not as a
+required new engineering sprint chain before work can resume. Their useful
+content has already been folded into the working plan above:
 
-Rule for A8-A12:
-
-- every sprint must update the same category evidence table template
-- every sprint must say what changed in:
-  - what runs now on ordinary PRs
-  - what can run in CI outside the required gate
-  - what belongs in the bounded `long-ci` set
-  - what can run locally only
-  - what coverage and timing evidence exists for the affected categories
+- category ledger
+- unit coverage/timing clarification
+- restored named broad lanes
+- broader timing evidence
+- final required vs `long-ci` vs manual split
 
 ### Sprint A1
 

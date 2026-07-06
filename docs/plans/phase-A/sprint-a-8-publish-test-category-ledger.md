@@ -26,6 +26,8 @@ target: integrate/phase-A
 - `phase-A-testing-strategy.md` contains the authoritative test category matrix
 - `phase-A-testing-strategy.md` contains the reusable sprint evidence table
   template
+- `phase-A-test-lane-report-template.md` exists as the fill-in artifact for
+  sprint and phase reports
 - `phase-A-just-ci-recovery.md` names A8-A12 as the active continuation plan
 - the unit surface is explicitly split into:
   - `unit-inline-core`
@@ -55,6 +57,8 @@ target: integrate/phase-A
 - the docs answer both questions directly:
   - what runs now on ordinary PRs
   - what can be run outside the required gate
+- the report template includes lane, timing, coverage, and CI-eligibility
+  columns for every named lane
 - `unit-basic` is no longer treated as if it were the full unit-test category
 - unknown timings or coverage values are explicitly marked as missing or
   estimated rather than implied
