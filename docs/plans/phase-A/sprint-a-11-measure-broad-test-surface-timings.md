@@ -1,10 +1,10 @@
 ---
 id: A11
 title: Measure Broad Test Surface Timings
-status: proposed
+status: backlog
 branch: sprint-a-11-measure-broad-test-surface-timings
 worktree: ../pi_agent_atm-worktrees/sprint-a-11-measure-broad-test-surface-timings
-target: sprint-a-10-expose-runnable-broad-test-surfaces
+target: plan/phase-A-attempt-3
 ---
 
 # Sprint A11 — Measure Broad Test Surface Timings
@@ -50,3 +50,17 @@ target: sprint-a-10-expose-runnable-broad-test-surfaces
 - the plan states explicitly which categories fit inside `long-ci` and which do
   not
 - long-running categories remain outside the ordinary PR required gate
+
+## Closure Details
+
+Close A11 only when:
+
+- every named broad lane has a non-empty timing cell
+- each timing cell is labeled as `measured`, `capped observation`, `estimate`,
+  or `missing`
+- the docs state whether the timing belongs to:
+  - a current named lane
+  - an underlying command not yet wrapped by `just`
+  - or only a historical CI shard from abandoned Phase A evidence
+- the `long-ci` candidate list includes timing-based inclusion and exclusion
+  rationale, not only preference

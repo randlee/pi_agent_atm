@@ -1,10 +1,10 @@
 ---
 id: A12
 title: Finalize Required Vs Runnable Gate
-status: proposed
+status: backlog
 branch: sprint-a-12-finalize-required-vs-runnable-gate
 worktree: ../pi_agent_atm-worktrees/sprint-a-12-finalize-required-vs-runnable-gate
-target: sprint-a-11-measure-broad-test-surface-timings
+target: plan/phase-A-attempt-3
 ---
 
 # Sprint A12 — Finalize Required Vs Runnable Gate
@@ -40,3 +40,20 @@ target: sprint-a-11-measure-broad-test-surface-timings
 - the docs state clearly which categories protect the upstream fork, which
   categories are broader confidence surfaces, and which categories should later
   protect ATM-owned code
+
+## Closure Details
+
+Close A12 only when:
+
+- one table shows the final required baseline lanes and their coverage and
+  timing story
+- one table shows the final runnable broader surfaces and whether they are
+  `long-ci`, local-only, or manual/scheduled
+- the phase closeout rules require Linux, macOS, and Windows timing evidence
+  for the merged required gate
+- the docs explain how future ATM-owned crates layer on top of:
+  - upstream baseline regression lanes
+  - ATM-owned lanes
+  - seam or integration lanes
+- the plan says explicitly that no code lands on `develop` or
+  `integrate/phase-A` without the evidence package the phase defines

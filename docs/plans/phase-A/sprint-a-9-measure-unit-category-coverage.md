@@ -1,10 +1,10 @@
 ---
 id: A9
 title: Measure Unit Category Coverage
-status: proposed
+status: backlog
 branch: sprint-a-9-measure-unit-category-coverage
 worktree: ../pi_agent_atm-worktrees/sprint-a-9-measure-unit-category-coverage
-target: sprint-a-8-publish-test-category-ledger
+target: plan/phase-A-attempt-3
 ---
 
 # Sprint A9 — Measure Unit Category Coverage
@@ -71,3 +71,17 @@ target: sprint-a-8-publish-test-category-ledger
 - the docs acknowledge that parts of `[suite.unit]` are infrastructure,
   tooling, security-policy, perf-policy, or contract/parity tests rather than
   only app-logic tests
+
+## Closure Details
+
+Close A9 only when:
+
+- the unit-breakdown table has a row for every bucket named in this sprint
+- every unit bucket shows either measured coverage or an explicit `not yet
+  measured` statement
+- the file-count audit for the unit sub-buckets is recorded directly in the
+  docs
+- the overlap between `unit-basic`, `unit-curated-files`, and `unit-full` is
+  stated explicitly so the counts cannot be misread as additive
+- the docs say plainly whether `unit-basic` remains acceptable as the fast gate
+  despite its narrow surface

@@ -36,6 +36,8 @@ This phase uses:
   - `docs/plans/phase-A/phase-A-just-ci-recovery.md`
 - phase testing strategy:
   - `docs/plans/phase-A/phase-A-testing-strategy.md`
+- current evidence report:
+  - `docs/plans/phase-A/phase-A-current-evidence-report.md`
 - fill-in report template:
   - `docs/plans/phase-A/phase-A-test-lane-report-template.md`
 - sprint plans:
@@ -627,7 +629,14 @@ Phase A is complete when:
 - the verified baseline is merged into `feature/atm-graft-integration`
 - the sprint docs and replay branch bases agree
 - the phase conclusion report includes the A1-A7 local and CI timing ledger
+- the phase conclusion report includes a fully populated current-evidence table
+  with no silent blanks for any named lane or unit bucket
 - the phase conclusion report includes the final Linux, macOS, and Windows
   timings for the merged required gate
+- the phase conclusion report labels every timing row as measured, capped
+  observation, estimate, missing, or not implemented
+- the phase conclusion report records whether each broad category exists today
+  as an implemented `just` lane, a mapped-but-unimplemented lane, or only a
+  historical category from abandoned Phase A evidence
 - the frozen `just` taxonomy still leaves a clean additive path for ATM-owned
   crates without broad upstream churn

@@ -105,6 +105,7 @@ Supporting evidence for this strategy lives in:
 - `reports/pi-agent-rust/local-test-surface-review-2026-07-03.md`
 - `reports/pi-agent-rust/upstream-testing-contract-review-2026-07-03.md`
 - `reports/pi-agent-rust/just-layering-and-atm-integration-strategy-2026-07-03.md`
+- `docs/plans/phase-A/phase-A-current-evidence-report.md`
 - `docs/plans/phase-A/phase-A-test-lane-report-template.md`
 
 ## Testing Framework
@@ -250,11 +251,11 @@ question "what is run now versus what can be run?"
 |---|---|---|---|---|---|---:|---:|---:|---|---|---|
 | `compile-check` | `just test compile` | `cargo check --all-targets` | yes | yes | yes | `n/a` | about `159s-293s` retained | `3m29s` Linux retained | `n/a` | measured | compile safety only, not a test pass signal |
 | `unit-inline-core` | not currently first-class | `cargo test --all-targets --lib` | no | yes | yes | inline lib tests under `src/**` | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; should be reported separately |
-| `unit-app-logic` | not currently first-class | deterministic app-logic subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | intended to isolate model/config/session/provider/capability logic from broader infra and policy tests |
-| `unit-infra-tooling` | not currently first-class | deterministic CLI/RPC/SDK/CI/helper subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | supporting infrastructure and tool behavior belongs here rather than being implied as product logic |
-| `unit-security-policy` | not currently first-class | deterministic security/policy subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | budget, sandbox, scanner, and policy enforcement tests should be measured separately |
-| `unit-perf-policy` | not currently first-class | deterministic perf-budget subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | perf budget tests are not the same thing as core logic unit tests |
-| `unit-contract-parity` | not currently first-class | deterministic contract/parity subset of `[suite.unit]` | no | yes (`long-ci`) | yes | subset of `[suite.unit]`; exact count is an A9 deliverable | A9 measure | A9 measure | A9 measure | missing | many `*_contract`, parity, and compatibility tests live in `suite.unit` today but are not best described as app-logic unit tests |
+| `unit-app-logic` | not currently first-class | deterministic app-logic subset of `[suite.unit]` | no | yes (`long-ci`) | yes | `28` of `124` `[suite.unit]` files = `22.58%` | not yet measured separately | not yet measured separately | not yet measured separately | partial | intended to isolate model/config/session/provider/capability logic from broader infra and policy tests |
+| `unit-infra-tooling` | not currently first-class | deterministic CLI/RPC/SDK/CI/helper subset of `[suite.unit]` | no | yes (`long-ci`) | yes | `23` of `124` `[suite.unit]` files = `18.55%` | not yet measured separately | not yet measured separately | not yet measured separately | partial | supporting infrastructure and tool behavior belongs here rather than being implied as product logic |
+| `unit-security-policy` | not currently first-class | deterministic security/policy subset of `[suite.unit]` | no | yes (`long-ci`) | yes | `13` of `124` `[suite.unit]` files = `10.48%` | not yet measured separately | not yet measured separately | not yet measured separately | partial | budget, sandbox, scanner, and policy enforcement tests should be measured separately |
+| `unit-perf-policy` | not currently first-class | deterministic perf-budget subset of `[suite.unit]` | no | yes (`long-ci`) | yes | `9` of `124` `[suite.unit]` files = `7.26%` | not yet measured separately | not yet measured separately | not yet measured separately | partial | perf budget tests are not the same thing as core logic unit tests |
+| `unit-contract-parity` | not currently first-class | deterministic contract/parity subset of `[suite.unit]` | no | yes (`long-ci`) | yes | `51` of `124` `[suite.unit]` files = `41.13%` | not yet measured separately | not yet measured separately | not yet measured separately | partial | many `*_contract`, parity, and compatibility tests live in `suite.unit` today but are not best described as app-logic unit tests |
 | `unit-curated-files` | not currently first-class | six explicit `cargo test --test ...` invocations | no | yes | yes | `6` files, `4.84%` of `[suite.unit]` file inventory | A9 measure | A9 measure | A9 measure | missing | currently buried inside `unit-basic`; naming should reflect that it is curated |
 | `unit-curated-fast` | `just test unit-basic` | multiple inline-prefix cargo tests plus six explicit unit files | yes | yes | yes | `32` audited inline prefixes + `6` explicit test files + `80` exclusions in current audit | `40.26s` warm instrumented rerun; retained non-instrumented about `94s-104s` | `1m23s` Linux retained | current unit-only coverage not yet isolated | partial | this is the required fast gate; it overlaps `unit-inline-core` and a narrow curated slice of `[suite.unit]` and should not be treated as a natural category |
 | `smoke-baseline` | `just test baseline` | `./scripts/smoke.sh --skip-lint --no-rch --only unit` | yes | yes | yes | `6` documented smoke targets | `12.88s` warm instrumented rerun; retained non-instrumented about `14s-16s` | `13s` Linux retained | combined required-lane coverage currently measured only with `unit-curated-fast` | partial | tiny smoke slice, not a broad unit/integration proof |
@@ -293,11 +294,11 @@ The overlap exists for speed, not because those are clean categories.
 |---|---|---|---:|---|---|
 | `unit-basic` | required fast gate, not a taxonomy | curated inline prefixes plus `6` explicit test files | `1m23s` Linux retained | not yet isolated from smoke in current coverage evidence | high |
 | `unit-inline-core` | inline `#[cfg(test)]` lib tests | audited inline prefix commands | A9 measure | A9 measure | medium |
-| `unit-app-logic` | deterministic product logic tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
-| `unit-infra-tooling` | deterministic CLI/RPC/SDK/CI/helper tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
-| `unit-security-policy` | deterministic security and policy tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
-| `unit-perf-policy` | deterministic perf-budget tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium |
-| `unit-contract-parity` | deterministic contract/parity/compat tests | subset of `[suite.unit]` to be carved out in A9 | A9 measure | A9 measure | medium-high |
+| `unit-app-logic` | deterministic product logic tests | `28` audited files = `22.58%` of `[suite.unit]` | not yet measured separately | not yet measured separately | medium |
+| `unit-infra-tooling` | deterministic CLI/RPC/SDK/CI/helper tests | `23` audited files = `18.55%` of `[suite.unit]` | not yet measured separately | not yet measured separately | medium |
+| `unit-security-policy` | deterministic security and policy tests | `13` audited files = `10.48%` of `[suite.unit]` | not yet measured separately | not yet measured separately | medium |
+| `unit-perf-policy` | deterministic perf-budget tests | `9` audited files = `7.26%` of `[suite.unit]` | not yet measured separately | not yet measured separately | medium |
+| `unit-contract-parity` | deterministic contract/parity/compat tests | `51` audited files = `41.13%` of `[suite.unit]` | not yet measured separately | not yet measured separately | medium-high |
 | `unit-curated-files` | explicit `tests/*.rs` subset inside the fast gate | `6` files from `[suite.unit]` = `4.84%` of listed unit files | A9 measure | A9 measure | high |
 | `unit-full` | aggregate deterministic unit surface | full `[suite.unit]` = `124` files plus quick-profile inline coverage | `>120s` capped local observation retained | A9 measure | medium-high |
 
@@ -439,12 +440,13 @@ Interpretation:
 
 Steady-state `baseline` contents from Sprint A3 onward:
 
-1. `just fmt check`
-2. `just test compile`
-3. `just test unit-basic`
-4. `just lint clippy-bins`
-5. `just lint clippy-lib`
-6. `just test baseline`
+1. `just help`
+2. `just fmt check`
+3. `just test compile`
+4. `just test unit-basic`
+5. `just lint clippy-bins`
+6. `just lint clippy-lib`
+7. `just test baseline`
 
 Hard budget:
 
@@ -452,12 +454,13 @@ Hard budget:
 
 Per-step budget targets:
 
+- `just help`: under 5 seconds
 - `just fmt check`: under 30 seconds
-- `just test compile`: under 90 seconds
+- `just test compile`: under 4 minutes
 - `just test unit-basic`: under 120 seconds
-- `just lint clippy-bins`: under 30 seconds
-- `just lint clippy-lib`: under 3 minutes
-- `just test baseline`: under 3 minutes
+- `just lint clippy-bins`: under 2 minutes
+- `just lint clippy-lib`: under 30 seconds
+- `just test baseline`: under 30 seconds
 
 These are budget allocations, not historical facts. Sprint validation must
 measure and refresh them as each step is added.

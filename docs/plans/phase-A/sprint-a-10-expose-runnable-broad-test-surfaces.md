@@ -1,10 +1,10 @@
 ---
 id: A10
 title: Expose Runnable Broad Test Surfaces
-status: proposed
+status: backlog
 branch: sprint-a-10-expose-runnable-broad-test-surfaces
 worktree: ../pi_agent_atm-worktrees/sprint-a-10-expose-runnable-broad-test-surfaces
-target: sprint-a-9-measure-unit-category-coverage
+target: plan/phase-A-attempt-3
 ---
 
 # Sprint A10 — Expose Runnable Broad Test Surfaces
@@ -54,3 +54,17 @@ target: sprint-a-9-measure-unit-category-coverage
   of the required PR baseline
 - required PR CI remains unchanged unless a separate sprint explicitly changes
   it
+
+## Closure Details
+
+Close A10 only when:
+
+- every broad category is listed with one exact command or one explicit `not
+  implemented yet` note
+- the docs distinguish between:
+  - implemented `just` lanes
+  - mapped-but-not-implemented lanes
+  - historical categories visible only through abandoned PR #1 evidence
+- the broad categories are readable without requiring an operator to decode
+  `./verify --profile ...` behavior from code comments
+- the required baseline lane list remains unchanged by this sprint
